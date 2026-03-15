@@ -4,6 +4,7 @@ from openai import OpenAI
 from config.settings import Config
 from tools import TOOLS, TOOL_SCHEMAS
 from agent.prompts import SYSTEM_PROMPT
+from utils import print_rainbow_logo
 
 class BasicAgent:
     def __init__(self, tools=None, debug: bool = False):
@@ -34,12 +35,17 @@ class BasicAgent:
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
     def chat(self):
-        print(f"🤖 Basic Agent 已启动！(Debug Mode: {self.debug}) 输入 'quit' 退出")
+        print_rainbow_logo()
+        if self.debug:
+            print(f"Chain Peer v0.1(Debug Mode: {self.debug}) 输入 'quit' 退出")
+        else:
+            print(f"Chain Peer v0.1")
+            print("Welcome back!")
         print("-" * 50)
         self.chat_history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         while True:
-            user_input = input("\n你: ").strip()
+            user_input = input("\n> ").strip()
             if user_input.lower() in ['quit', 'exit', 'q']:
                 print("再见！👋")
                 break
