@@ -2,7 +2,10 @@ import subprocess
 import os
 import platform
 import shutil
-from typing import Optional, Tuple
+import re
+from typing import Any
+
+from tools.base import tool_ok, tool_error
 
 class ShellSession:
     """
@@ -56,9 +59,9 @@ class ShellSession:
                 
                 if os.path.exists(new_path) and os.path.isdir(new_path):
                     self.cwd = new_path
-                    return f"Changed directory to: {self.cwd}"
+                    return tool_ok("bash", {"stdout": f"Changed directory to: {self.cwd}", "stderr": "", "exit_code": 0, "cwd": self.cwd})
                 else:
-                    return f"cd: no such file or directory: {target_dir}"
+                    return tool_ok("bash", {"stdout": "", "stderr": f"cd: no such file or directory: {target_dir}", "exit_code": 1, "cwd": self.cwd})
 
             # 构建实际执行的命令
             shell_cmd = [self.shell_executable]
@@ -78,31 +81,70 @@ class ShellSession:
                 timeout=self.timeout
             )
             
-            stdout = process.stdout.strip()
-            stderr = process.stderr.strip()
-            
-            output_parts = []
-            if stdout:
-                output_parts.append(stdout)
-            if stderr:
-                # 在 Bash 中 stderr 不一定是错误（比如 git 的进度条），但这里我们都收集
-                output_parts.append(f"[Stderr]:\n{stderr}")
-            
-            result = "\n".join(output_parts)
-            return result if result else "(Command executed with no output)"
+            stdout = (process.stdout or "").strip()
+            stderr = (process.stderr or "").strip()
+            return tool_ok(
+                "bash",
+                {"stdout": stdout, "stderr": stderr, "exit_code": process.returncode, "cwd": self.cwd},
+            )
 
         except subprocess.TimeoutExpired:
-            return f"Error: Command timed out after {self.timeout} seconds."
+            return tool_error("bash", f"Command timed out after {self.timeout} seconds.", "Timeout")
         except Exception as e:
-            return f"Error executing command: {str(e)}"
+            return tool_error("bash", str(e), type(e).__name__)
 
 # 全局单例会话
 _SESSION = ShellSession()
 
+def _match_patterns(command: str, patterns: list[tuple[str, str]]) -> str | None:
+    s = command.strip()
+    if not s:
+        return None
+    for pat, reason in patterns:
+        if re.search(pat, s, flags=re.IGNORECASE):
+            return reason
+    return None
+
+def _is_forbidden_command(command: str) -> str | None:
+    patterns: list[tuple[str, str]] = [
+        (r"\bformat\b", "Detected format command."),
+        (r"\bmkfs\b", "Detected mkfs command."),
+        (r"\bshutdown\b", "Detected shutdown command."),
+        (r"\breboot\b", "Detected reboot command."),
+        (r":\s*\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "Detected fork bomb pattern."),
+    ]
+    return _match_patterns(command, patterns)
+
+def _is_confirmable_command(command: str) -> str | None:
+    patterns: list[tuple[str, str]] = [
+        (r"\brm\b", "Detected rm command."),
+        (r"\bdel\b.*\s/([qs]|s)\b", "Detected Windows del with recursive/silent flags."),
+        (r"\brmdir\b.*\s/([qs]|s)\b", "Detected Windows rmdir with recursive/silent flags."),
+        (r"\bRemove-Item\b.*-Recurse\b", "Detected PowerShell recursive removal."),
+    ]
+    return _match_patterns(command, patterns)
+
+def _unsafe_mode_enabled() -> bool:
+    value = os.getenv("AGENT_ALLOW_UNSAFE_BASH", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 def bash(command: str) -> str:
-    """
-    执行 Shell 命令。
-    """
+    forbidden = _is_forbidden_command(command)
+    if forbidden:
+        return tool_error(
+            "bash",
+            f"Blocked forbidden command. {forbidden}",
+            "DangerousCommandBlocked",
+            meta={"command": command[:500]},
+        )
+    reason = _is_confirmable_command(command)
+    if reason and not _unsafe_mode_enabled():
+        answer = input(f"\nPotentially dangerous command detected.\nReason: {reason}\nCommand: {command}\nAllow? (y/N): ").strip().lower()
+        if answer not in {"y", "yes"}:
+            return tool_ok(
+                "bash",
+                {"stdout": "", "stderr": "User declined command execution.", "exit_code": 1, "cwd": _SESSION.cwd},
+            )
     return _SESSION.run(command)
 
 def kill_shell() -> str:
@@ -111,4 +153,4 @@ def kill_shell() -> str:
     """
     global _SESSION
     _SESSION = ShellSession()
-    return "Shell session reset successfully."
+    return tool_ok("kill_shell", "Shell session reset successfully.")

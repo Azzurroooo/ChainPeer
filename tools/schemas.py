@@ -68,7 +68,7 @@ TOOL_SCHEMAS = [
     }},
     {"type": "function", "function": {
         "name": "bash",
-        "description": "执行 Shell 命令 (支持 cd 保持目录状态)",
+        "description": "执行 Shell 命令 (支持 cd 保持目录状态；部分危险命令需要用户确认或本地启用不安全模式)",
         "parameters": {
             "type": "object",
             "properties": {

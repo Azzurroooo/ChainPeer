@@ -1,10 +1,12 @@
 """基础 Agent 实现 - 纯 OpenAI 版本"""
 import json
+import traceback
 from openai import OpenAI
 from config.settings import Config
 from tools import TOOLS, TOOL_SCHEMAS
 from agent.prompts import SYSTEM_PROMPT
 from utils import print_rainbow_logo
+from tools.base import tool_ok, tool_error
 
 class BasicAgent:
     def __init__(self, tools=None, debug: bool = False):
@@ -14,8 +16,36 @@ class BasicAgent:
         self.chat_history = []
         self.debug = debug
 
-    def _execute_tool(self, name: str, args: dict) -> str:
-        return TOOLS[name](**args)
+    def _looks_like_tool_payload(self, s: str) -> bool:
+        if not s:
+            return False
+        t = s.lstrip()
+        if not t.startswith("{"):
+            return False
+        try:
+            obj = json.loads(t)
+        except Exception:
+            return False
+        return isinstance(obj, dict) and "ok" in obj and "tool" in obj
+
+    def _safe_execute_tool(self, name: str, args: dict, raw_args: str | None = None) -> str:
+        if name not in TOOLS:
+            return tool_error(name, f"Unknown tool: {name}", "ToolNotFound")
+        try:
+            result = TOOLS[name](**args)
+            if isinstance(result, str) and self._looks_like_tool_payload(result):
+                return result
+            return tool_ok(name, result)
+        except TypeError as e:
+            meta = {}
+            if raw_args:
+                meta["raw_args"] = raw_args[:2000]
+            return tool_error(name, str(e), type(e).__name__, meta=meta or None)
+        except Exception as e:
+            meta = {"traceback": traceback.format_exc()[-4000:]}
+            if raw_args:
+                meta["raw_args"] = raw_args[:2000]
+            return tool_error(name, str(e), type(e).__name__, meta=meta)
 
     def run(self, query: str) -> str:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": query}]
@@ -31,7 +61,14 @@ class BasicAgent:
 
             if msg.tool_calls:
                 for tc in msg.tool_calls:
-                    result = self._execute_tool(tc.function.name, json.loads(tc.function.arguments))
+                    raw_args = tc.function.arguments or ""
+                    try:
+                        args = json.loads(raw_args) if raw_args else {}
+                    except Exception as e:
+                        result = tool_error(tc.function.name, f"Invalid tool arguments JSON: {e}", "ToolArgsJSONError", meta={"raw_args": raw_args[:2000]})
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                        continue
+                    result = self._safe_execute_tool(tc.function.name, args, raw_args=raw_args)
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
     def chat(self):
@@ -73,9 +110,18 @@ class BasicAgent:
                             self.chat_history.append(msg)
                             for tc in msg.tool_calls:
                                 print(f"\n[Debug] Tool Call: {tc.function.name}({tc.function.arguments})")
-                                result = self._execute_tool(tc.function.name, json.loads(tc.function.arguments))
+                                raw_args = tc.function.arguments or ""
+                                try:
+                                    args = json.loads(raw_args) if raw_args else {}
+                                except Exception as e:
+                                    result = tool_error(tc.function.name, f"Invalid tool arguments JSON: {e}", "ToolArgsJSONError", meta={"raw_args": raw_args[:2000]})
+                                    print(f"[Debug] Tool executed. Tool Result: {result}")
+                                    self.chat_history.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                    continue
+                                result = self._safe_execute_tool(tc.function.name, args, raw_args=raw_args)
                                 print(f"[Debug] Tool executed. Tool Result: {result}")
                                 self.chat_history.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                
                                 if not msg.content: # 如果没有content只有tool call，需要打印换行
                                     print()
                         else:
@@ -115,8 +161,17 @@ class BasicAgent:
                             self.chat_history.append(msg)
 
                             for tc in tool_calls:
-                                result = self._execute_tool(tc["name"], json.loads(tc["arguments"]))
+                                raw_args = tc.get("arguments") or ""
+                                try:
+                                    args = json.loads(raw_args) if raw_args else {}
+                                except Exception as e:
+                                    result = tool_error(tc["name"], f"Invalid tool arguments JSON: {e}", "ToolArgsJSONError", meta={"raw_args": raw_args[:2000]})
+                                    self.chat_history.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                                    continue
+                                result = self._safe_execute_tool(tc["name"], args, raw_args=raw_args)
                                 self.chat_history.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                                print()
+                            
                         else:
                             break
 

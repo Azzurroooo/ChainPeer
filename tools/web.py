@@ -4,6 +4,8 @@ import requests
 from bs4 import BeautifulSoup
 import urllib3
 
+from tools.base import tool_ok, tool_error
+
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -34,7 +36,7 @@ def search_web(query: str, max_results: int = 5) -> str:
         
         soup = BeautifulSoup(response.text, "html.parser")
         
-        results = []
+        results: list[dict[str, str]] = []
         # Bing 结果结构 (li class="b_algo")
         for result in soup.find_all("li", class_="b_algo", limit=max_results):
             title_tag = result.find("h2")
@@ -53,15 +55,15 @@ def search_web(query: str, max_results: int = 5) -> str:
                             snippet = p_tag.get_text(strip=True)
                     
                     if title and link:
-                        results.append(f"Title: {title}\nURL: {link}\nSnippet: {snippet}\n")
+                        results.append({"title": title, "url": link, "snippet": snippet})
         
         if not results:
             # 备用：尝试 DuckDuckGo (如果 Bing 失败)
             return _search_ddg(query, max_results)
             
-        return "\n---\n".join(results)
+        return tool_ok("search_web", results, meta={"engine": "bing", "query": query, "max_results": max_results})
     except Exception as e:
-        return f"搜索错误: {e}"
+        return tool_error("search_web", f"搜索错误: {e}", type(e).__name__, meta={"engine": "bing", "query": query})
 
 def _search_ddg(query: str, max_results: int) -> str:
     """备用：DuckDuckGo 搜索"""
@@ -74,15 +76,23 @@ def _search_ddg(query: str, max_results: int) -> str:
         data = {"q": query}
         response = requests.post(url, data=data, headers=headers, timeout=10, verify=False)
         soup = BeautifulSoup(response.text, "html.parser")
-        results = []
+        results: list[dict[str, str]] = []
         for result in soup.find_all("div", class_="result", limit=max_results):
             title_tag = result.find("a", class_="result__a")
             snippet_tag = result.find("a", class_="result__snippet")
             if title_tag and snippet_tag:
-                results.append(f"Title: {title_tag.get_text(strip=True)}\nURL: {title_tag['href']}\nSnippet: {snippet_tag.get_text(strip=True)}\n")
-        return "\n---\n".join(results) if results else f"未找到关于 '{query}' 的搜索结果。"
+                results.append(
+                    {
+                        "title": title_tag.get_text(strip=True),
+                        "url": title_tag["href"],
+                        "snippet": snippet_tag.get_text(strip=True),
+                    }
+                )
+        if not results:
+            return tool_ok("search_web", [], meta={"engine": "ddg_html", "query": query, "max_results": max_results})
+        return tool_ok("search_web", results, meta={"engine": "ddg_html", "query": query, "max_results": max_results})
     except Exception as e:
-        return f"搜索错误 (Bing & DDG): {e}"
+        return tool_error("search_web", f"搜索错误 (Bing & DDG): {e}", type(e).__name__, meta={"engine": "ddg_html", "query": query})
 
 def fetch_web_page(url: str) -> str:
     """
@@ -121,7 +131,7 @@ def fetch_web_page(url: str) -> str:
         if len(clean_content) > 20000:
              clean_content = clean_content[:20000] + "\n\n... (Content truncated due to length) ..."
              
-        return f"URL: {url}\n\n{clean_content}"
+        return tool_ok("fetch_web_page", clean_content, meta={"url": url, "truncated": len(clean_content) >= 20000})
         
     except Exception as e:
-        return f"抓取错误: {e}"
+        return tool_error("fetch_web_page", f"抓取错误: {e}", type(e).__name__, meta={"url": url})
