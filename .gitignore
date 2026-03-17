@@ -1,0 +1,8 @@
+plan/
+claude_code_system_prompt_analysis.md
+claude_code_system_prompt_cn.md
+.env
+prompt.txt
+test_web.py
+test.txt
+__pycache__/

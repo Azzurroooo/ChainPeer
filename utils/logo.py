@@ -53,4 +53,4 @@ def print_rainbow_logo():
         print(f"[Error] Failed to display logo: {e}")
 
 if __name__ == "__main__":
-    print_rainbow_logo("logo.txt")
+    print_rainbow_logo()
