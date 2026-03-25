@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from agent.interfaces.cli.ui import print_rainbow_logo
+from agent.interfaces.cli.ui import markdown_renderable, print_rainbow_logo, render_markdown
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 
 class ChatCLI:
@@ -13,6 +16,9 @@ class ChatCLI:
         self._session = session
         self._debug = debug
         self.chat_history: list[dict] = []
+        self._assistant_buffer: list[str] = []
+        self._console = Console()
+        self._live: Live | None = None
 
     def start(self) -> None:
         self._render_banner()
@@ -44,7 +50,8 @@ class ChatCLI:
             role = message.get("role")
             content = message.get("content", "")
             if role in {"assistant", "user"} and content:
-                print(f"{role}: {content}")
+                print(f"\n{role}:")
+                render_markdown(content)
 
     def _loop(self) -> None:
         while True:
@@ -60,23 +67,44 @@ class ChatCLI:
             if not user_input:
                 continue
 
-            print("\nAgent: ", end="", flush=True)
+            print("\nAgent:")
+            self._assistant_buffer = []
             self.chat_history.append({"role": "user", "content": user_input})
             self._session.persist_message("user", user_input)
 
             try:
-                self._runtime.process_user_turn(
-                    chat_history=self.chat_history,
-                    session=self._session,
-                    on_content=self._on_content,
-                    on_debug=self._on_debug if self._debug else None,
-                )
+                with Live(
+                    Text(""),
+                    console=self._console,
+                    refresh_per_second=12,
+                    transient=True,
+                    vertical_overflow="visible",
+                ) as live:
+                    self._live = live
+                    self._runtime.process_user_turn(
+                        chat_history=self.chat_history,
+                        session=self._session,
+                        on_content=self._on_content,
+                        on_debug=self._on_debug if self._debug else None,
+                    )
+                assistant_text = "".join(self._assistant_buffer).strip()
+                if assistant_text:
+                    render_markdown(assistant_text)
                 print()
             except Exception as exc:
                 print(f"\nError: {exc}")
+            finally:
+                self._live = None
 
     def _on_content(self, text: str) -> None:
-        print(text, end="", flush=True)
+        self._assistant_buffer.append(text)
+        if not self._live:
+            return
+        snapshot = "".join(self._assistant_buffer)
+        if snapshot.strip():
+            self._live.update(markdown_renderable(snapshot), refresh=True)
+        else:
+            self._live.update(Text(snapshot), refresh=True)
 
     def _on_debug(self, message: str) -> None:
         print(f"\n[Debug] {message}")

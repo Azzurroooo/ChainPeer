@@ -63,12 +63,22 @@
     {
       "id": "20260324_192712_c1484464",
       "title": "你好",
-      "updated_at": "2026-03-24T11:27:28.952750+00:00",
+      "updated_at": "2026-03-24T13:57:22.307911+00:00",
       "size": {
-        "messages": 5,
+        "messages": 26,
+        "tool_calls": 4
+      },
+      "preview": "你好！有什么我可以帮助你的吗？"
+    },
+    {
+      "id": "20260324_215729_b42d6f56",
+      "title": "你好",
+      "updated_at": "2026-03-24T14:06:48.568895+00:00",
+      "size": {
+        "messages": 8,
         "tool_calls": 0
       },
-      "preview": "我有以下工具可以使用：\n\n## 1. 文件系统操作\n- **`list_files`** - 以树形结构列出目录中的文件\n- **`read_file`** - 读取文件内容，支持行号和分页\n- **`write_file`** - 写入内容到文件（完全覆盖）\n- **`edit_file`** - 精准替换文件中的文本块（推荐用于修改已有文件）\n\n## 2. 代码搜索与导航\n- **`grep`"
+      "preview": "你好！我刚才已经列出过我的工具了，主要包括：\n\n**核心工具：**\n- 文件系统：`list_files`, `read_file`, `write_file`, `edit_file`\n- 代码搜索：`grep`\n- 系统执行：`bash`, `kill_shell`\n- 互联网访问：`search_web`, `fetch_web_page`\n- 计划管理：`plan_create`, `pl"
     }
   ]
 }
