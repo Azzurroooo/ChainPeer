@@ -29,14 +29,44 @@ class JsonlSessionStore:
         self._message_count = 0
         self._tool_call_count = 0
         self._last_preview = ""
+        self._index_path = None
+        self._current_workspace_root = None
         self.chat_history = []
         self.loaded_existing = False
 
     def now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    def _default_chainpeer_home(self) -> str:
+        custom_home = os.getenv("CHAINPEER_HOME")
+        if custom_home:
+            return os.path.abspath(os.path.expanduser(custom_home))
+        return os.path.abspath(os.path.join(os.path.expanduser("~"), ".chainpeer"))
+
     def _default_session_root(self) -> str:
-        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "sessions"))
+        return os.path.join(self._default_chainpeer_home(), "sessions")
+
+    def _normalize_path(self, path: str | None) -> str:
+        if not path:
+            return ""
+        return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+    def _resolve_workspace_root_for_path(self, path: str) -> str:
+        normalized = self._normalize_path(path)
+        if not normalized:
+            return normalized
+        current = normalized
+        while True:
+            git_marker = os.path.join(current, ".git")
+            if os.path.isdir(git_marker) or os.path.isfile(git_marker):
+                return current
+            parent = os.path.dirname(current)
+            if parent == current:
+                return normalized
+            current = parent
+
+    def _resolve_workspace_root(self) -> str:
+        return self._resolve_workspace_root_for_path(os.getcwd())
 
     def _new_session_id(self) -> str:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -50,7 +80,6 @@ class JsonlSessionStore:
             "messages": os.path.join(base, "messages.jsonl"),
             "tool_calls": os.path.join(base, "tool_calls.jsonl"),
             "snapshots": os.path.join(base, "snapshots"),
-            "index": os.path.join(self._session_root, "index.json"),
         }
 
     def _load_json(self, path: str) -> dict | None:
@@ -91,7 +120,7 @@ class JsonlSessionStore:
         return items
 
     def _load_index(self) -> dict:
-        index_path = self._session_paths.get("index") if self._session_paths else None
+        index_path = self._index_path
         if not index_path and self._session_root:
             index_path = os.path.join(self._session_root, "index.json")
         if not index_path or not os.path.exists(index_path):
@@ -114,6 +143,7 @@ class JsonlSessionStore:
             "updated_at": self._session_meta.get("updated_at") if self._session_meta else self.now_iso(),
             "size": {"messages": self._message_count, "tool_calls": self._tool_call_count},
             "preview": self._last_preview,
+            "workspace_root": self._session_meta.get("workspace_root") if self._session_meta else self._current_workspace_root,
         }
         updated = False
         for i, s in enumerate(sessions):
@@ -124,7 +154,8 @@ class JsonlSessionStore:
         if not updated:
             sessions.append(entry)
         index_data["sessions"] = sessions
-        self._write_json(self._session_paths["index"], index_data)
+        if self._index_path:
+            self._write_json(self._index_path, index_data)
 
     def _create_session(self, session_id: str | None = None) -> None:
         if not session_id:
@@ -139,13 +170,14 @@ class JsonlSessionStore:
         self._message_count = 0
         self._tool_call_count = 0
         self._session_meta = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "session_id": session_id,
             "title": self.session_title,
             "created_at": now,
             "updated_at": now,
             "model": self.model,
             "cwd": os.getcwd(),
+            "workspace_root": self._current_workspace_root,
             "cli_args": {
                 "resume_mode": self.resume_mode,
                 "session_id": self.session_id,
@@ -167,6 +199,11 @@ class JsonlSessionStore:
         if not meta:
             self._create_session(session_id)
             return
+        if not isinstance(meta.get("workspace_root"), str) or not meta.get("workspace_root", "").strip():
+            raise ValueError(
+                f"Session metadata missing workspace_root for id: {session_id}. "
+                "Legacy session metadata is no longer supported."
+            )
         self.loaded_existing = True
         self._session_meta = meta
         self._message_count = int(meta.get("message_count") or 0)
@@ -213,6 +250,12 @@ class JsonlSessionStore:
             rebuilt = [{"role": "system", "content": self.system_prompt}]
         self.chat_history = rebuilt
 
+    def _workspace_root_from_entry(self, session_entry: dict) -> str:
+        entry_root = session_entry.get("workspace_root")
+        if isinstance(entry_root, str) and entry_root.strip():
+            return self._resolve_workspace_root_for_path(entry_root)
+        return ""
+
     def _find_latest_session_id(self) -> str | None:
         index_data = self._load_index()
         sessions = index_data.get("sessions", [])
@@ -221,12 +264,29 @@ class JsonlSessionStore:
         sessions = [s for s in sessions if isinstance(s, dict) and s.get("updated_at")]
         if not sessions:
             return None
-        sessions.sort(key=lambda s: s.get("updated_at") or "")
-        return sessions[-1].get("id")
+        scoped = []
+        current_root = self._normalize_path(self._current_workspace_root)
+        for session in sessions:
+            session_root = self._normalize_path(self._workspace_root_from_entry(session))
+            if current_root and current_root == session_root:
+                scoped.append(session)
+        if not scoped:
+            return None
+        scoped.sort(key=lambda s: s.get("updated_at") or "")
+        return scoped[-1].get("id")
 
     def ensure_session(self) -> None:
-        self._session_root = os.path.abspath(self.session_dir) if self.session_dir else self._default_session_root()
+        self._current_workspace_root = self._resolve_workspace_root()
+        if self.session_dir:
+            self._session_root = os.path.abspath(self.session_dir)
+            self._index_path = os.path.join(self._session_root, "index.json")
+        else:
+            chainpeer_home = self._default_chainpeer_home()
+            self._session_root = os.path.join(chainpeer_home, "sessions")
+            self._index_path = os.path.join(chainpeer_home, "session_index.json")
         os.makedirs(self._session_root, exist_ok=True)
+        if self._index_path:
+            os.makedirs(os.path.dirname(self._index_path), exist_ok=True)
         if self.session_id and os.path.isdir(os.path.join(self._session_root, self.session_id)):
             self._load_session(self.session_id)
             self._export_session_env()
