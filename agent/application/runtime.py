@@ -64,8 +64,6 @@ class AgentRuntime:
                 break
             self._persist_assistant_tool_calls(chat_history, session, tool_calls)
             self._execute_tool_calls(chat_history, session, tool_calls, on_debug=on_debug)
-            if not self._debug:
-                on_content("\n")
 
     def _persist_assistant_content(
         self,

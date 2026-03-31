@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
+import sys
 
 from agent.interfaces.cli.ui import print_rainbow_logo, render_markdown
-from rich import box
 from rich.console import Console
-from rich.table import Table
 from rich.text import Text
 
 
@@ -15,12 +14,12 @@ class _StreamingRenderer:
     """Append-only renderer for a small markdown subset."""
 
     _INLINE_TOKEN_RE = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*)")
+    _PLAIN_TEXT_RE = re.compile(r"[`*#>|]")
 
     def __init__(self, console: Console):
         self._console = console
         self._pending = ""
         self._in_code_block = False
-        self._table_lines: list[str] = []
 
     def append(self, text: str) -> None:
         self._pending += text
@@ -33,7 +32,6 @@ class _StreamingRenderer:
             self._render_line(line, newline=True)
 
     def flush(self) -> None:
-        self._flush_table()
         if not self._pending:
             return
         self._render_line(self._pending, newline=False)
@@ -41,10 +39,8 @@ class _StreamingRenderer:
 
     def _render_line(self, line: str, *, newline: bool) -> None:
         if self._is_table_line(line):
-            self._table_lines.append(line)
+            self._render_table_line(line, newline=newline)
             return
-
-        self._flush_table()
 
         if line.strip().startswith("```"):
             self._in_code_block = not self._in_code_block
@@ -53,27 +49,44 @@ class _StreamingRenderer:
         if self._in_code_block:
             renderable = Text(line, style="cyan")
         else:
+            if self._is_plain_line(line):
+                self._write_plain(line, newline=newline)
+                return
             renderable = self._render_markdownish_line(line)
         self._console.print(renderable, end="\n" if newline else "", soft_wrap=True, highlight=False)
 
-    def _flush_table(self) -> None:
-        if not self._table_lines:
+    def _is_plain_line(self, line: str) -> bool:
+        if not line:
+            return True
+        if self._PLAIN_TEXT_RE.search(line):
+            return False
+        stripped = line.lstrip()
+        if stripped.startswith(("-", "*", "+")):
+            return False
+        if re.match(r"^\d+\.\s+", stripped):
+            return False
+        return True
+
+    def _write_plain(self, text: str, *, newline: bool) -> None:
+        sys.stdout.write(text)
+        if newline:
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    def _render_table_line(self, line: str, *, newline: bool) -> None:
+        if self._is_table_separator(line):
             return
 
-        parsed_rows = [self._parse_table_row(line) for line in self._table_lines if not self._is_table_separator(line)]
-        self._table_lines = []
-        if not parsed_rows:
+        cells = self._parse_table_row(line)
+        if not cells:
             return
 
-        column_count = max(len(row) for row in parsed_rows)
-        normalized_rows = [row + [""] * (column_count - len(row)) for row in parsed_rows]
-
-        table = Table(box=box.SIMPLE_HEAVY, show_header=True, expand=False)
-        for header in normalized_rows[0]:
-            table.add_column(header=self._render_inline(header, base_style="bold cyan"))
-        for row in normalized_rows[1:]:
-            table.add_row(*[self._render_inline(cell) for cell in row])
-        self._console.print(table, soft_wrap=True)
+        output = Text()
+        for index, cell in enumerate(cells):
+            if index > 0:
+                output.append(" | ", style="dim")
+            output.append_text(self._render_inline(cell, base_style="bold cyan" if index == 0 else ""))
+        self._console.print(output, end="\n" if newline else "", soft_wrap=True, highlight=False)
 
     def _is_table_line(self, line: str) -> bool:
         stripped = line.strip()
