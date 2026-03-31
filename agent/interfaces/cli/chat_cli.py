@@ -137,6 +137,9 @@ class _StreamingRenderer:
         return self._render_inline(line)
 
     def _render_inline(self, text: str, base_style: str = "") -> Text:
+        if "`" not in text and "**" not in text:
+            return Text(text, style=base_style)
+
         output = Text(style=base_style)
         cursor = 0
         for match in self._INLINE_TOKEN_RE.finditer(text):
