@@ -51,6 +51,13 @@ class AgentRuntime:
     ) -> None:
         while True:
             context = self._context_manager.build_messages(session=session)
+            if self._debug and on_debug:
+                on_debug(
+                    f"Context Estimate: tokens={context.stats.get('estimated_input_tokens')} "
+                    f"chars={context.stats.get('estimated_chars')} "
+                    f"soft={context.decisions.get('over_soft_limit')} "
+                    f"hard={context.decisions.get('over_hard_limit')}"
+                )
             if self._debug:
                 response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=False)
                 assistant_msg = response.choices[0].message
@@ -167,4 +174,5 @@ class AgentRuntime:
             if item["id"] and item["name"]
         ]
         return "".join(text_parts), calls
+
 

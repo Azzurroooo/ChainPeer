@@ -42,12 +42,16 @@ class DummyToolExecutor:
 class RecordingSession:
     def __init__(self):
         self.persisted = []
+        self.latest_snapshot = None
 
     def now_iso(self) -> str:
         return "2026-04-01T00:00:00+00:00"
 
     def get_messages_slice(self, start=None, end=None, roles=None):
         return [{"role": "system", "content": "sys"}]
+
+    def persist_context_snapshot(self, snapshot: dict) -> None:
+        self.latest_snapshot = dict(snapshot)
 
     def persist_message(self, role, content, tool_call_id=None, tool_name=None, meta=None):
         self.persisted.append({"role": role, "content": content, "meta": meta})
@@ -69,6 +73,8 @@ def test_whitespace_only_assistant_content_is_not_persisted() -> None:
 
     if session.persisted:
         raise AssertionError(f"Expected no persisted assistant message for whitespace-only content, got: {session.persisted}")
+    if not session.latest_snapshot:
+        raise AssertionError("Expected context snapshot to still be recorded.")
 
 
 def main() -> int:

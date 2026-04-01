@@ -31,6 +31,8 @@ class SessionStore(Protocol):
 
     def get_latest_context_snapshot(self) -> dict | None: ...
 
+    def persist_context_snapshot(self, snapshot: dict) -> None: ...
+
     def persist_message(
         self,
         role: str,

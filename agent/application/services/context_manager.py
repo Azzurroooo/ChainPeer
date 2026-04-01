@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+
+from .context_estimator import ContextBudget, ContextEstimator
 
 
 @dataclass(slots=True)
@@ -34,6 +36,9 @@ class ContextManager:
     have not been persisted yet.
     """
 
+    def __init__(self, estimator: ContextEstimator | None = None):
+        self._estimator = estimator or ContextEstimator()
+
     def build_messages(self, session, pending_messages: list[dict] | None = None) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in session.get_messages_slice()]
         pending = [dict(message) for message in (pending_messages or [])]
@@ -48,15 +53,40 @@ class ContextManager:
             recent_messages=non_system_messages,
             tool_messages=tool_messages,
         )
+        estimate = self._estimator.estimate_messages(messages)
+        budget = self._estimator.budget
         stats = {
             "message_count": len(messages),
             "persisted_message_count": len(persisted_messages),
             "pending_message_count": len(pending),
             "tool_message_count": len(tool_messages),
+            "estimated_input_tokens": estimate.estimated_input_tokens,
+            "estimated_chars": estimate.estimated_chars,
+            "budget": budget.to_dict(),
         }
         decisions = {
             "mode": "session_backed",
             "source": "session_queries",
             "uses_pending_overlay": bool(pending),
+            "over_soft_limit": estimate.over_soft_limit,
+            "over_hard_limit": estimate.over_hard_limit,
+            "compact_recommended": estimate.over_soft_limit,
+            "compact_required": estimate.over_hard_limit,
         }
-        return ContextBuildResult(messages=messages, stats=stats, decisions=decisions, snapshot=snapshot)
+        result = ContextBuildResult(messages=messages, stats=stats, decisions=decisions, snapshot=snapshot)
+        session.persist_context_snapshot(
+            {
+                "message_count": len(messages),
+                "persisted_message_count": len(persisted_messages),
+                "pending_message_count": len(pending),
+                "tool_message_count": len(tool_messages),
+                "estimated_input_tokens": estimate.estimated_input_tokens,
+                "estimated_chars": estimate.estimated_chars,
+                "over_soft_limit": estimate.over_soft_limit,
+                "over_hard_limit": estimate.over_hard_limit,
+                "budget": budget.to_dict(),
+                "snapshot": asdict(snapshot),
+                "decisions": decisions,
+            }
+        )
+        return result

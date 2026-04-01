@@ -8,6 +8,7 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.application.services import ContextManager
 from agent.infrastructure.persistence import JsonlSessionStore
 
 
@@ -81,13 +82,34 @@ def test_context_query_interfaces() -> None:
         if store.get_latest_conversation_summary() is not None:
             raise AssertionError("Expected no conversation summary in Step 1B.")
         if store.get_latest_context_snapshot() is not None:
-            raise AssertionError("Expected no context snapshot in Step 1B.")
+            raise AssertionError("Expected no context snapshot before Step 2 build.")
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_context_snapshot_persistence() -> None:
+    temp_root = PROJECT_ROOT / "test" / "__session_context_snapshot__"
+    if temp_root.exists():
+        shutil.rmtree(temp_root, ignore_errors=True)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        store = _make_store(temp_root)
+        store.persist_message("user", "hello")
+        result = ContextManager().build_messages(session=store)
+        snapshot = store.get_latest_context_snapshot()
+        if not snapshot:
+            raise AssertionError("Expected latest context snapshot to be persisted.")
+        if snapshot.get("message_count") != len(result.messages):
+            raise AssertionError(f"Unexpected persisted snapshot: {snapshot}")
+        if "estimated_input_tokens" not in snapshot:
+            raise AssertionError(f"Expected estimate fields in snapshot: {snapshot}")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def main() -> int:
     test_context_query_interfaces()
+    test_context_snapshot_persistence()
     print("Session context query tests passed.")
     return 0
 

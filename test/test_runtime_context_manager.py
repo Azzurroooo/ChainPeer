@@ -45,6 +45,7 @@ class RecordingSession:
     def __init__(self):
         self.persisted = []
         self.stored_messages = [{"role": "system", "content": "session-source"}]
+        self.latest_snapshot = None
 
     def now_iso(self) -> str:
         return "2026-04-01T00:00:00+00:00"
@@ -55,6 +56,9 @@ class RecordingSession:
             allowed = set(roles)
             messages = [message for message in messages if message.get("role") in allowed]
         return messages[slice(start, end)]
+
+    def persist_context_snapshot(self, snapshot: dict) -> None:
+        self.latest_snapshot = dict(snapshot)
 
     def persist_message(self, role, content, tool_call_id=None, tool_name=None, meta=None):
         payload = {
@@ -88,8 +92,9 @@ def test_runtime_uses_session_backed_context_manager_messages() -> None:
     )
     session = RecordingSession()
     seen_content = []
+    debug_messages = []
 
-    runtime.process_user_turn(session=session, on_content=seen_content.append)
+    runtime.process_user_turn(session=session, on_content=seen_content.append, on_debug=debug_messages.append)
 
     sent_messages = chat_client.calls[0]["messages"]
     if sent_messages != [{"role": "system", "content": "session-source"}]:
@@ -98,6 +103,10 @@ def test_runtime_uses_session_backed_context_manager_messages() -> None:
         raise AssertionError(f"Expected assistant reply persisted to session, got: {session.persisted}")
     if session.stored_messages[-1] != {"role": "assistant", "content": "assistant reply"}:
         raise AssertionError(f"Expected stored messages updated, got: {session.stored_messages}")
+    if not session.latest_snapshot or "estimated_input_tokens" not in session.latest_snapshot:
+        raise AssertionError(f"Expected latest context snapshot, got: {session.latest_snapshot}")
+    if not any(message.startswith("Context Estimate:") for message in debug_messages):
+        raise AssertionError(f"Expected debug context estimate, got: {debug_messages}")
 
 
 def main() -> int:

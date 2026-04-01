@@ -373,7 +373,20 @@ class JsonlSessionStore:
         return None
 
     def get_latest_context_snapshot(self) -> dict | None:
+        if not self._session_meta:
+            return None
+        snapshot = self._session_meta.get("latest_context_snapshot")
+        if isinstance(snapshot, dict):
+            return dict(snapshot)
         return None
+
+    def persist_context_snapshot(self, snapshot: dict) -> None:
+        if not self._session_meta or not self._session_paths:
+            return
+        self._session_meta["latest_context_snapshot"] = dict(snapshot)
+        self._session_meta["updated_at"] = self.now_iso()
+        self._write_json(self._session_paths["meta"], self._session_meta)
+        self._update_index()
 
     def _truncate_value(self, value, limit: int, depth: int = 2):
         if depth <= 0:
@@ -506,4 +519,5 @@ class JsonlSessionStore:
             self._session_meta["updated_at"] = self.now_iso()
             self._write_json(self._session_paths["meta"], self._session_meta)
         self._update_index()
+
 
