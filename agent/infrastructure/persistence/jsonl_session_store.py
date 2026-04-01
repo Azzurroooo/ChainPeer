@@ -31,7 +31,6 @@ class JsonlSessionStore:
         self._last_preview = ""
         self._index_path = None
         self._current_workspace_root = None
-        self.chat_history = []
         self.loaded_existing = False
 
     def now_iso(self) -> str:
@@ -192,6 +191,63 @@ class JsonlSessionStore:
         self._write_json(self._session_paths["meta"], self._session_meta)
         self._update_index()
 
+    def _load_message_records(self) -> list[dict]:
+        if not self._session_paths:
+            return []
+        return self._read_jsonl(self._session_paths["messages"])
+
+    def _load_tool_records(self) -> list[dict]:
+        if not self._session_paths:
+            return []
+        return self._read_jsonl(self._session_paths["tool_calls"])
+
+    def _load_tool_map(self) -> dict[str, dict]:
+        tool_map: dict[str, dict] = {}
+        for item in self._load_tool_records():
+            if isinstance(item, dict) and item.get("id"):
+                tool_map[item["id"]] = item
+        return tool_map
+
+    def _build_message_view(self, messages: list[dict] | None = None, tool_map: dict[str, dict] | None = None) -> list[dict]:
+        if messages is None:
+            messages = self._load_message_records()
+        if tool_map is None:
+            tool_map = self._load_tool_map()
+        built_messages = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role == "tool":
+                if self.resume_mode == "none":
+                    continue
+                tool_call_id = msg.get("tool_call_id")
+                content = self._build_tool_content(tool_map.get(tool_call_id))
+                built_messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
+                continue
+            if role == "assistant" and isinstance(msg.get("meta"), dict) and msg["meta"].get("tool_calls"):
+                tool_calls_meta = msg["meta"]["tool_calls"]
+                tool_msgs = []
+                for tc_meta in tool_calls_meta:
+                    tc_id = tc_meta.get("id")
+                    tc_name = tc_meta.get("name") or ""
+                    tc_record = tool_map.get(tc_id, {})
+                    raw_args = tc_record.get("raw_args") or ""
+                    if not raw_args and isinstance(tc_record.get("args"), dict):
+                        raw_args = json.dumps(tc_record.get("args"), ensure_ascii=False)
+                    tool_msgs.append(
+                        {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
+                    )
+                built_messages.append({"role": "assistant", "tool_calls": tool_msgs})
+                if msg.get("content"):
+                    built_messages.append({"role": "assistant", "content": msg.get("content")})
+                continue
+            if role in {"system", "user", "assistant"}:
+                built_messages.append({"role": role, "content": msg.get("content", "")})
+        if not built_messages:
+            built_messages = [{"role": "system", "content": self.system_prompt}]
+        return built_messages
+
     def _load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._session_paths = self._get_session_paths(session_id)
@@ -209,46 +265,6 @@ class JsonlSessionStore:
         self._message_count = int(meta.get("message_count") or 0)
         self._tool_call_count = int(meta.get("tool_call_count") or 0)
         self.session_title = meta.get("title") or self.session_title
-        tool_calls = self._read_jsonl(self._session_paths["tool_calls"])
-        tool_map = {}
-        for item in tool_calls:
-            if isinstance(item, dict) and item.get("id"):
-                tool_map[item["id"]] = item
-        messages = self._read_jsonl(self._session_paths["messages"])
-        rebuilt = []
-        for msg in messages:
-            if not isinstance(msg, dict):
-                continue
-            role = msg.get("role")
-            if role == "tool":
-                if self.resume_mode == "none":
-                    continue
-                tool_call_id = msg.get("tool_call_id")
-                content = self._build_tool_content(tool_map.get(tool_call_id))
-                rebuilt.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
-                continue
-            if role == "assistant" and isinstance(msg.get("meta"), dict) and msg["meta"].get("tool_calls"):
-                tool_calls_meta = msg["meta"]["tool_calls"]
-                tool_msgs = []
-                for tc_meta in tool_calls_meta:
-                    tc_id = tc_meta.get("id")
-                    tc_name = tc_meta.get("name") or ""
-                    tc_record = tool_map.get(tc_id, {})
-                    raw_args = tc_record.get("raw_args") or ""
-                    if not raw_args and isinstance(tc_record.get("args"), dict):
-                        raw_args = json.dumps(tc_record.get("args"), ensure_ascii=False)
-                    tool_msgs.append(
-                        {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
-                    )
-                rebuilt.append({"role": "assistant", "tool_calls": tool_msgs})
-                if msg.get("content"):
-                    rebuilt.append({"role": "assistant", "content": msg.get("content")})
-                continue
-            if role in {"system", "user", "assistant"}:
-                rebuilt.append({"role": role, "content": msg.get("content", "")})
-        if not rebuilt:
-            rebuilt = [{"role": "system", "content": self.system_prompt}]
-        self.chat_history = rebuilt
 
     def _workspace_root_from_entry(self, session_entry: dict) -> str:
         entry_root = session_entry.get("workspace_root")
@@ -309,9 +325,55 @@ class JsonlSessionStore:
             os.environ["AGENT_SESSION_ID"] = self.session_id
 
     def initialize_history(self) -> None:
-        if not self.chat_history:
-            self.chat_history = [{"role": "system", "content": self.system_prompt}]
+        has_persisted_system = any(
+            isinstance(message, dict) and message.get("role") == "system"
+            for message in self._load_message_records()
+        )
+        if not has_persisted_system:
             self.persist_message("system", self.system_prompt)
+
+    def get_system_message(self) -> dict | None:
+        for message in self._build_message_view():
+            if message.get("role") == "system":
+                return dict(message)
+        return None
+
+    def get_recent_messages(self, limit: int, include_system: bool = False) -> list[dict]:
+        if limit <= 0:
+            return []
+        messages = self._build_message_view()
+        if not include_system:
+            messages = [message for message in messages if message.get("role") != "system"]
+        return [dict(message) for message in messages[-limit:]]
+
+    def get_messages_slice(
+        self,
+        start: int | None = None,
+        end: int | None = None,
+        roles: list[str] | None = None,
+    ) -> list[dict]:
+        messages = self._build_message_view()
+        if roles:
+            allowed_roles = set(roles)
+            messages = [message for message in messages if message.get("role") in allowed_roles]
+        return [dict(message) for message in messages[slice(start, end)]]
+
+    def get_tool_records(self, limit: int | None = None, call_ids: list[str] | None = None) -> list[dict]:
+        records = [dict(record) for record in self._load_tool_records() if isinstance(record, dict)]
+        if call_ids:
+            allowed_ids = set(call_ids)
+            records = [record for record in records if record.get("id") in allowed_ids]
+        if limit is not None:
+            if limit <= 0:
+                return []
+            records = records[-limit:]
+        return records
+
+    def get_latest_conversation_summary(self) -> dict | None:
+        return None
+
+    def get_latest_context_snapshot(self) -> dict | None:
+        return None
 
     def _truncate_value(self, value, limit: int, depth: int = 2):
         if depth <= 0:
@@ -444,3 +506,4 @@ class JsonlSessionStore:
             self._session_meta["updated_at"] = self.now_iso()
             self._write_json(self._session_paths["meta"], self._session_meta)
         self._update_index()
+

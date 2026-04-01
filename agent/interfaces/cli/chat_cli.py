@@ -165,7 +165,6 @@ class ChatCLI:
         self._runtime = runtime
         self._session = session
         self._debug = debug
-        self.chat_history: list[dict] = []
         self._assistant_buffer: list[str] = []
         self._console = Console()
         self._streaming_renderer = _StreamingRenderer(self._console)
@@ -179,7 +178,6 @@ class ChatCLI:
             return
 
         self._session.initialize_history()
-        self.chat_history = self._session.chat_history
         self._render_loaded_messages()
         self._loop()
 
@@ -196,10 +194,10 @@ class ChatCLI:
         if not self._session.loaded_existing:
             return
         print("\n[历史会话]")
-        for message in self.chat_history:
+        for message in self._session.get_messages_slice():
             role = message.get("role")
             content = message.get("content", "")
-            if role in {"assistant", "user"} and content:
+            if role in {"assistant", "user"} and isinstance(content, str) and content.strip():
                 print(f"\n{role}:")
                 render_markdown(content)
 
@@ -220,12 +218,10 @@ class ChatCLI:
             print("\nAgent:")
             self._assistant_buffer = []
             self._streaming_renderer = _StreamingRenderer(self._console)
-            self.chat_history.append({"role": "user", "content": user_input})
             self._session.persist_message("user", user_input)
 
             try:
                 self._runtime.process_user_turn(
-                    chat_history=self.chat_history,
                     session=self._session,
                     on_content=self._on_content,
                     on_debug=self._on_debug if self._debug else None,
@@ -242,3 +238,4 @@ class ChatCLI:
 
     def _on_debug(self, message: str) -> None:
         print(f"\n[Debug] {message}")
+

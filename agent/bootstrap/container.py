@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.application import AgentRuntime, ToolExecutor
+from agent.application import AgentRuntime, ContextManager, ToolExecutor
 from agent.application.ports import SessionStore
 from agent.domain import looks_like_tool_payload
 from agent.infrastructure.config import Config
@@ -33,6 +33,7 @@ def build_basic_agent_dependencies(
         chat_client=chat_client,
         tool_executor=tool_executor,
         tool_schemas=tool_registry.schemas,
+        context_manager=ContextManager(),
         debug=debug,
     )
     session: SessionStore = JsonlSessionStore(

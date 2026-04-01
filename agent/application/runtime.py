@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from agent.application.ports import ChatClient, SessionStore
+from agent.application.services import ContextManager
 from agent.domain import ParsedToolCall, parse_tool_args, tool_error
 
 
@@ -16,11 +17,13 @@ class AgentRuntime:
         chat_client: ChatClient,
         tool_executor,
         tool_schemas: list[dict],
+        context_manager: ContextManager | None = None,
         debug: bool = False,
     ):
         self._chat_client = chat_client
         self._tool_executor = tool_executor
         self._tool_schemas = tool_schemas
+        self._context_manager = context_manager or ContextManager()
         self._debug = debug
 
     def run_query(self, system_prompt: str, query: str) -> str:
@@ -42,58 +45,35 @@ class AgentRuntime:
 
     def process_user_turn(
         self,
-        chat_history: list[dict],
         session: SessionStore,
         on_content: Callable[[str], None],
         on_debug: Callable[[str], None] | None = None,
     ) -> None:
         while True:
+            context = self._context_manager.build_messages(session=session)
             if self._debug:
-                response = self._chat_client.create(messages=chat_history, tools=self._tool_schemas, stream=False)
+                response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=False)
                 assistant_msg = response.choices[0].message
                 if on_debug:
                     on_debug(str(assistant_msg))
-                self._persist_assistant_content(chat_history, session, assistant_msg.content or "")
+                self._persist_assistant_content(session, assistant_msg.content or "")
                 tool_calls = self._parse_tool_calls_from_message(assistant_msg)
             else:
-                response = self._chat_client.create(messages=chat_history, tools=self._tool_schemas, stream=True)
+                response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=True)
                 content_text, tool_calls = self._consume_stream_response(response, on_content)
-                self._persist_assistant_content(chat_history, session, content_text)
+                self._persist_assistant_content(session, content_text)
 
             if not tool_calls:
                 break
-            self._persist_assistant_tool_calls(chat_history, session, tool_calls)
-            self._execute_tool_calls(chat_history, session, tool_calls, on_debug=on_debug)
+            self._persist_assistant_tool_calls(session, tool_calls)
+            self._execute_tool_calls(session, tool_calls, on_debug=on_debug)
 
-    def _persist_assistant_content(
-        self,
-        chat_history: list[dict],
-        session: SessionStore,
-        content_text: str,
-    ) -> None:
-        if not content_text:
+    def _persist_assistant_content(self, session: SessionStore, content_text: str) -> None:
+        if not content_text or not content_text.strip():
             return
-        chat_history.append({"role": "assistant", "content": content_text})
         session.persist_message("assistant", content_text)
 
-    def _persist_assistant_tool_calls(
-        self,
-        chat_history: list[dict],
-        session: SessionStore,
-        tool_calls: list[ParsedToolCall],
-    ) -> None:
-        assistant_tool_msg = {
-            "role": "assistant",
-            "tool_calls": [
-                {
-                    "id": item.call_id,
-                    "type": "function",
-                    "function": {"name": item.name, "arguments": item.raw_args},
-                }
-                for item in tool_calls
-            ],
-        }
-        chat_history.append(assistant_tool_msg)
+    def _persist_assistant_tool_calls(self, session: SessionStore, tool_calls: list[ParsedToolCall]) -> None:
         session.persist_message(
             "assistant",
             "",
@@ -102,7 +82,6 @@ class AgentRuntime:
 
     def _execute_tool_calls(
         self,
-        chat_history: list[dict],
         session: SessionStore,
         tool_calls: list[ParsedToolCall],
         on_debug: Callable[[str], None] | None = None,
@@ -133,7 +112,6 @@ class AgentRuntime:
                 ts_end,
                 tool_result,
             )
-            chat_history.append({"role": "tool", "tool_call_id": call.call_id, "content": tool_result})
             session.persist_message("tool", "", tool_call_id=call.call_id, tool_name=call.name)
             if on_debug:
                 on_debug(f"Tool Result: {tool_result}")
@@ -189,3 +167,4 @@ class AgentRuntime:
             if item["id"] and item["name"]
         ]
         return "".join(text_parts), calls
+
