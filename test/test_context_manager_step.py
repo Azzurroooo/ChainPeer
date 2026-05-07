@@ -57,7 +57,7 @@ class MockSummaryService:
 
 def test_context_manager_step_compaction():
     # Force the budget to be very small so it always triggers compaction
-    budget = ContextBudget(soft_limit_tokens=10)
+    budget = ContextBudget(conversation_budget_tokens=10, tool_budget_tokens=500, hard_limit_tokens=2000)
     estimator = ContextEstimator(budget=budget)
     summary_service = MockSummaryService()
     

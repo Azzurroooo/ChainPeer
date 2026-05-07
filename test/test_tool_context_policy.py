@@ -40,9 +40,37 @@ def test_tool_rendering_uses_more_compact_payload_for_colder_tools() -> None:
         raise AssertionError(f"Expected cold payload to omit data details, got: {cold_content}")
 
 
+def test_tool_rendering_applies_dynamic_char_budget() -> None:
+    policy = ToolContextPolicy()
+    tool_record = {
+        "id": "call_1",
+        "name": "fetch_web_page",
+        "result": {"ok": True, "tool": "fetch_web_page", "data": "x" * 8000},
+    }
+    content = policy.render_tool_message(tool_record, None, "hot", available_chars=120)
+    if len(content) > 120:
+        raise AssertionError(f"Expected content within dynamic budget, got length={len(content)}")
+    if "Output truncated due to context limits" not in content:
+        raise AssertionError(f"Expected truncation hint in payload, got: {content}")
+
+
+def test_tool_rendering_returns_empty_when_budget_exhausted() -> None:
+    policy = ToolContextPolicy()
+    tool_record = {
+        "id": "call_1",
+        "name": "fetch_web_page",
+        "result": {"ok": True, "tool": "fetch_web_page", "data": "x" * 1000},
+    }
+    content = policy.render_tool_message(tool_record, None, "hot", available_chars=0)
+    if content != "":
+        raise AssertionError(f"Expected empty content for exhausted budget, got: {content!r}")
+
+
 def main() -> int:
     test_tool_temperature_classification()
     test_tool_rendering_uses_more_compact_payload_for_colder_tools()
+    test_tool_rendering_applies_dynamic_char_budget()
+    test_tool_rendering_returns_empty_when_budget_exhausted()
     print("Tool context policy tests passed.")
     return 0
 

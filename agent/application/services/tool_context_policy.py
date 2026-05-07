@@ -8,6 +8,11 @@ import json
 class ToolContextPolicy:
     """Render tool results with temperature-aware fidelity."""
 
+    TRUNCATION_HINT = (
+        "\n\n...(Output truncated due to context limits. "
+        "Please use search/grep tools to find specific content)..."
+    )
+
     def __init__(self, hot_batch_limit: int = 1, warm_batch_limit: int = 4):
         self._hot_batch_limit = max(0, int(hot_batch_limit))
         self._warm_batch_limit = max(0, int(warm_batch_limit))
@@ -80,7 +85,13 @@ class ToolContextPolicy:
             "version": "1",
         }
 
-    def render_tool_message(self, tool_record: dict | None, summary_record: dict | None, temperature: str) -> str:
+    def render_tool_message(
+        self,
+        tool_record: dict | None,
+        summary_record: dict | None,
+        temperature: str,
+        available_chars: int | None = None,
+    ) -> str:
         if not tool_record:
             return ""
 
@@ -92,8 +103,10 @@ class ToolContextPolicy:
             payload = self._summary_payload(tool_record, summary_record, default_limit=240)
 
         if isinstance(payload, str):
-            return payload
-        return json.dumps(payload, ensure_ascii=False)
+            content = payload
+        else:
+            content = json.dumps(payload, ensure_ascii=False)
+        return self._apply_char_budget(content, available_chars)
 
     def _high_fidelity_payload(self, tool_record: dict) -> object:
         result = tool_record.get("result")
@@ -146,3 +159,15 @@ class ToolContextPolicy:
         if isinstance(value, dict):
             return {key: self._truncate_value(item, limit, depth - 1) for key, item in value.items()}
         return value
+
+    def _apply_char_budget(self, content: str, available_chars: int | None) -> str:
+        if available_chars is None:
+            return content
+        if available_chars <= 0:
+            return ""
+        if len(content) <= available_chars:
+            return content
+        if available_chars <= len(self.TRUNCATION_HINT):
+            return self.TRUNCATION_HINT[:available_chars]
+        prefix_limit = available_chars - len(self.TRUNCATION_HINT)
+        return content[:prefix_limit] + self.TRUNCATION_HINT

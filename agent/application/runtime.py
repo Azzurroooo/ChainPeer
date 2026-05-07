@@ -56,7 +56,8 @@ class AgentRuntime:
                 on_debug(
                     f"Context Estimate: tokens={context.stats.get('estimated_input_tokens')} "
                     f"chars={context.stats.get('estimated_chars')} "
-                    f"soft={context.decisions.get('over_soft_limit')} "
+                    f"conversation_over={context.decisions.get('over_conversation_budget')} "
+                    f"tool_over={context.decisions.get('over_tool_budget')} "
                     f"hard={context.decisions.get('over_hard_limit')}"
                 )
             if self._debug:

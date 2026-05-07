@@ -9,10 +9,10 @@ from dataclasses import asdict, dataclass
 
 @dataclass(slots=True)
 class ContextBudget:
-    max_input_tokens: int = 24000
-    reserve_output_tokens: int = 4000
-    soft_limit_tokens: int = 18000
-    hard_limit_tokens: int = 20000
+    hard_limit_tokens: int = 32000
+    system_budget_tokens: int = 2000
+    conversation_budget_tokens: int = 6000
+    tool_budget_tokens: int = 20000
 
     @classmethod
     def default(cls) -> "ContextBudget":
@@ -27,7 +27,9 @@ class ContextEstimate:
     message_count: int
     estimated_input_tokens: int
     estimated_chars: int
-    over_soft_limit: bool
+    system_tokens: int
+    conversation_tokens: int
+    tool_tokens: int
     over_hard_limit: bool
 
     def to_dict(self) -> dict:
@@ -45,13 +47,26 @@ class ContextEstimator:
         return self._budget
 
     def estimate_messages(self, messages: list[dict]) -> ContextEstimate:
-        estimated_chars = sum(self._estimate_message_chars(message) for message in messages)
+        system_chars = 0
+        conversation_chars = 0
+        tool_chars = 0
+        for message in messages:
+            message_chars = self._estimate_message_chars(message)
+            if message.get("role") == "system":
+                system_chars += message_chars
+            elif message.get("role") == "tool" or bool(message.get("tool_calls")):
+                tool_chars += message_chars
+            else:
+                conversation_chars += message_chars
+        estimated_chars = system_chars + conversation_chars + tool_chars
         estimated_tokens = self._chars_to_tokens(estimated_chars)
         return ContextEstimate(
             message_count=len(messages),
             estimated_input_tokens=estimated_tokens,
             estimated_chars=estimated_chars,
-            over_soft_limit=estimated_tokens >= self._budget.soft_limit_tokens,
+            system_tokens=self._chars_to_tokens(system_chars),
+            conversation_tokens=self._chars_to_tokens(conversation_chars),
+            tool_tokens=self._chars_to_tokens(tool_chars),
             over_hard_limit=estimated_tokens >= self._budget.hard_limit_tokens,
         )
 

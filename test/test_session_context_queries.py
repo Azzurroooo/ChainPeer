@@ -129,7 +129,7 @@ def test_conversation_summary_persistence() -> None:
             store.persist_message("assistant", f"assistant reply {index} with enough text to push context higher")
         manager = ContextManager(
             estimator=ContextEstimator(
-                ContextBudget(max_input_tokens=100, reserve_output_tokens=10, soft_limit_tokens=20, hard_limit_tokens=90)
+                ContextBudget(hard_limit_tokens=90, conversation_budget_tokens=20, tool_budget_tokens=80)
             ),
             hot_message_limit=4,
         )

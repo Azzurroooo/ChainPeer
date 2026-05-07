@@ -7,7 +7,7 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.application.services import ContextBudget, ContextEstimator, ContextManager
+from agent.application.services import ContextBudget, ContextEstimator, ContextManager, ToolContextPolicy
 
 
 class QueryOnlySession:
@@ -64,7 +64,7 @@ def test_context_manager_builds_from_session_queries() -> None:
     ]
     manager = ContextManager(
         estimator=ContextEstimator(
-            ContextBudget(max_input_tokens=1000, reserve_output_tokens=100, soft_limit_tokens=900, hard_limit_tokens=950)
+            ContextBudget(hard_limit_tokens=950, conversation_budget_tokens=900, tool_budget_tokens=900)
         )
     )
     session = QueryOnlySession(session_messages)
@@ -94,6 +94,8 @@ def test_context_manager_builds_from_session_queries() -> None:
         raise AssertionError(f"Unexpected decisions: {result.decisions}")
     if (result.decisions or {}).get("compact_required") is not False:
         raise AssertionError(f"Unexpected compact decision: {result.decisions}")
+    if "over_conversation_budget" not in (result.decisions or {}):
+        raise AssertionError(f"Expected independent conversation budget decision, got: {result.decisions}")
     snapshot = result.snapshot
     if snapshot is None or (snapshot.system_message or {}).get("role") != "system":
         raise AssertionError(f"Expected system message snapshot, got: {snapshot}")
@@ -129,7 +131,7 @@ def test_context_manager_compacts_only_cold_conversation_zone() -> None:
     session = QueryOnlySession(session_messages)
     manager = ContextManager(
         estimator=ContextEstimator(
-            ContextBudget(max_input_tokens=100, reserve_output_tokens=10, soft_limit_tokens=20, hard_limit_tokens=90)
+            ContextBudget(hard_limit_tokens=90, conversation_budget_tokens=20, tool_budget_tokens=80)
         ),
         hot_message_limit=4,
     )
@@ -197,11 +199,51 @@ def test_context_manager_applies_tool_temperature_policy() -> None:
         raise AssertionError(f"Expected a persisted tool summary for cold/warm tool calls, got: {session.tool_summaries}")
 
 
+def test_context_manager_prioritizes_hot_tool_budget() -> None:
+    session_messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "tool_calls": [{"id": "call_old", "type": "function", "function": {"name": "search_web", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_old", "content": "placeholder"},
+        {"role": "assistant", "tool_calls": [{"id": "call_new", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_new", "content": "placeholder"},
+    ]
+    session = QueryOnlySession(session_messages)
+    session.tool_records = {
+        "call_old": {
+            "id": "call_old",
+            "name": "search_web",
+            "result": {"ok": True, "tool": "search_web", "data": "x" * 4000},
+        },
+        "call_new": {
+            "id": "call_new",
+            "name": "fetch_web_page",
+            "result": {"ok": True, "tool": "fetch_web_page", "data": "y" * 4000},
+        },
+    }
+    manager = ContextManager(
+        estimator=ContextEstimator(ContextBudget(tool_budget_tokens=15, conversation_budget_tokens=1000, hard_limit_tokens=2000)),
+        tool_context_policy=ToolContextPolicy(hot_batch_limit=1, warm_batch_limit=0),
+    )
+
+    result = manager.build_messages(session=session)
+    tool_messages = [message for message in result.messages if message.get("role") == "tool"]
+    old_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_old")
+    new_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_new")
+
+    if not new_tool.get("content"):
+        raise AssertionError(f"Expected hot tool content to receive budget first, got: {new_tool}")
+    if len(new_tool.get("content", "")) < len(old_tool.get("content", "")):
+        raise AssertionError(
+            f"Expected hot tool to preserve at least as much content as cold tool, got old={len(old_tool.get('content', ''))}, new={len(new_tool.get('content', ''))}"
+        )
+
+
 def main() -> int:
     test_context_manager_builds_from_session_queries()
     test_context_manager_appends_pending_messages()
     test_context_manager_compacts_only_cold_conversation_zone()
     test_context_manager_applies_tool_temperature_policy()
+    test_context_manager_prioritizes_hot_tool_budget()
     print("ContextManager tests passed.")
     return 0
 

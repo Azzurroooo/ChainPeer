@@ -49,9 +49,11 @@ class ContextManager:
     def build_messages(self, session, pending_messages: list[dict] | None = None) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in session.get_messages_slice()]
         pending = [dict(message) for message in (pending_messages or [])]
+        budget = self._estimator.budget
         full_messages = self._apply_tool_context_policy(
             messages=persisted_messages + pending,
             session=session,
+            tool_char_budget=budget.tool_budget_tokens * 4,
         )
 
         initial_estimate = self._estimator.estimate_messages(full_messages)
@@ -64,7 +66,7 @@ class ContextManager:
             len([message for message in full_messages if message.get("role") != "system"]),
         )
 
-        if initial_estimate.over_soft_limit:
+        if initial_estimate.conversation_tokens >= budget.conversation_budget_tokens:
             messages, summary_messages, cold_compacted_message_count, summary_generated = self._compact_cold_conversation(
                 messages=full_messages,
                 session=session,
@@ -72,7 +74,6 @@ class ContextManager:
 
         final_messages = [self._strip_internal_fields(message) for message in messages]
         final_estimate = self._estimator.estimate_messages(final_messages)
-        budget = self._estimator.budget
         system_message = next((dict(message) for message in final_messages if message.get("role") == "system"), None)
         non_system_messages = [dict(message) for message in final_messages if message.get("role") != "system"]
         internal_tool_messages = [dict(message) for message in messages if message.get("role") == "tool"]
@@ -97,17 +98,25 @@ class ContextManager:
             "cold_compacted_message_count": cold_compacted_message_count,
             "estimated_input_tokens": final_estimate.estimated_input_tokens,
             "estimated_chars": final_estimate.estimated_chars,
+            "system_tokens": final_estimate.system_tokens,
+            "conversation_tokens": final_estimate.conversation_tokens,
+            "tool_tokens": final_estimate.tool_tokens,
             "pre_compaction_estimated_input_tokens": initial_estimate.estimated_input_tokens,
             "pre_compaction_estimated_chars": initial_estimate.estimated_chars,
+            "pre_compaction_system_tokens": initial_estimate.system_tokens,
+            "pre_compaction_conversation_tokens": initial_estimate.conversation_tokens,
+            "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
             "budget": budget.to_dict(),
         }
         decisions = {
             "mode": "session_backed",
             "source": "session_queries",
             "uses_pending_overlay": bool(pending),
-            "over_soft_limit": final_estimate.over_soft_limit,
             "over_hard_limit": final_estimate.over_hard_limit,
-            "compact_recommended": initial_estimate.over_soft_limit,
+            "over_conversation_budget": final_estimate.conversation_tokens >= budget.conversation_budget_tokens,
+            "over_tool_budget": final_estimate.tool_tokens >= budget.tool_budget_tokens,
+            "over_system_budget": final_estimate.system_tokens >= budget.system_budget_tokens,
+            "compact_recommended": initial_estimate.conversation_tokens >= budget.conversation_budget_tokens,
             "compact_required": initial_estimate.over_hard_limit,
             "rolling_summary_applied": bool(summary_messages),
             "rolling_summary_generated": summary_generated,
@@ -130,9 +139,14 @@ class ContextManager:
                 "cold_compacted_message_count": cold_compacted_message_count,
                 "estimated_input_tokens": final_estimate.estimated_input_tokens,
                 "estimated_chars": final_estimate.estimated_chars,
+                "system_tokens": final_estimate.system_tokens,
+                "conversation_tokens": final_estimate.conversation_tokens,
+                "tool_tokens": final_estimate.tool_tokens,
                 "pre_compaction_estimated_input_tokens": initial_estimate.estimated_input_tokens,
                 "pre_compaction_estimated_chars": initial_estimate.estimated_chars,
-                "over_soft_limit": final_estimate.over_soft_limit,
+                "pre_compaction_system_tokens": initial_estimate.system_tokens,
+                "pre_compaction_conversation_tokens": initial_estimate.conversation_tokens,
+                "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
                 "over_hard_limit": final_estimate.over_hard_limit,
                 "budget": budget.to_dict(),
                 "snapshot": asdict(snapshot),
@@ -141,7 +155,7 @@ class ContextManager:
         )
         return result
 
-    def _apply_tool_context_policy(self, messages: list[dict], session) -> list[dict]:
+    def _apply_tool_context_policy(self, messages: list[dict], session, tool_char_budget: int | None = None) -> list[dict]:
         tool_call_ids = [message.get("tool_call_id") for message in messages if message.get("role") == "tool" and message.get("tool_call_id")]
         if not tool_call_ids:
             return [dict(message) for message in messages]
@@ -155,22 +169,59 @@ class ContextManager:
         }
         tool_summaries = session.get_tool_summaries(call_ids=tool_call_ids)
         rendered_messages: list[dict] = []
+        call_ids_in_order = self._tool_call_ids_in_order(messages)
+        prioritized_call_ids = self._prioritize_tool_call_ids(call_ids_in_order, temperatures)
+        remaining_tool_chars = tool_char_budget
+        rendered_tool_content: dict[str, str] = {}
+
+        # Render tool contents by temperature priority so Hot outputs receive budget first.
+        for call_id in prioritized_call_ids:
+            tool_record = tool_records.get(call_id)
+            temperature = temperatures.get(call_id, "cold")
+            summary_record = tool_summaries.get(call_id)
+            if temperature in {"warm", "cold"} and tool_record and not summary_record:
+                summary_record = self._tool_context_policy.build_tool_summary_record(tool_record)
+                session.persist_tool_summary(summary_record)
+                tool_summaries[call_id] = summary_record
+            rendered_content = self._tool_context_policy.render_tool_message(
+                tool_record,
+                summary_record,
+                temperature,
+                available_chars=remaining_tool_chars,
+            )
+            rendered_tool_content[call_id] = rendered_content
+            if remaining_tool_chars is not None:
+                remaining_tool_chars = max(0, remaining_tool_chars - len(rendered_content))
 
         for message in messages:
             rendered = dict(message)
             if rendered.get("role") == "tool" and rendered.get("tool_call_id"):
                 call_id = rendered.get("tool_call_id")
-                tool_record = tool_records.get(call_id)
-                temperature = temperatures.get(call_id, "cold")
-                summary_record = tool_summaries.get(call_id)
-                if temperature in {"warm", "cold"} and tool_record and not summary_record:
-                    summary_record = self._tool_context_policy.build_tool_summary_record(tool_record)
-                    session.persist_tool_summary(summary_record)
-                    tool_summaries[call_id] = summary_record
-                rendered["content"] = self._tool_context_policy.render_tool_message(tool_record, summary_record, temperature)
-                rendered["_tool_temperature"] = temperature
+                rendered["content"] = rendered_tool_content.get(call_id, "")
+                rendered["_tool_temperature"] = temperatures.get(call_id, "cold")
             rendered_messages.append(rendered)
         return rendered_messages
+
+    def _tool_call_ids_in_order(self, messages: list[dict]) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for message in messages:
+            if message.get("role") != "tool":
+                continue
+            call_id = message.get("tool_call_id")
+            if not call_id or call_id in seen:
+                continue
+            ordered.append(call_id)
+            seen.add(call_id)
+        return ordered
+
+    def _prioritize_tool_call_ids(self, call_ids: list[str], temperatures: dict[str, str]) -> list[str]:
+        rank = {"hot": 0, "warm": 1, "cold": 2}
+        position = {call_id: idx for idx, call_id in enumerate(call_ids)}
+        return sorted(
+            call_ids,
+            key=lambda call_id: (rank.get(temperatures.get(call_id, "cold"), 2), position[call_id]),
+        )
 
     def _collect_tool_batches(self, messages: list[dict]) -> list[list[str]]:
         batches: list[list[str]] = []
@@ -202,11 +253,9 @@ class ContextManager:
         try:
             latest_summary = session.get_latest_conversation_summary()
             summary_generated = False
-            reused = False
             covered_count = 0
             if self._can_reuse_summary(latest_summary, cold_messages):
                 summary = dict(latest_summary)
-                reused = True
                 covered_count = int(summary.get("source_message_count") or 0)
             else:
                 summary = self._summary_service.summarize(cold_messages)
