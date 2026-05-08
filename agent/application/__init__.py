@@ -10,6 +10,7 @@ from .services import (
     ContextSnapshot,
     ConversationSummaryService,
     ToolContextPolicy,
+    JobService,
 )
 from .tool_executor import ToolExecutor
 
@@ -24,4 +25,5 @@ __all__ = [
     "ContextSnapshot",
     "ConversationSummaryService",
     "ToolContextPolicy",
+    "JobService",
 ]

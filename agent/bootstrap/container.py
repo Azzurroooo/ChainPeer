@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from agent.application import AgentRuntime, ContextManager, ToolExecutor
+from agent.application import AgentRuntime, ContextManager, ToolExecutor, JobService
 from agent.application.ports import SessionStore
 from agent.domain import looks_like_tool_payload
 from agent.infrastructure.config import Config
 from agent.infrastructure.llm import OpenAIChatClient
-from agent.infrastructure.persistence import JsonlSessionStore
+from agent.infrastructure.persistence import JsonlSessionStore, JobStoreJsonl, TaskOutputStoreFile
 from agent.infrastructure.tools import DefaultToolRegistry
 from agent.interfaces.api import AgentAPIService
 from agent.interfaces.cli import ChatCLI
@@ -25,16 +25,6 @@ def build_basic_agent_dependencies(
     model = Config.DEFAULT_MODEL
     client = Config.get_client()
 
-    tool_registry = DefaultToolRegistry(schemas=tools)
-    tool_executor = ToolExecutor(registry=tool_registry)
-    chat_client = OpenAIChatClient(client=client, model=model)
-    runtime = AgentRuntime(
-        chat_client=chat_client,
-        tool_executor=tool_executor,
-        tool_schemas=tool_registry.schemas,
-        context_manager=ContextManager(),
-        debug=debug,
-    )
     session: SessionStore = JsonlSessionStore(
         session_dir=session_dir,
         session_id=session_id,
@@ -43,6 +33,23 @@ def build_basic_agent_dependencies(
         system_prompt=SYSTEM_PROMPT,
         looks_like_tool_payload=looks_like_tool_payload,
     )
+    
+    store_dir = session.session_dir or getattr(session, "_default_session_root", lambda: "sessions")()
+    job_store = JobStoreJsonl(directory=store_dir)
+    output_store = TaskOutputStoreFile(directory=store_dir)
+    job_service = JobService(job_store=job_store, output_store=output_store)
+
+    tool_registry = DefaultToolRegistry(schemas=tools)
+    tool_executor = ToolExecutor(registry=tool_registry, job_service=job_service)
+    chat_client = OpenAIChatClient(client=client, model=model)
+    runtime = AgentRuntime(
+        chat_client=chat_client,
+        tool_executor=tool_executor,
+        tool_schemas=tool_registry.schemas,
+        context_manager=ContextManager(),
+        debug=debug,
+    )
+    
     cli = ChatCLI(runtime=runtime, session=session, debug=debug)
     api_service = AgentAPIService(runtime=runtime, system_prompt=SYSTEM_PROMPT)
 
@@ -54,4 +61,5 @@ def build_basic_agent_dependencies(
         "session": session,
         "cli": cli,
         "api_service": api_service,
+        "job_service": job_service,
     }

@@ -205,6 +205,9 @@ class _StreamingRenderer:
         return output
 
 
+from agent.domain.events import RuntimeEvent, ToolCallStartedEvent, ToolProgressEvent, ToolResultEvent
+
+
 class ChatCLI:
     """Interactive CLI that delegates core behavior to application runtime."""
 
@@ -244,7 +247,7 @@ class ChatCLI:
         for message in self._session.get_messages_slice():
             role = message.get("role")
             content = message.get("content", "")
-            if role in {"assistant", "user"} and isinstance(content, str) and content.strip():
+            if role in ("user", "assistant") and content:
                 print(f"\n{role}:")
                 render_markdown(content)
 
@@ -277,6 +280,7 @@ class ChatCLI:
                     on_content=self._on_content,
                     on_debug=self._on_debug if self._debug else None,
                     on_assistant_message_complete=self._on_assistant_message_complete,
+                    on_event=self._on_event,
                 )
                 self._streaming_renderer.flush()
                 print()
@@ -286,6 +290,15 @@ class ChatCLI:
             except Exception as exc:
                 self._streaming_renderer.flush()
                 print(f"\nError: {exc}")
+
+    def _on_event(self, event: RuntimeEvent) -> None:
+        if isinstance(event, ToolCallStartedEvent):
+            self._console.print(f"[dim italic]🚀 任务启动: {event.tool_name} (ID: {event.tool_call_id})[/dim italic]")
+        elif isinstance(event, ToolProgressEvent):
+            if event.payload and "stdout" in event.payload:
+                pass # Usually we let tool output print via bash thread, but for phase 1 we can ignore or print
+        elif isinstance(event, ToolResultEvent):
+            self._console.print(f"[dim italic]✅ 任务完成: {event.tool_name}[/dim italic]")
 
     def _on_content(self, text: str) -> None:
         self._assistant_buffer.append(text)

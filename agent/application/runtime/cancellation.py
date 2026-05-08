@@ -1,0 +1,85 @@
+"""Cancellation protocol for runtime operations."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Callable, List
+
+
+class CancellationToken:
+    """
+    A token that can be checked by operations to determine if they should be cancelled.
+    """
+    def __init__(self) -> None:
+        self._is_cancelled = False
+        self._reason: str | None = None
+        self._callbacks: List[Callable[[], None]] = []
+        self._async_event: asyncio.Event | None = None
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._is_cancelled
+
+    @property
+    def reason(self) -> str | None:
+        return self._reason
+
+    def register_callback(self, callback: Callable[[], None]) -> None:
+        """Register a callback to be invoked immediately when cancelled."""
+        if self._is_cancelled:
+            callback()
+        else:
+            self._callbacks.append(callback)
+
+    async def wait(self) -> None:
+        """Asynchronously wait until the token is cancelled."""
+        if self._is_cancelled:
+            return
+            
+        if self._async_event is None:
+            # Create the event lazily in the current running loop
+            self._async_event = asyncio.Event()
+            if self._is_cancelled:
+                self._async_event.set()
+                
+        await self._async_event.wait()
+
+    def _cancel(self, reason: str | None = None) -> None:
+        """Internal method to trigger cancellation."""
+        if self._is_cancelled:
+            return
+            
+        self._is_cancelled = True
+        self._reason = reason
+        
+        if self._async_event is not None:
+            self._async_event.set()
+            
+        for callback in self._callbacks:
+            try:
+                callback()
+            except Exception:
+                pass
+
+
+class CancellationTokenSource:
+    """
+    The source that controls a CancellationToken and can trigger cancellation.
+    """
+    def __init__(self, parent_token: CancellationToken | None = None) -> None:
+        self.token = CancellationToken()
+        
+        if parent_token:
+            parent_token.register_callback(lambda: self.cancel(reason=parent_token.reason))
+
+    def cancel(self, reason: str | None = None) -> None:
+        """Trigger cancellation on the associated token and all its children."""
+        self.token._cancel(reason)
+
+
+def create_child_token(parent: CancellationToken) -> CancellationTokenSource:
+    """
+    Create a new cancellation token source linked to a parent token.
+    If the parent token is cancelled, the child token will also be cancelled.
+    """
+    return CancellationTokenSource(parent_token=parent)
