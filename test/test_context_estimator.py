@@ -25,7 +25,7 @@ def test_context_estimator_counts_chars_and_tokens() -> None:
         raise AssertionError(f"Unexpected message count: {estimate}")
     if estimate.estimated_chars <= 0:
         raise AssertionError(f"Expected chars > 0, got: {estimate}")
-    if estimate.estimated_input_tokens != ((estimate.estimated_chars + 3) // 4):
+    if estimate.estimated_input_tokens <= 0:
         raise AssertionError(f"Unexpected token estimate: {estimate}")
     if estimate.system_tokens <= 0:
         raise AssertionError(f"Expected system tokens > 0, got: {estimate}")
@@ -33,6 +33,11 @@ def test_context_estimator_counts_chars_and_tokens() -> None:
         raise AssertionError(f"Expected conversation tokens > 0, got: {estimate}")
     if estimate.tool_tokens <= 0:
         raise AssertionError(f"Expected tool tokens > 0, got: {estimate}")
+    
+    # Check if sum matches
+    expected_total_tokens = estimate.system_tokens + estimate.conversation_tokens + estimate.tool_tokens
+    if estimate.estimated_input_tokens != expected_total_tokens:
+        raise AssertionError(f"Total tokens {estimate.estimated_input_tokens} != sum of parts {expected_total_tokens}")
 
 
 def test_context_estimator_limit_flags() -> None:

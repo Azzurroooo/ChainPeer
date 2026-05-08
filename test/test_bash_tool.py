@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import io
+import pytest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,12 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.infrastructure.tools.impl.tools.bash import bash, kill_shell
+from agent.infrastructure.tools.impl.tools.bash import ShellSession, bash, kill_shell
+
+@pytest.fixture
+def temp_dir(tmp_path: Path) -> Path:
+    """Provides a temporary directory for tests to run in."""
+    return tmp_path
 
 def parse_payload(raw: str) -> dict:
     obj = json.loads(raw)
@@ -90,9 +96,15 @@ def test_forbidden_blocked() -> None:
         raise AssertionError(f"Expected tool=bash, got: {payload}")
 
 def test_dangerous_allowed(temp_dir: Path) -> None:
-    payload = assert_ok(parse_payload(bash(f"rm -rf {str(temp_dir)}")))
-    if payload.get("tool") != "bash":
-        raise AssertionError(f"Expected tool=bash, got: {payload}")
+    def call():
+        return parse_payload(bash(f"rm -rf {str(temp_dir)}"))
+    os.environ["AGENT_ALLOW_UNSAFE_BASH"] = "1"
+    try:
+        payload = assert_ok(call())
+        if payload.get("tool") != "bash":
+            raise AssertionError(f"Expected tool=bash, got: {payload}")
+    finally:
+        os.environ.pop("AGENT_ALLOW_UNSAFE_BASH", None)
 
 def main() -> int:
     temp_dir = PROJECT_ROOT / "test" / "__bash_tool_tmp__"

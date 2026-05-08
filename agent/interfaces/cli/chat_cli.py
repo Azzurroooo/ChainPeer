@@ -33,6 +33,12 @@ class _StreamingRenderer:
             self._pending = self._pending[newline_index + 1 :]
             self._render_line(line, newline=True)
         self._flush_pending_plain_text()
+        
+    def show_retry(self, attempt: int, exception: Exception) -> None:
+        self.flush()
+        msg = f"⚠️ API 繁忙或出现网络异常 ({type(exception).__name__})，正在进行第 {attempt}/5 次重试 (按 Ctrl+C 可中断)..."
+        self._console.print(msg, style="bold yellow")
+        self._last_output_target = "console"
 
     def flush(self) -> None:
         if not self._pending:
@@ -243,6 +249,10 @@ class ChatCLI:
                 render_markdown(content)
 
     def _loop(self) -> None:
+        # Connect the retry callback
+        if hasattr(self._runtime._chat_client, 'on_retry'):
+            self._runtime._chat_client.on_retry = self._on_retry
+            
         while True:
             try:
                 user_input = input("\n> ").strip()
@@ -270,6 +280,9 @@ class ChatCLI:
                 )
                 self._streaming_renderer.flush()
                 print()
+            except KeyboardInterrupt:
+                self._streaming_renderer.flush()
+                print("\n[User Interrupted: Session state preserved. You can resume later.]")
             except Exception as exc:
                 self._streaming_renderer.flush()
                 print(f"\nError: {exc}")
@@ -277,6 +290,9 @@ class ChatCLI:
     def _on_content(self, text: str) -> None:
         self._assistant_buffer.append(text)
         self._streaming_renderer.append(text)
+        
+    def _on_retry(self, attempt: int, exception: Exception) -> None:
+        self._streaming_renderer.show_retry(attempt, exception)
 
     def _on_debug(self, message: str) -> None:
         print(f"\n[Debug] {message}")

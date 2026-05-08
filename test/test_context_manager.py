@@ -131,7 +131,7 @@ def test_context_manager_compacts_only_cold_conversation_zone() -> None:
     session = QueryOnlySession(session_messages)
     manager = ContextManager(
         estimator=ContextEstimator(
-            ContextBudget(hard_limit_tokens=90, conversation_budget_tokens=20, tool_budget_tokens=80)
+            ContextBudget(hard_limit_tokens=2000, conversation_budget_tokens=20, tool_budget_tokens=80)
         ),
         hot_message_limit=4,
     )

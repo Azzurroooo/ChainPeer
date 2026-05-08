@@ -66,6 +66,7 @@ class ContextManager:
             len([message for message in full_messages if message.get("role") != "system"]),
         )
 
+        # 1. Summarize cold conversation if needed
         if initial_estimate.conversation_tokens >= budget.conversation_budget_tokens:
             messages, summary_messages, cold_compacted_message_count, summary_generated = self._compact_cold_conversation(
                 messages=full_messages,
@@ -74,6 +75,16 @@ class ContextManager:
 
         final_messages = [self._strip_internal_fields(message) for message in messages]
         final_estimate = self._estimator.estimate_messages(final_messages)
+        
+        # 2. Apply Surgical Context Rescue if STILL over hard limit after summary
+        dropped_count = 0
+        while final_estimate.over_hard_limit and len(final_messages) > 2: # Keep at least system + latest
+            messages, final_messages = self.rescue_context(messages, final_messages)
+            final_estimate = self._estimator.estimate_messages(final_messages)
+            dropped_count += 1
+            if dropped_count > 50: # safety breaker
+                break
+                
         system_message = next((dict(message) for message in final_messages if message.get("role") == "system"), None)
         non_system_messages = [dict(message) for message in final_messages if message.get("role") != "system"]
         internal_tool_messages = [dict(message) for message in messages if message.get("role") == "tool"]
@@ -154,6 +165,23 @@ class ContextManager:
             }
         )
         return result
+
+    def rescue_context(self, internal_messages: list[dict], final_messages: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Surgical Context Rescue: Drops the oldest cold/tool messages instead of blindly shrinking budgets."""
+        # Find oldest non-system message that isn't already dropped
+        target_idx = -1
+        for i, msg in enumerate(final_messages):
+            if msg.get("role") != "system" and msg.get("content") != "[DROPPED FOR CONTEXT RESCUE]":
+                # Do not drop the very last few hot messages
+                if i < len(final_messages) - 2:
+                    target_idx = i
+                    break
+                    
+        if target_idx != -1:
+            internal_messages[target_idx]["content"] = "[DROPPED FOR CONTEXT RESCUE]"
+            final_messages[target_idx]["content"] = "[DROPPED FOR CONTEXT RESCUE]"
+            
+        return internal_messages, final_messages
 
     def _apply_tool_context_policy(self, messages: list[dict], session, tool_char_budget: int | None = None) -> list[dict]:
         tool_call_ids = [message.get("tool_call_id") for message in messages if message.get("role") == "tool" and message.get("tool_call_id")]

@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import sys
+import pytest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,17 @@ from agent.infrastructure.tools.impl.tools.plan import (
     plan_reorder,
     plan_update_step,
 )
+
+@pytest.fixture(autouse=True)
+def setup_session(tmp_path: Path):
+    os.environ["AGENT_SESSION_ROOT"] = str(tmp_path)
+    os.environ["AGENT_SESSION_ID"] = "test_plan_session"
+    # Ensure the directory exists
+    session_dir = tmp_path / "test_plan_session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    yield
+    os.environ.pop("AGENT_SESSION_ROOT", None)
+    os.environ.pop("AGENT_SESSION_ID", None)
 
 
 def parse_payload(raw: str) -> dict:
@@ -69,7 +81,8 @@ def test_create_and_next() -> tuple[str, int]:
     return plan_id, int(data["version"])
 
 
-def test_dependency_and_blocked(version: int) -> int:
+def test_dependency_and_blocked() -> int:
+    plan_id, version = test_create_and_next()
     payload = parse_payload(plan_update_step("s2", {"status": "in_progress"}, expected_version=version))
     assert_error(payload, "DependencyViolation")
 
@@ -82,7 +95,8 @@ def test_dependency_and_blocked(version: int) -> int:
     return int(blocked["version"])
 
 
-def test_version_conflict(version: int) -> int:
+def test_version_conflict() -> int:
+    plan_id, version = test_create_and_next()
     ok = assert_ok(parse_payload(plan_update_step("s1", {"status": "pending"}, expected_version=version)))
     new_version = int((ok.get("meta") or {}).get("version"))
     conflict = parse_payload(plan_update_step("s3", {"status": "in_progress"}, expected_version=version))
@@ -90,7 +104,8 @@ def test_version_conflict(version: int) -> int:
     return new_version
 
 
-def test_reorder_link_and_close(version: int) -> None:
+def test_reorder_link_and_close() -> None:
+    plan_id, version = test_create_and_next()
     payload = assert_ok(parse_payload(plan_reorder(["s3", "s1", "s2"], expected_version=version)))
     version = int((payload.get("meta") or {}).get("version"))
 

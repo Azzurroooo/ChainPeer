@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Callable
+import openai
+from tenacity import RetryError
 
 from agent.application.ports import ChatClient, SessionStore
 from agent.application.services import ContextManager
@@ -60,19 +62,39 @@ class AgentRuntime:
                     f"tool_over={context.decisions.get('over_tool_budget')} "
                     f"hard={context.decisions.get('over_hard_limit')}"
                 )
-            if self._debug:
-                response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=False)
-                assistant_msg = response.choices[0].message
-                if on_debug:
-                    on_debug(str(assistant_msg))
-                self._persist_assistant_content(session, assistant_msg.content or "")
-                self._notify_assistant_message_complete(assistant_msg.content or "", on_assistant_message_complete)
-                tool_calls = self._parse_tool_calls_from_message(assistant_msg)
-            else:
-                response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=True)
-                content_text, tool_calls = self._consume_stream_response(response, on_content)
-                self._persist_assistant_content(session, content_text)
-                self._notify_assistant_message_complete(content_text, on_assistant_message_complete)
+                
+            try:
+                if self._debug:
+                    response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=False)
+                    assistant_msg = response.choices[0].message
+                    if on_debug:
+                        on_debug(str(assistant_msg))
+                    self._persist_assistant_content(session, assistant_msg.content or "")
+                    self._notify_assistant_message_complete(assistant_msg.content or "", on_assistant_message_complete)
+                    tool_calls = self._parse_tool_calls_from_message(assistant_msg)
+                else:
+                    response = self._chat_client.create(messages=context.messages, tools=self._tool_schemas, stream=True)
+                    content_text, tool_calls = self._consume_stream_response(response, on_content)
+                    self._persist_assistant_content(session, content_text)
+                    self._notify_assistant_message_complete(content_text, on_assistant_message_complete)
+            except openai.BadRequestError as e:
+                # Catch ContextLengthExceeded or similar 400 errors
+                if "context_length_exceeded" in str(e) or "maximum context length" in str(e).lower():
+                    if on_debug:
+                        on_debug("⚠️ ContextLengthExceeded caught! Falling back to Context Manager Rescue...")
+                    # ContextManager already has the `rescue_context` logic in its `build_messages` when over_hard_limit is true.
+                    # To force it to drop even more, we could temporarily shrink the budget, or just re-run build_messages 
+                    # if we adjust the estimator logic. But since we added `rescue_context` to loop until limit is met,
+                    # if it STILL throws here, it means the API's limit is lower than our hard_limit.
+                    old_hard_limit = self._context_manager._estimator.budget.hard_limit_tokens
+                    self._context_manager._estimator.budget.hard_limit_tokens = int(old_hard_limit * 0.8)
+                    continue # Re-run the loop with the smaller hard limit, triggering Surgical Context Rescue
+                raise
+            except RetryError as e:
+                # This happens if tenacity exhausts all its retries (e.g. 5x 502 Bad Gateway)
+                error_msg = f"\n\n[APIUnavailableError: The AI provider is currently unreachable after multiple retries. Please check your network or try again later. Error: {e.last_attempt.exception()}]"
+                on_content(error_msg)
+                break
 
             if not tool_calls:
                 break

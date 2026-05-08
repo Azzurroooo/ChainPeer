@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from filelock import FileLock, Timeout
 
 
 class JsonlSessionStore:
@@ -30,6 +31,7 @@ class JsonlSessionStore:
         self._index_path = None
         self._current_workspace_root = None
         self.loaded_existing = False
+        self._locks = {}
 
     def now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -79,6 +81,7 @@ class JsonlSessionStore:
             "tool_call_summaries": os.path.join(base, "tool_call_summaries.jsonl"),
             "conversation_summaries": os.path.join(base, "conversation_summaries.jsonl"),
             "snapshots": os.path.join(base, "snapshots"),
+            "lock": os.path.join(base, ".session.lock"),
         }
 
     def _load_json(self, path: str) -> dict | None:
@@ -90,18 +93,41 @@ class JsonlSessionStore:
         except Exception:
             return None
 
+    def _get_lock_for_path(self, path: str):
+        lock_path = None
+        if path == self._index_path:
+            lock_path = f"{path}.lock"
+        elif self._session_paths and "lock" in self._session_paths:
+            lock_path = self._session_paths["lock"]
+        else:
+            lock_path = f"{path}.lock"
+            
+        if lock_path not in self._locks:
+            self._locks[lock_path] = FileLock(lock_path, timeout=5)
+        return self._locks[lock_path]
+
     def _write_json(self, path: str, data: dict) -> None:
         tmp = f"{path}.{uuid.uuid4().hex}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-        os.replace(tmp, path)
+        try:
+            with self._get_lock_for_path(path):
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+        except Timeout as e:
+            raise RuntimeError(f"Session is currently in use by another process. Failed to acquire lock for: {path}") from e
 
     def _append_jsonl(self, path: str, data: dict) -> None:
         line = json.dumps(data, ensure_ascii=False)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-            f.flush()
+        try:
+            with self._get_lock_for_path(path):
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+        except Timeout as e:
+            raise RuntimeError(f"Session is currently in use by another process. Failed to acquire lock for: {path}") from e
 
     def _read_jsonl(self, path: str) -> list[dict]:
         if not os.path.exists(path):
@@ -132,29 +158,33 @@ class JsonlSessionStore:
         return data
 
     def _update_index(self) -> None:
-        if not self._session_paths:
+        if not self._session_paths or not self._index_path:
             return
-        index_data = self._load_index()
-        sessions = index_data.get("sessions", [])
-        entry = {
-            "id": self.session_id,
-            "title": self._session_meta.get("title") if self._session_meta else self.session_title,
-            "updated_at": self._session_meta.get("updated_at") if self._session_meta else self.now_iso(),
-            "size": {"messages": self._message_count, "tool_calls": self._tool_call_count},
-            "preview": self._last_preview,
-            "workspace_root": self._session_meta.get("workspace_root") if self._session_meta else self._current_workspace_root,
-        }
-        updated = False
-        for i, s in enumerate(sessions):
-            if s.get("id") == self.session_id:
-                sessions[i] = entry
-                updated = True
-                break
-        if not updated:
-            sessions.append(entry)
-        index_data["sessions"] = sessions
-        if self._index_path:
-            self._write_json(self._index_path, index_data)
+        
+        try:
+            with self._get_lock_for_path(self._index_path):
+                index_data = self._load_index()
+                sessions = index_data.get("sessions", [])
+                entry = {
+                    "id": self.session_id,
+                    "title": self._session_meta.get("title") if self._session_meta else self.session_title,
+                    "updated_at": self._session_meta.get("updated_at") if self._session_meta else self.now_iso(),
+                    "size": {"messages": self._message_count, "tool_calls": self._tool_call_count},
+                    "preview": self._last_preview,
+                    "workspace_root": self._session_meta.get("workspace_root") if self._session_meta else self._current_workspace_root,
+                }
+                updated = False
+                for i, s in enumerate(sessions):
+                    if s.get("id") == self.session_id:
+                        sessions[i] = entry
+                        updated = True
+                        break
+                if not updated:
+                    sessions.append(entry)
+                index_data["sessions"] = sessions
+                self._write_json(self._index_path, index_data)
+        except Timeout as e:
+            raise RuntimeError(f"Session is currently in use by another process. Failed to acquire lock for: {self._index_path}") from e
 
     def _create_session(self, session_id: str | None = None) -> None:
         if not session_id:

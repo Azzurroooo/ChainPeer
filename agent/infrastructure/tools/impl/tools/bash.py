@@ -3,6 +3,9 @@ import os
 import platform
 import shutil
 import re
+import sys
+import threading
+from collections import deque
 from typing import Any
 
 from ..core.base import tool_error, tool_ok
@@ -72,26 +75,91 @@ class ShellSession:
             else: # cmd
                 shell_cmd.extend(["/c", command])
 
-            process = subprocess.run(
+            process = subprocess.Popen(
                 shell_cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 cwd=self.cwd,
-                env=self.env,
-                timeout=self.timeout
+                env=self.env
             )
             
-            stdout = (process.stdout or "").strip()
-            stderr = (process.stderr or "").strip()
+            HEAD_LIMIT = 10000
+            TAIL_LIMIT = 10000
+            
+            stdout_head = []
+            stdout_tail = deque(maxlen=TAIL_LIMIT)
+            stdout_len = [0]
+            
+            stderr_head = []
+            stderr_tail = deque(maxlen=TAIL_LIMIT)
+            stderr_len = [0]
+            
+            def read_stream(stream, head_list, tail_deque, length_counter, is_stdout=False):
+                while True:
+                    chunk = stream.read(4096)
+                    if not chunk:
+                        break
+                    
+                    # 实时输出到终端 (可选的 Streaming 体验)
+                    if is_stdout:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                    else:
+                        sys.stderr.write(chunk)
+                        sys.stderr.flush()
+
+                    chunk_len = len(chunk)
+                    current_len = length_counter[0]
+                    length_counter[0] += chunk_len
+                    
+                    head_space = HEAD_LIMIT - current_len
+                    if head_space > 0:
+                        if chunk_len <= head_space:
+                            head_list.append(chunk)
+                        else:
+                            head_list.append(chunk[:head_space])
+                            tail_deque.extend(chunk[head_space:])
+                    else:
+                        tail_deque.extend(chunk)
+
+            t_out = threading.Thread(target=read_stream, args=(process.stdout, stdout_head, stdout_tail, stdout_len, True))
+            t_err = threading.Thread(target=read_stream, args=(process.stderr, stderr_head, stderr_tail, stderr_len, False))
+            
+            t_out.start()
+            t_err.start()
+            
+            timeout_msg = ""
+            try:
+                process.wait(timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                timeout_msg = f"\n\n[PROCESS TERMINATED: Command timed out after {self.timeout} seconds.]"
+                process.wait()
+                
+            t_out.join()
+            t_err.join()
+
+            def build_output(head, tail, total_len):
+                if total_len <= HEAD_LIMIT:
+                    return "".join(head)
+                if total_len <= HEAD_LIMIT + TAIL_LIMIT:
+                    return "".join(head) + "".join(tail)
+                return "".join(head) + "\n\n...[OUTPUT TRUNCATED]...\n\n" + "".join(tail)
+
+            stdout_final = build_output(stdout_head, stdout_tail, stdout_len[0])
+            stderr_final = build_output(stderr_head, stderr_tail, stderr_len[0])
+            
+            if timeout_msg:
+                stderr_final += timeout_msg
+                
             return tool_ok(
                 "bash",
-                {"stdout": stdout, "stderr": stderr, "exit_code": process.returncode, "cwd": self.cwd},
+                {"stdout": stdout_final.strip(), "stderr": stderr_final.strip(), "exit_code": process.returncode, "cwd": self.cwd},
             )
 
-        except subprocess.TimeoutExpired:
-            return tool_error("bash", f"Command timed out after {self.timeout} seconds.", "Timeout")
         except Exception as e:
             return tool_error("bash", str(e), type(e).__name__)
 

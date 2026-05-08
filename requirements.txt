@@ -6,3 +6,6 @@ rich>=13.7.0
 openai>=1.0.0
 pytest>=7.4.0
 python-dotenv>=1.0.0
+filelock>=3.13.0
+tiktoken>=0.6.0
+tenacity>=8.2.0
