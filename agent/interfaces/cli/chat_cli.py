@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 
@@ -218,24 +219,33 @@ class ChatCLI:
         self._assistant_buffer: list[str] = []
         self._console = Console()
         self._streaming_renderer = _StreamingRenderer(self._console)
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     def start(self) -> None:
         self._render_banner()
-        
-        import asyncio
-        async def _init_session():
-            try:
-                await self._session.initialize()
-            except Exception as exc:
-                print(str(exc))
-                return False
-            return True
 
-        if not asyncio.run(_init_session()):
-            return
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._event_loop = loop
 
-        self._render_loaded_messages()
-        self._loop()
+        try:
+            async def _init_session():
+                try:
+                    await self._session.initialize()
+                except Exception as exc:
+                    print(str(exc))
+                    return False
+                return True
+
+            if not loop.run_until_complete(_init_session()):
+                return
+
+            self._render_loaded_messages()
+            self._loop()
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+            self._event_loop = None
 
     def _render_banner(self) -> None:
         print_rainbow_logo()
@@ -247,11 +257,7 @@ class ChatCLI:
         print("-" * 50)
 
     def _render_loaded_messages(self) -> None:
-        import asyncio
-        async def _load_messages():
-            return await self._session.get_messages_slice()
-            
-        messages = asyncio.run(_load_messages())
+        messages = self._event_loop.run_until_complete(self._session.get_messages_slice())
         if len(messages) <= 1:
             return
             
@@ -286,8 +292,7 @@ class ChatCLI:
             self._streaming_renderer = _StreamingRenderer(self._console)
 
             try:
-                import asyncio
-                asyncio.run(self._run_turn_async(user_input))
+                self._event_loop.run_until_complete(self._run_turn_async(user_input))
                 self._streaming_renderer.flush()
                 print()
             except KeyboardInterrupt:

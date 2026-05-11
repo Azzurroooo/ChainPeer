@@ -49,6 +49,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._tool_repo = None
         self._summary_repo = None
         self._index_repo = None
+        self._write_lock = asyncio.Lock()
 
     @property
     def session_id(self) -> str | None:
@@ -233,8 +234,9 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             self._update_index()
 
     async def initialize(self) -> None:
-        await asyncio.to_thread(self._ensure_session_sync)
-        await asyncio.to_thread(self._initialize_history_sync)
+        async with self._write_lock:
+            await asyncio.to_thread(self._ensure_session_sync)
+            await asyncio.to_thread(self._initialize_history_sync)
 
     async def persist_message(
         self,
@@ -244,22 +246,23 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         tool_name: str | None = None,
         meta: dict[str, Any] | None = None,
     ) -> None:
-        def _persist():
-            if not self._msg_repo:
-                return
-            self._msg_repo.persist_message(self.now_iso(), role, content, tool_call_id, tool_name, meta)
-            self._message_count += 1
-            if role == "assistant" and content:
-                self._last_preview = content[:200]
-            if role == "user" and self._session_meta and self._session_meta.get("title") in {None, "", "Untitled"}:
-                self._session_meta["title"] = (content or "")[:40]
-            if self._session_meta:
-                self._session_meta["message_count"] = self._message_count
-                self._session_meta["updated_at"] = self.now_iso()
-                self._files.write_json(self._session_paths["meta"], self._session_meta)
-            self._update_index()
-            
-        await asyncio.to_thread(_persist)
+        async with self._write_lock:
+            def _persist():
+                if not self._msg_repo:
+                    return
+                self._msg_repo.persist_message(self.now_iso(), role, content, tool_call_id, tool_name, meta)
+                self._message_count += 1
+                if role == "assistant" and content:
+                    self._last_preview = content[:200]
+                if role == "user" and self._session_meta and self._session_meta.get("title") in {None, "", "Untitled"}:
+                    self._session_meta["title"] = (content or "")[:40]
+                if self._session_meta:
+                    self._session_meta["message_count"] = self._message_count
+                    self._session_meta["updated_at"] = self.now_iso()
+                    self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
 
     async def persist_tool_call(
         self,
@@ -271,18 +274,19 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         ts_end: str,
         result_payload: str,
     ) -> None:
-        def _persist():
-            if not self._tool_repo:
-                return
-            self._tool_repo.persist_tool_call(call_id, name, parsed_args, raw_args, ts_start, ts_end, result_payload)
-            self._tool_call_count += 1
-            if self._session_meta:
-                self._session_meta["tool_call_count"] = self._tool_call_count
-                self._session_meta["updated_at"] = self.now_iso()
-                self._files.write_json(self._session_paths["meta"], self._session_meta)
-            self._update_index()
-            
-        await asyncio.to_thread(_persist)
+        async with self._write_lock:
+            def _persist():
+                if not self._tool_repo:
+                    return
+                self._tool_repo.persist_tool_call(call_id, name, parsed_args, raw_args, ts_start, ts_end, result_payload)
+                self._tool_call_count += 1
+                if self._session_meta:
+                    self._session_meta["tool_call_count"] = self._tool_call_count
+                    self._session_meta["updated_at"] = self.now_iso()
+                    self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
 
     async def load_messages(self) -> list[dict[str, Any]]:
         def _load():
@@ -381,27 +385,28 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         return await asyncio.to_thread(_get)
 
     async def persist_conversation_summary(self, summary_text: str, range_start_idx: int, range_end_idx: int) -> None:
-        def _persist():
-            if not self._summary_repo:
-                return
-            summary = {
-                "summary": summary_text,
-                "covered_turns": range_end_idx - range_start_idx,
-                "source_message_count": range_end_idx - range_start_idx
-            }
-            record = self._summary_repo.persist_conversation_summary(self.now_iso(), summary)
-            if self._session_meta:
-                self._session_meta["updated_at"] = self.now_iso()
-                self._session_meta["latest_conversation_summary"] = {
-                    "id": record.get("id"),
-                    "created_at": record.get("created_at"),
-                    "covered_turns": record.get("covered_turns"),
-                    "source_message_count": record.get("source_message_count"),
+        async with self._write_lock:
+            def _persist():
+                if not self._summary_repo:
+                    return
+                summary = {
+                    "summary": summary_text,
+                    "covered_turns": range_end_idx - range_start_idx,
+                    "source_message_count": range_end_idx - range_start_idx
                 }
-                self._files.write_json(self._session_paths["meta"], self._session_meta)
-            self._update_index()
-            
-        await asyncio.to_thread(_persist)
+                record = self._summary_repo.persist_conversation_summary(self.now_iso(), summary)
+                if self._session_meta:
+                    self._session_meta["updated_at"] = self.now_iso()
+                    self._session_meta["latest_conversation_summary"] = {
+                        "id": record.get("id"),
+                        "created_at": record.get("created_at"),
+                        "covered_turns": record.get("covered_turns"),
+                        "source_message_count": record.get("source_message_count"),
+                    }
+                    self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
 
     async def list_recent_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
         def _list():
@@ -438,15 +443,16 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         return await asyncio.to_thread(_get)
 
     async def persist_tool_summary(self, summary: dict[str, Any]) -> None:
-        def _persist():
-            if not self._summary_repo:
-                return
-            self._summary_repo.persist_tool_summary(self.now_iso(), summary)
-            if self._session_meta:
-                self._session_meta["updated_at"] = self.now_iso()
-                self._files.write_json(self._session_paths["meta"], self._session_meta)
-            self._update_index()
-        await asyncio.to_thread(_persist)
+        async with self._write_lock:
+            def _persist():
+                if not self._summary_repo:
+                    return
+                self._summary_repo.persist_tool_summary(self.now_iso(), summary)
+                if self._session_meta:
+                    self._session_meta["updated_at"] = self.now_iso()
+                    self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+            await asyncio.to_thread(_persist)
 
     async def get_latest_conversation_summary(self) -> dict[str, Any] | None:
         def _get():
@@ -459,11 +465,12 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         return await asyncio.to_thread(_get)
 
     async def persist_context_snapshot(self, snapshot: dict[str, Any]) -> None:
-        def _persist():
-            if not self._session_meta or not self._session_paths:
-                return
-            self._session_meta["latest_context_snapshot"] = dict(snapshot)
-            self._session_meta["updated_at"] = self.now_iso()
-            self._files.write_json(self._session_paths["meta"], self._session_meta)
-            self._update_index()
-        await asyncio.to_thread(_persist)
+        async with self._write_lock:
+            def _persist():
+                if not self._session_meta or not self._session_paths:
+                    return
+                self._session_meta["latest_context_snapshot"] = dict(snapshot)
+                self._session_meta["updated_at"] = self.now_iso()
+                self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+            await asyncio.to_thread(_persist)

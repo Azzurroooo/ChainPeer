@@ -30,13 +30,11 @@ class AsyncRuntimeFacade:
     ) -> AsyncIterator[RuntimeEvent]:
         """
         Run a single conversational turn asynchronously, yielding runtime events.
+
+        Note: session_id is accepted for API compatibility but the session bound to
+        this facade at construction time is always used. The caller is responsible
+        for constructing one facade per session.
         """
-        if self._session_store.session_id != session_id and session_id is not None:
-            # We assume session store has been initialized or will be initialized
-            # But the facade just runs the turn.
-            # Usually, session initialization is done before this or via DI
-            pass
-            
         await self._session_store.initialize()
 
         if query:

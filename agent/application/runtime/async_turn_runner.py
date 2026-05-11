@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import AsyncIterator
 import openai
 from tenacity import RetryError
@@ -76,14 +75,15 @@ class AsyncTurnRunner:
                     # To keep it clean, we'll iterate through the stream, manually emitting DeltaEvents,
                     # but delegating the chunk merging to the stream_parser's unified logic.
                     
-                    # Actually, the easiest way to use consume_async_stream and yield events is to queue them:
+                    # Queue-based bridge: producer consumes the async stream, consumer yields events.
+                    # Sentinel (None) is guaranteed via put_nowait in finally to survive CancelledError.
                     event_queue = asyncio.Queue()
-                    
+
                     async def _consume():
                         try:
                             async def _on_content_async(text: str):
                                 await event_queue.put(AssistantDeltaEvent(ts=session.now_iso(), text=text))
-                            
+
                             content, calls = await self._stream_parser.consume_async_stream(
                                 stream_response,
                                 _on_content_async,
@@ -94,19 +94,30 @@ class AsyncTurnRunner:
                             await event_queue.put(e)
                             return "", []
                         finally:
-                            await event_queue.put(None) # EOF marker
-                            
+                            try:
+                                await event_queue.put(None)
+                            except asyncio.CancelledError:
+                                event_queue.put_nowait(None)
+
                     consume_task = asyncio.create_task(_consume())
-                    
-                    while True:
-                        event = await event_queue.get()
-                        if event is None:
-                            break
-                        if isinstance(event, Exception):
-                            raise event
-                        yield event
-                        
-                    content_text, parsed_tool_calls = await consume_task
+
+                    try:
+                        while True:
+                            event = await event_queue.get()
+                            if event is None:
+                                break
+                            if isinstance(event, Exception):
+                                raise event
+                            yield event
+                    finally:
+                        if not consume_task.done():
+                            consume_task.cancel()
+                            try:
+                                await consume_task
+                            except (asyncio.CancelledError, Exception):
+                                pass
+
+                    content_text, parsed_tool_calls = consume_task.result()
                     
                     if content_text:
                         await session.persist_message("assistant", content_text)
