@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable, AsyncIterator, Any
 
 from agent.domain import ParsedToolCall
@@ -26,59 +27,23 @@ class MessageStreamParser:
             )
         return calls
 
-    def consume_stream_response(
-        self, response, on_content: Callable[[str], None]
-    ) -> tuple[str, list[ParsedToolCall]]:
-        """Consume a streaming response, reassembling text and tool calls."""
-        text_parts: list[str] = []
-        merged_tool_calls: list[dict] = []
-        
-        for chunk in response:
-            delta = chunk.choices[0].delta
-            if delta.content:
-                on_content(delta.content)
-                text_parts.append(delta.content)
-            if delta.tool_calls:
-                for item in delta.tool_calls:
-                    index = item.index
-                    while len(merged_tool_calls) <= index:
-                        merged_tool_calls.append({"id": "", "name": "", "arguments": ""})
-                    if item.id:
-                        merged_tool_calls[index]["id"] = item.id
-                    if item.function:
-                        if item.function.name:
-                            merged_tool_calls[index]["name"] = item.function.name
-                        if item.function.arguments:
-                            merged_tool_calls[index]["arguments"] += item.function.arguments
-                            
-        calls = [
-            ParsedToolCall(call_id=item["id"], name=item["name"], raw_args=item["arguments"])
-            for item in merged_tool_calls
-            if item["id"] and item["name"]
-        ]
-        return "".join(text_parts), calls
-
     async def consume_async_stream(
-        self, 
-        response: AsyncIterator[Any], 
+        self,
+        response: AsyncIterator[Any],
         on_content_async: Callable[[str], Any],
         cancellation_token: CancellationToken | None = None
     ) -> tuple[str, list[ParsedToolCall]]:
-        """
-        Consume a streaming response asynchronously, reassembling text and tool calls.
-        Calls `await on_content_async(chunk)` for each chunk of text.
-        """
-        import asyncio
+        """Consume a streaming response asynchronously, reassembling text and tool calls."""
         text_parts: list[str] = []
         merged_tool_calls: list[dict] = []
-        
+
         async for chunk in response:
             if cancellation_token and cancellation_token.is_cancelled:
                 raise asyncio.CancelledError(cancellation_token.reason)
-                
+
             if not chunk.choices:
                 continue
-                
+
             delta = chunk.choices[0].delta
             if delta.content:
                 await on_content_async(delta.content)
@@ -95,7 +60,7 @@ class MessageStreamParser:
                             merged_tool_calls[index]["name"] = item.function.name
                         if item.function.arguments:
                             merged_tool_calls[index]["arguments"] += item.function.arguments
-                            
+
         calls = [
             ParsedToolCall(call_id=item["id"], name=item["name"], raw_args=item["arguments"])
             for item in merged_tool_calls

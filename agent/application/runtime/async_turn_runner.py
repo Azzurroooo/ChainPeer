@@ -42,6 +42,11 @@ class AsyncTurnRunner:
         self._context_manager = context_manager
         self._debug = debug
 
+    def set_retry_callback(self, callback) -> None:
+        """Set a callback invoked on LLM API retries: (attempt: int, exception: Exception) -> None."""
+        if hasattr(self._chat_client, "on_retry"):
+            self._chat_client.on_retry = callback
+
     async def run_turn(
         self,
         session: AsyncSessionStore,

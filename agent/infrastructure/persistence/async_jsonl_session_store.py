@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
 
@@ -125,10 +126,10 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         
         os.makedirs(self._session_paths["base"], exist_ok=True)
         os.makedirs(self._session_paths["snapshots"], exist_ok=True)
-        open(self._session_paths["messages"], "a", encoding="utf-8").close()
-        open(self._session_paths["tool_calls"], "a", encoding="utf-8").close()
-        open(self._session_paths["tool_call_summaries"], "a", encoding="utf-8").close()
-        open(self._session_paths["conversation_summaries"], "a", encoding="utf-8").close()
+        Path(self._session_paths["messages"]).touch()
+        Path(self._session_paths["tool_calls"]).touch()
+        Path(self._session_paths["tool_call_summaries"]).touch()
+        Path(self._session_paths["conversation_summaries"]).touch()
         
         self._setup_repos()
         

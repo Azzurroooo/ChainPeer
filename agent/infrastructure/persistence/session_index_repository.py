@@ -26,19 +26,16 @@ class SessionIndexRepository:
             return
 
         lock = self._files._get_lock_for_path(self._index_path)
-        try:
-            with lock:
-                index_data = self.load_index()
-                sessions = index_data.get("sessions", [])
-                updated = False
-                for i, s in enumerate(sessions):
-                    if s.get("id") == entry.get("id"):
-                        sessions[i] = entry
-                        updated = True
-                        break
-                if not updated:
-                    sessions.append(entry)
-                index_data["sessions"] = sessions
-                self._files.write_json(self._index_path, index_data)
-        except Exception:
-            raise
+        with lock:
+            index_data = self.load_index()
+            sessions = index_data.get("sessions", [])
+            updated = False
+            for i, s in enumerate(sessions):
+                if s.get("id") == entry.get("id"):
+                    sessions[i] = entry
+                    updated = True
+                    break
+            if not updated:
+                sessions.append(entry)
+            index_data["sessions"] = sessions
+            self._files.write_json(self._index_path, index_data)

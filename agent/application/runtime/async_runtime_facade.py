@@ -21,10 +21,17 @@ class AsyncRuntimeFacade:
     def __init__(self, turn_runner: AsyncTurnRunner, session_store: AsyncSessionStore):
         self._turn_runner = turn_runner
         self._session_store = session_store
+        self._initialized = False
 
     async def initialize(self) -> None:
-        """Initialize or load the session state."""
-        await self._session_store.initialize()
+        """Initialize or load the session state. Safe to call multiple times."""
+        if not self._initialized:
+            await self._session_store.initialize()
+            self._initialized = True
+
+    def set_retry_callback(self, callback) -> None:
+        """Set a callback invoked on LLM API retries: (attempt: int, exception: Exception) -> None."""
+        self._turn_runner.set_retry_callback(callback)
 
     async def run_turn(
         self,

@@ -270,9 +270,8 @@ class ChatCLI:
                 render_markdown(content)
 
     def _loop(self) -> None:
-        # Connect the retry callback if possible
-        if hasattr(self._runtime, "_turn_runner") and hasattr(self._runtime._turn_runner._chat_client, 'on_retry'):
-            self._runtime._turn_runner._chat_client.on_retry = self._on_retry
+        if hasattr(self._runtime, "set_retry_callback"):
+            self._runtime.set_retry_callback(self._on_retry)
             
         while True:
             try:

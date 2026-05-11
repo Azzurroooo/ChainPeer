@@ -56,10 +56,6 @@ class ToolExecutionResult:
     error_type: str = ""
     exit_code: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
-    
-    @property
-    def is_ok(self) -> bool:
-        return self.status == "ok"
 
 
 @dataclass(slots=True)
