@@ -125,8 +125,7 @@ class AsyncTurnRunner:
                         
                 except openai.BadRequestError as e:
                     if "context_length_exceeded" in str(e) or "maximum context length" in str(e).lower():
-                        old_hard_limit = self._context_manager._estimator.budget.hard_limit_tokens
-                        self._context_manager._estimator.budget.hard_limit_tokens = int(old_hard_limit * 0.8)
+                        self._context_manager.reduce_hard_limit(factor=0.8)
                         continue
                     raise
                 except RetryError as e:

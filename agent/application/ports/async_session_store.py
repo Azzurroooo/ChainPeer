@@ -52,7 +52,12 @@ class AsyncSessionStore(Protocol):
         ...
 
     async def reconstruct_messages(self) -> list[dict[str, Any]]:
-        """Reconstruct the message history for the LLM asynchronously."""
+        """Reconstruct message history for LLM context.
+
+        Semantically identical to ``get_messages_slice()`` with default args.
+        Kept as a named alias for callers that need the full conversation
+        specifically for model input, as opposed to arbitrary slice queries.
+        """
         ...
 
     async def load_messages(self) -> list[dict[str, Any]]:

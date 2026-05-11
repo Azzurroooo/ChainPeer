@@ -55,56 +55,30 @@ class AsyncToolCallProcessor:
                 yield ToolResultEvent(tool_call_id=call.call_id, tool_name=call.name, result=tool_result_str)
             else:
                 try:
-                    # In a fully async system, we would await a real async runner here.
-                    # For Alignment B, we will rely on bash_runner.py's new async capabilities 
-                    # or run standard tools in a thread pool.
-                    
-                    # We create the job record
-                    handle = self._job_service.create_job(
+                    handle = await asyncio.to_thread(
+                        self._job_service.create_job,
                         session_id=session.session_id or "default",
                         request_id=request_id,
                         tool_call_id=call.call_id,
                         tool_name=call.name,
                         metadata={"args": parsed_args, "raw_args": call.raw_args}
                     )
-                    self._job_service.update_status(handle.job_id, "running")
-                    
-                        # Execute tool asynchronously
+                    await asyncio.to_thread(self._job_service.update_status, handle.job_id, "running")
+
                     def _sync_run():
                         return self._tool_executor.execute_sync(call.name, parsed_args, call.raw_args)
-                        
-                    if call.name == "bash":
-                        # If bash is executed, we should ideally use the async bash runner directly
-                        # But execute_sync delegates to registry which delegates to the tool function.
-                        # For bash, the tool function usually resolves to bash_runner.run_sync or run_async.
-                        # To truly wire up async bash without changing the tool registry interface right now,
-                        # we can try to intercept it, or just use to_thread since we wrapped run_async in run_sync.
-                        # But the goal of B is "bash uses asyncio.create_subprocess_exec". We did that in bash_runner.py.
-                        # Since bash_runner.run_sync uses asyncio.run(), running it in to_thread is safe but nested.
-                        # Let's just use to_thread for all for now, as the true async tool registry is part of D maybe?
-                        # Actually, we can intercept bash here to pass the cancellation token directly.
-                        if hasattr(self._tool_executor._registry, "get"):
-                            tool_def = self._tool_executor._registry.get(call.name)
-                            if tool_def and hasattr(tool_def, "__name__") and "bash" in tool_def.__name__:
-                                # Import the bash runner from the registry's closure if possible
-                                # This is hacky. Let's just use to_thread for now, bash_runner's run_sync uses asyncio.run().
-                                pass
-                                
-                    # If we had a real async tool registry:
-                    # result = await self._tool_executor.execute_async(..., cancellation_token)
-                    
-                    # For now, to unblock the UI:
+
                     result = await asyncio.to_thread(_sync_run)
-                    
+
                     if result.status == "ok":
-                        self._job_service.append_output(handle.job_id, result.result_str)
-                        self._job_service.update_status(handle.job_id, "completed")
+                        await asyncio.to_thread(self._job_service.append_output, handle.job_id, result.result_str)
+                        await asyncio.to_thread(self._job_service.update_status, handle.job_id, "completed")
                     else:
-                        self._job_service.append_output(handle.job_id, f"Error: {result.error_msg}")
-                        self._job_service.update_status(handle.job_id, "failed", error=result.error_msg)
-                        
-                    content, _ = self._job_service.read_output(handle.job_id)
-                    job = self._job_service.get_job(handle.job_id)
+                        await asyncio.to_thread(self._job_service.append_output, handle.job_id, f"Error: {result.error_msg}")
+                        await asyncio.to_thread(self._job_service.update_status, handle.job_id, "failed", error=result.error_msg)
+
+                    content, _ = await asyncio.to_thread(self._job_service.read_output, handle.job_id)
+                    job = await asyncio.to_thread(self._job_service.get_job, handle.job_id)
                     
                     if job and job.status == "failed":
                         tool_result_str = tool_error(call.name, job.metadata.get("error", "Unknown error"), "JobFailed")

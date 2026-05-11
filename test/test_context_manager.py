@@ -7,6 +7,8 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import pytest
+
 from agent.application.services import ContextBudget, ContextEstimator, ContextManager, ToolContextPolicy
 
 
@@ -19,14 +21,14 @@ class QueryOnlySession:
         self.tool_records = {}
         self.tool_summaries = {}
 
-    def get_messages_slice(self, start=None, end=None, roles=None):
+    async def get_messages_slice(self, start=None, end=None, roles=None):
         messages = [dict(message) for message in self._messages]
         if roles:
             allowed = set(roles)
             messages = [message for message in messages if message.get("role") in allowed]
         return messages[slice(start, end)]
 
-    def get_tool_records(self, limit=None, call_ids=None):
+    async def get_tool_records(self, limit=None, call_ids=None):
         records = [dict(record) for record in self.tool_records.values()]
         if call_ids:
             allowed = set(call_ids)
@@ -35,27 +37,28 @@ class QueryOnlySession:
             records = records[-limit:]
         return records
 
-    def get_tool_summaries(self, call_ids=None):
+    async def get_tool_summaries(self, call_ids=None):
         if not call_ids:
             return {key: dict(value) for key, value in self.tool_summaries.items()}
         allowed = set(call_ids)
         return {key: dict(value) for key, value in self.tool_summaries.items() if key in allowed}
 
-    def persist_tool_summary(self, summary: dict) -> None:
+    async def persist_tool_summary(self, summary: dict) -> None:
         self.tool_summaries[summary["call_id"]] = dict(summary)
 
-    def get_latest_conversation_summary(self):
+    async def get_latest_conversation_summary(self):
         return dict(self.latest_summary) if isinstance(self.latest_summary, dict) else None
 
-    def persist_conversation_summary(self, summary: dict) -> None:
+    async def persist_conversation_summary(self, summary: dict) -> None:
         self.latest_summary = dict(summary)
         self.persisted_summaries.append(dict(summary))
 
-    def persist_context_snapshot(self, snapshot: dict) -> None:
+    async def persist_context_snapshot(self, snapshot: dict) -> None:
         self.latest_snapshot = dict(snapshot)
 
 
-def test_context_manager_builds_from_session_queries() -> None:
+@pytest.mark.asyncio
+async def test_context_manager_builds_from_session_queries() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hello"},
@@ -76,7 +79,7 @@ def test_context_manager_builds_from_session_queries() -> None:
         }
     }
 
-    result = manager.build_messages(session=session)
+    result = await manager.build_messages_async(session=session)
 
     expected_messages = [
         {"role": "system", "content": "sys"},
@@ -105,7 +108,8 @@ def test_context_manager_builds_from_session_queries() -> None:
         raise AssertionError(f"Expected persisted context snapshot, got: {session.latest_snapshot}")
 
 
-def test_context_manager_appends_pending_messages() -> None:
+@pytest.mark.asyncio
+async def test_context_manager_appends_pending_messages() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hello"},
@@ -113,7 +117,7 @@ def test_context_manager_appends_pending_messages() -> None:
     pending = [{"role": "assistant", "content": "pending reply"}]
     session = QueryOnlySession(session_messages)
 
-    result = ContextManager().build_messages(session=session, pending_messages=pending)
+    result = await ContextManager().build_messages_async(session=session, pending_messages=pending)
 
     if result.messages != session_messages + pending:
         raise AssertionError(f"Expected pending overlay appended, got: {result.messages}")
@@ -123,7 +127,8 @@ def test_context_manager_appends_pending_messages() -> None:
         raise AssertionError(f"Unexpected pending decisions: {result.decisions}")
 
 
-def test_context_manager_compacts_only_cold_conversation_zone() -> None:
+@pytest.mark.asyncio
+async def test_context_manager_compacts_only_cold_conversation_zone() -> None:
     session_messages = [{"role": "system", "content": "sys"}]
     for index in range(1, 7):
         session_messages.append({"role": "user", "content": f"user message {index} with enough text to raise the estimate"})
@@ -136,7 +141,7 @@ def test_context_manager_compacts_only_cold_conversation_zone() -> None:
         hot_message_limit=4,
     )
 
-    result = manager.build_messages(session=session)
+    result = await manager.build_messages_async(session=session)
 
     if not (result.decisions or {}).get("rolling_summary_applied"):
         raise AssertionError(f"Expected rolling summary to be applied, got: {result.decisions}")
@@ -160,7 +165,8 @@ def test_context_manager_compacts_only_cold_conversation_zone() -> None:
         raise AssertionError(f"Expected hot zone preserved, got tail={tail}")
 
 
-def test_context_manager_applies_tool_temperature_policy() -> None:
+@pytest.mark.asyncio
+async def test_context_manager_applies_tool_temperature_policy() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
         {"role": "assistant", "tool_calls": [{"id": "call_old", "type": "function", "function": {"name": "search_web", "arguments": "{}"}}]},
@@ -188,7 +194,7 @@ def test_context_manager_applies_tool_temperature_policy() -> None:
             "result": {"ok": True, "tool": "fetch_web_page", "data": "y" * 2000},
         },
     }
-    result = ContextManager().build_messages(session=session)
+    result = await ContextManager().build_messages_async(session=session)
     tool_messages = [message for message in result.messages if message.get("role") == "tool"]
     old_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_old")
     new_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_new")
@@ -199,7 +205,8 @@ def test_context_manager_applies_tool_temperature_policy() -> None:
         raise AssertionError(f"Expected a persisted tool summary for cold/warm tool calls, got: {session.tool_summaries}")
 
 
-def test_context_manager_prioritizes_hot_tool_budget() -> None:
+@pytest.mark.asyncio
+async def test_context_manager_prioritizes_hot_tool_budget() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
         {"role": "assistant", "tool_calls": [{"id": "call_old", "type": "function", "function": {"name": "search_web", "arguments": "{}"}}]},
@@ -225,7 +232,7 @@ def test_context_manager_prioritizes_hot_tool_budget() -> None:
         tool_context_policy=ToolContextPolicy(hot_batch_limit=1, warm_batch_limit=0),
     )
 
-    result = manager.build_messages(session=session)
+    result = await manager.build_messages_async(session=session)
     tool_messages = [message for message in result.messages if message.get("role") == "tool"]
     old_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_old")
     new_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_new")
@@ -239,11 +246,14 @@ def test_context_manager_prioritizes_hot_tool_budget() -> None:
 
 
 def main() -> int:
-    test_context_manager_builds_from_session_queries()
-    test_context_manager_appends_pending_messages()
-    test_context_manager_compacts_only_cold_conversation_zone()
-    test_context_manager_applies_tool_temperature_policy()
-    test_context_manager_prioritizes_hot_tool_budget()
+    import asyncio
+    async def _run_all():
+        await test_context_manager_builds_from_session_queries()
+        await test_context_manager_appends_pending_messages()
+        await test_context_manager_compacts_only_cold_conversation_zone()
+        await test_context_manager_applies_tool_temperature_policy()
+        await test_context_manager_prioritizes_hot_tool_budget()
+    asyncio.run(_run_all())
     print("ContextManager tests passed.")
     return 0
 

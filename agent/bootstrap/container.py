@@ -6,11 +6,9 @@ from agent.application import ContextManager, ToolExecutor, JobService
 from agent.application.runtime.async_runtime_facade import AsyncRuntimeFacade
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
 from agent.application.runtime.message_stream_parser import MessageStreamParser
-from agent.application.ports import SessionStore
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.domain import looks_like_tool_payload
 from agent.infrastructure.config import Config
-from agent.infrastructure.llm import OpenAIChatClient
 from agent.infrastructure.llm.openai_async_chat_client import AsyncOpenAIChatClient
 from agent.infrastructure.persistence import JobStoreJsonl, TaskOutputStoreFile
 from agent.infrastructure.persistence.async_jsonl_session_store import AsyncJsonlSessionStore

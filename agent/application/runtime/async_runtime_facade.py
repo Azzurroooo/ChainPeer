@@ -22,6 +22,10 @@ class AsyncRuntimeFacade:
         self._turn_runner = turn_runner
         self._session_store = session_store
 
+    async def initialize(self) -> None:
+        """Initialize or load the session state."""
+        await self._session_store.initialize()
+
     async def run_turn(
         self,
         session_id: str | None = None,

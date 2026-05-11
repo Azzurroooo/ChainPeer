@@ -11,7 +11,6 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type,
     RetryCallState,
-    AsyncRetrying
 )
 
 from agent.application.ports.async_chat_client import AsyncChatClient

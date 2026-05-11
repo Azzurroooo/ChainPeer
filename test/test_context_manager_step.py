@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -17,27 +18,27 @@ class MockSession:
         self.conversation_summaries = []
         self.context_snapshots = []
 
-    def get_messages_slice(self):
+    async def get_messages_slice(self):
         return self.messages
 
-    def get_tool_records(self, call_ids=None):
+    async def get_tool_records(self, call_ids=None):
         return self.tool_records
 
-    def get_tool_summaries(self, call_ids=None):
+    async def get_tool_summaries(self, call_ids=None):
         return self.tool_summaries
 
-    def persist_tool_summary(self, summary):
+    async def persist_tool_summary(self, summary):
         pass
 
-    def get_latest_conversation_summary(self):
+    async def get_latest_conversation_summary(self):
         if self.conversation_summaries:
             return self.conversation_summaries[-1]
         return None
 
-    def persist_conversation_summary(self, summary):
+    async def persist_conversation_summary(self, summary):
         self.conversation_summaries.append(summary)
 
-    def persist_context_snapshot(self, snapshot):
+    async def persist_context_snapshot(self, snapshot):
         self.context_snapshots.append(snapshot)
 
 
@@ -55,12 +56,13 @@ class MockSummaryService:
             "content": f"PREVIOUS CONVERSATION SUMMARY: {summary['content']}"
         }
 
-def test_context_manager_step_compaction():
+@pytest.mark.asyncio
+async def test_context_manager_step_compaction():
     # Force the budget to be very small so it always triggers compaction
     budget = ContextBudget(conversation_budget_tokens=10, tool_budget_tokens=500, hard_limit_tokens=2000)
     estimator = ContextEstimator(budget=budget)
     summary_service = MockSummaryService()
-    
+
     # 2 hot messages, 4 threshold for step summary
     manager = ContextManager(
         estimator=estimator,
@@ -68,29 +70,29 @@ def test_context_manager_step_compaction():
         hot_message_limit=2,
         summary_step_threshold=4
     )
-    
+
     session = MockSession()
-    
+
     # Add 10 messages (all will be over soft limit)
     # 8 will be cold, 2 will be hot
     for i in range(10):
         session.messages.append({"role": "user", "content": f"Message {i}"})
-        
+
     # First build: should generate summary for 8 cold messages
-    result = manager.build_messages(session)
+    result = await manager.build_messages_async(session)
     assert result.decisions["rolling_summary_generated"] == True
     assert result.stats["cold_compacted_message_count"] == 8
     assert len(session.conversation_summaries) == 1
     assert session.conversation_summaries[0]["source_message_count"] == 8
-    
+
     # Now add 2 more messages (total 12)
     # 10 will be cold, 2 will be hot.
-    # The new cold messages count is 10, previous was 8. 
+    # The new cold messages count is 10, previous was 8.
     # Difference is 2 < 4 (threshold). It should REUSE the summary.
     session.messages.append({"role": "user", "content": "Message 10"})
     session.messages.append({"role": "user", "content": "Message 11"})
-    
-    result2 = manager.build_messages(session)
+
+    result2 = await manager.build_messages_async(session)
     # Should NOT generate a new summary
     assert result2.decisions["rolling_summary_generated"] == False
     # Covered count is 8, so it skipped 8 messages, kept 2 old cold messages + 2 hot messages + 1 summary = 5 total
@@ -108,12 +110,12 @@ def test_context_manager_step_compaction():
     session.messages.append({"role": "user", "content": "Message 12"})
     session.messages.append({"role": "user", "content": "Message 13"})
     session.messages.append({"role": "user", "content": "Message 14"})
-    
-    result3 = manager.build_messages(session)
+
+    result3 = await manager.build_messages_async(session)
     assert result3.decisions["rolling_summary_generated"] == True
     assert len(session.conversation_summaries) == 2
     assert session.conversation_summaries[-1]["source_message_count"] == 13
-    
+
     # The new result should have 1 summary + 2 hot messages = 3 messages
     assert len(result3.messages) == 3
     assert result3.messages[0]["content"].startswith("PREVIOUS CONVERSATION")

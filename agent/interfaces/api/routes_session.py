@@ -31,7 +31,7 @@ async def run_turn(session_id: str, turn_req: TurnRequest, request: Request, fac
     # Since AsyncRuntimeFacade.run_turn takes query and persists it, we just pass the query.
     
     # We must ensure the session is created if it doesn't exist
-    await agent._session_store.initialize()
+    await agent.initialize()
 
     cancel_source = CancellationTokenSource()
 
