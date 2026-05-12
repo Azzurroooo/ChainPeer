@@ -1,7 +1,7 @@
 import os
 from typing import Any
 
-from agent.domain.tool_result import tool_error, tool_ok
+from agent.domain import tool_error, tool_ok
 from .bash_session_pool import BashSessionPool
 from .bash_policy import BashPolicy
 from .bash_runner import BashRunner

@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import urllib3
 
-from ..core.base import tool_error, tool_ok
+from agent.domain import tool_error, tool_ok
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

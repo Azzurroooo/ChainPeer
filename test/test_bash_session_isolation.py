@@ -14,7 +14,7 @@ class TestBashSessionIsolation(unittest.TestCase):
         self.assertIsNot(s1, s2)
         
         # Modify s1 cwd
-        pool.update_cwd("session_1", "/tmp/s1")
+        s1.cwd = "/tmp/s1"
         
         s1_updated = pool.get_state("session_1")
         s2_updated = pool.get_state("session_2")

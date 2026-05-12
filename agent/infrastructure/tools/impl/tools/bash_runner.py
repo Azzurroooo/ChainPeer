@@ -11,7 +11,7 @@ from typing import AsyncIterator
 
 from agent.domain.events import RuntimeEvent, ToolProgressEvent, ToolResultEvent
 from agent.domain.jobs import ToolExecutionResult
-from agent.domain.tool_result import tool_error, tool_ok
+from agent.domain import tool_error, tool_ok
 from agent.application.runtime.cancellation import CancellationToken
 from .bash_session_pool import ShellState
 

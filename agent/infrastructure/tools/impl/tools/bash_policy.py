@@ -35,7 +35,7 @@ class BashPolicy:
             (r":\s*\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "Detected fork bomb pattern."),
         ]
         
-        forbidden_reason = cls._match_patterns(command, forbidden_patterns)
+        forbidden_reason = BashPolicy._match_patterns(command, forbidden_patterns)
         if forbidden_reason:
             return "deny", forbidden_reason
 
@@ -47,9 +47,9 @@ class BashPolicy:
             (r"\bRemove-Item\b.*-Recurse\b", "Detected PowerShell recursive removal."),
         ]
         
-        confirm_reason = cls._match_patterns(command, confirmable_patterns)
+        confirm_reason = BashPolicy._match_patterns(command, confirmable_patterns)
         if confirm_reason:
-            if cls._unsafe_mode_enabled():
+            if BashPolicy._unsafe_mode_enabled():
                 return "allow", "Unsafe mode enabled."
             return "needs_approval", confirm_reason
 

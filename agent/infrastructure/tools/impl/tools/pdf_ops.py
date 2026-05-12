@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pymupdf
 
-from ..core.base import tool_error, tool_ok
+from agent.domain import tool_error, tool_ok
 
 _MAX_PAGES_PER_CALL = 30
 _TEXT_THRESHOLD = 50  # chars — below this, page is considered scanned/image

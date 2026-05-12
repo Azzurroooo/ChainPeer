@@ -51,8 +51,3 @@ class BashSessionPool:
         """Reset the shell state for a session."""
         if session_id in self._states:
             del self._states[session_id]
-
-    def update_cwd(self, session_id: str, new_cwd: str) -> None:
-        """Update the working directory for a session."""
-        state = self.get_state(session_id)
-        state.cwd = new_cwd

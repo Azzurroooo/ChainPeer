@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..core.base import tool_error, tool_ok
+from agent.domain import tool_error, tool_ok
 
 PLAN_SCHEMA_VERSION = "1.0"
 PLAN_STATUS = {"active", "completed", "canceled"}
