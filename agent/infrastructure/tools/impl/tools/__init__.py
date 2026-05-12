@@ -2,6 +2,7 @@
 
 from .bash import bash, kill_shell
 from .file_ops import edit_file, grep, list_files, read_file, write_file
+from .pdf_ops import read_pdf
 from .plan import (
     plan_close,
     plan_create,
@@ -20,6 +21,7 @@ __all__ = [
     "grep",
     "list_files",
     "read_file",
+    "read_pdf",
     "write_file",
     "plan_create",
     "plan_get",

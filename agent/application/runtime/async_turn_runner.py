@@ -89,6 +89,7 @@ class AsyncTurnRunner:
                             async def _on_content_async(text: str):
                                 await event_queue.put(AssistantDeltaEvent(ts=session.now_iso(), text=text))
 
+                            # Make sure we AWAIT consume_async_stream, not just return the coroutine!
                             content, calls = await self._stream_parser.consume_async_stream(
                                 stream_response,
                                 _on_content_async,

@@ -65,9 +65,12 @@ class AsyncRuntimeFacade:
         async def _run():
             from agent.domain.events import AssistantDeltaEvent
             final_text = ""
-            async for event in self.run_turn(session_id=session_id, query=query):
-                if isinstance(event, AssistantDeltaEvent):
-                    final_text += event.text
+            try:
+                async for event in self.run_turn(session_id=session_id, query=query):
+                    if isinstance(event, AssistantDeltaEvent):
+                        final_text += event.text
+            except Exception as e:
+                return f"Error: {str(e)}"
             return final_text
 
         return asyncio.run(_run())

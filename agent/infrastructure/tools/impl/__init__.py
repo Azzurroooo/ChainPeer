@@ -20,12 +20,14 @@ from .tools import (
     plan_reorder,
     plan_update_step,
     read_file,
+    read_pdf,
     search_web,
     write_file,
 )
 
 TOOLS: dict[str, Callable] = {
     "read_file": read_file,
+    "read_pdf": read_pdf,
     "write_file": write_file,
     "edit_file": edit_file,
     "list_files": list_files,
@@ -50,6 +52,15 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
             "file_path": "文件绝对或相对路径",
             "offset": "起始行号（默认 1）",
             "limit": "最多读取的行数（默认 1000 行，避免大文件超出上下文）",
+        },
+    },
+    "read_pdf": {
+        "description": "解析PDF文件内容，支持文字版和扫描版PDF。提取结构化文本（标题、段落）、表格（Markdown格式）。分页返回，每次最多30页。扫描版PDF自动使用OCR。",
+        "param_descriptions": {
+            "file_path": "PDF文件路径",
+            "start_page": "起始页码（默认1）",
+            "end_page": "结束页码（默认到文件末尾，每次最多30页）",
+            "force_ocr": "强制使用OCR（用于编码异常的文字PDF，默认False）",
         },
     },
     "write_file": {
