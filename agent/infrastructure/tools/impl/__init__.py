@@ -147,11 +147,11 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
         },
     },
     "search_web": {
-        "description": "搜索互联网上的信息。当不知道具体问题的答案、需要最新信息或查找外部文档时使用。",
-        "param_descriptions": {"query": "搜索关键词", "max_results": "最大结果数 (默认 5)"},
+        "description": "搜索互联网信息。支持多搜索引擎自动切换（Bing/Baidu/DDG），适用于中英文内容查询，中国大陆可用。",
+        "param_descriptions": {"query": "搜索关键词（支持中英文）", "max_results": "最大结果数 (默认 5)"},
     },
     "fetch_web_page": {
-        "description": "抓取并读取网页内容 (转换为 Markdown)。通常在 search_web 返回 URL 后使用，以获取详细信息。",
+        "description": "抓取并提取网页主要内容（自动去除导航、广告等干扰，输出Markdown）。通常在 search_web 返回 URL 后使用。",
         "param_descriptions": {"url": "网页 URL"},
     },
 }
