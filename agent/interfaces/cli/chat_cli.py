@@ -43,7 +43,10 @@ class ChatCLI:
             self._render_loaded_messages()
             self._loop()
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except KeyboardInterrupt:
+                pass
             loop.close()
             self._event_loop = None
 
@@ -76,7 +79,7 @@ class ChatCLI:
         while True:
             try:
                 user_input = input("\n> ").strip()
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n再见！👋")
                 break
 
