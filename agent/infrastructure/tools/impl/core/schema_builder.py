@@ -44,7 +44,9 @@ def build_function_schema(
     description: str,
     param_descriptions: dict[str, str | dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    import typing
     signature = inspect.signature(func)
+    resolved_hints = typing.get_type_hints(func)
     properties: dict[str, dict[str, Any]] = {}
     required: list[str] = []
     param_descriptions = param_descriptions or {}
@@ -56,7 +58,8 @@ def build_function_schema(
         if param_name.startswith("_"):
             continue
 
-        json_t = _json_type(param.annotation)
+        actual_annotation = resolved_hints.get(param_name, param.annotation)
+        json_t = _json_type(actual_annotation)
         # _json_type may return a dict (for array+items) or a bare type string
         if isinstance(json_t, dict):
             item: dict[str, Any] = json_t

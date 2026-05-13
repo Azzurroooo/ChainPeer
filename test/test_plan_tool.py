@@ -81,8 +81,7 @@ def test_create_and_next() -> tuple[str, int]:
     return plan_id, int(data["version"])
 
 
-def test_dependency_and_blocked() -> int:
-    plan_id, version = test_create_and_next()
+def test_dependency_and_blocked(version: int) -> int:
     payload = parse_payload(plan_update_step("s2", {"status": "in_progress"}, expected_version=version))
     assert_error(payload, "DependencyViolation")
 
@@ -95,8 +94,7 @@ def test_dependency_and_blocked() -> int:
     return int(blocked["version"])
 
 
-def test_version_conflict() -> int:
-    plan_id, version = test_create_and_next()
+def test_version_conflict(version: int) -> int:
     ok = assert_ok(parse_payload(plan_update_step("s1", {"status": "pending"}, expected_version=version)))
     new_version = int((ok.get("meta") or {}).get("version"))
     conflict = parse_payload(plan_update_step("s3", {"status": "in_progress"}, expected_version=version))
@@ -104,8 +102,7 @@ def test_version_conflict() -> int:
     return new_version
 
 
-def test_reorder_link_and_close() -> None:
-    plan_id, version = test_create_and_next()
+def test_reorder_link_and_close(version: int) -> None:
     payload = assert_ok(parse_payload(plan_reorder(["s3", "s1", "s2"], expected_version=version)))
     version = int((payload.get("meta") or {}).get("version"))
 

@@ -235,10 +235,20 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
                 self._files.write_json(self._session_paths["meta"], self._session_meta)
             self._update_index()
 
+    def __del__(self):
+        """Cleanup session environment variables when store is destroyed."""
+        os.environ.pop("AGENT_SESSION_ROOT", None)
+        os.environ.pop("AGENT_SESSION_ID", None)
+
     async def initialize(self) -> None:
         async with self._write_lock:
             await asyncio.to_thread(self._ensure_session_sync)
             await asyncio.to_thread(self._initialize_history_sync)
+            
+            # Inject session environment variables after successful initialization
+            if self._session_root and self._session_id:
+                os.environ["AGENT_SESSION_ROOT"] = str(self._session_root)
+                os.environ["AGENT_SESSION_ID"] = str(self._session_id)
 
     async def persist_message(
         self,
