@@ -32,9 +32,12 @@ def read_file(file_path: str, offset: int = 1, limit: int = 1000) -> str:
             
         # 附带行号输出
         output = [f"Showing lines {start_idx + 1} to {end_idx} of {total_lines}:"]
+        _NL = "\n"
         for i in range(start_idx, end_idx):
             # 格式化行号，占位 4 个字符以保持对齐
-            output.append(f"{i + 1:4d} | {lines[i].rstrip('\n')}")
+            # 注:f-string 表达式部分在 Python <3.12 不允许出现反斜杠,需要先抽离换行符
+            line_text = lines[i].rstrip(_NL)
+            output.append(f"{i + 1:4d} | {line_text}")
             
         return tool_ok(
             "read_file",
