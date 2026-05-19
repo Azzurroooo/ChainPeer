@@ -83,7 +83,7 @@ def render_skill_index(skills: list[Skill], max_description_chars: int = 180) ->
         [
             "",
             "Activation rules:",
-            "- Use a skill when the user explicitly names it with $skill-name or when the request clearly matches its description/triggers.",
+            "- Use a skill only when the user explicitly names it with $skill-name.",
             "- Only follow active skill instructions when they are provided below.",
         ]
     )
@@ -164,4 +164,3 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "..."
-

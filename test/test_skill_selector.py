@@ -34,7 +34,7 @@ def test_skill_selector_prefers_explicit_dollar_name() -> None:
         raise AssertionError(f"Unexpected explicit match: {match}")
 
 
-def test_skill_selector_matches_names_triggers_and_limit() -> None:
+def test_skill_selector_uses_explicit_order_and_limit() -> None:
     selector = SkillSelector(max_active_skills=2)
     skills = [
         _skill("alpha", ["shared trigger"]),
@@ -42,12 +42,22 @@ def test_skill_selector_matches_names_triggers_and_limit() -> None:
         _skill("gamma", ["shared trigger"]),
     ]
 
-    matches = selector.select("Use beta and shared trigger.", skills)
+    matches = selector.select("Use $beta then $alpha and $gamma.", skills)
 
     if [match.skill.name for match in matches] != ["beta", "alpha"]:
-        raise AssertionError(f"Expected name match first then trigger sort, got: {matches}")
-    if [match.reason for match in matches] != ["explicit_name", "trigger"]:
+        raise AssertionError(f"Expected explicit user order up to limit, got: {matches}")
+    if [match.reason for match in matches] != ["explicit_dollar_name", "explicit_dollar_name"]:
         raise AssertionError(f"Unexpected match reasons: {matches}")
+
+
+def test_skill_selector_ignores_plain_names_and_triggers() -> None:
+    selector = SkillSelector(max_active_skills=2)
+    skills = [_skill("alpha", ["shared trigger"]), _skill("beta", ["other trigger"])]
+
+    matches = selector.select("Use alpha and shared trigger.", skills)
+
+    if matches:
+        raise AssertionError(f"Expected no implicit matches, got: {matches}")
 
 
 def test_skill_selector_can_disable_active_skills() -> None:
@@ -59,7 +69,8 @@ def test_skill_selector_can_disable_active_skills() -> None:
 
 def main() -> int:
     test_skill_selector_prefers_explicit_dollar_name()
-    test_skill_selector_matches_names_triggers_and_limit()
+    test_skill_selector_uses_explicit_order_and_limit()
+    test_skill_selector_ignores_plain_names_and_triggers()
     test_skill_selector_can_disable_active_skills()
     print("Skill selector tests passed.")
     return 0

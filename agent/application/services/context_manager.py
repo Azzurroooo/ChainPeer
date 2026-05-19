@@ -56,7 +56,12 @@ class ContextManager:
         self._skill_index_char_limit = max(0, int(skill_index_char_limit))
         self._active_skill_char_limit = max(0, int(active_skill_char_limit))
 
-    async def build_messages_async(self, session, pending_messages: list[dict] | None = None) -> ContextBuildResult:
+    async def build_messages_async(
+        self,
+        session,
+        pending_messages: list[dict] | None = None,
+        active_skill_matches: list | None = None,
+    ) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in await session.get_messages_slice()]
         pending = [dict(message) for message in (pending_messages or [])]
         budget = self._estimator.budget
@@ -65,9 +70,7 @@ class ContextManager:
             session=session,
             tool_char_budget=budget.tool_budget_tokens * 4,
         )
-        skill_messages, skill_stats, skill_decisions = self._build_skill_messages(
-            self._latest_user_content(persisted_messages + pending)
-        )
+        skill_messages, skill_stats, skill_decisions = self._build_skill_messages(active_skill_matches)
         if skill_messages:
             full_messages = self._insert_after_first_system(full_messages, skill_messages)
 
@@ -290,16 +293,16 @@ class ContextManager:
     def _strip_internal_fields(self, message: dict) -> dict:
         return {key: value for key, value in dict(message).items() if not key.startswith("_")}
 
-    def _latest_user_content(self, messages: list[dict]) -> str:
-        for message in reversed(messages):
-            if message.get("role") != "user":
-                continue
-            content = message.get("content", "")
-            if isinstance(content, str):
-                return content
-        return ""
+    def select_active_skills_for_turn(self, user_message: str) -> list:
+        if not self._skill_repository or not self._skill_selector:
+            return []
+        try:
+            skills = list(self._skill_repository.list_skills())
+            return list(self._skill_selector.select(user_message, skills))
+        except Exception:
+            return []
 
-    def _build_skill_messages(self, user_message: str) -> tuple[list[dict], dict, dict]:
+    def _build_skill_messages(self, active_skill_matches: list | None = None) -> tuple[list[dict], dict, dict]:
         stats = {
             "skill_count": 0,
             "active_skill_count": 0,
@@ -327,12 +330,7 @@ class ContextManager:
             "\n...(skill index truncated due to context budget)...",
         )
         messages = [{"role": "system", "content": index_content}] if index_content else []
-        active_matches = []
-        if self._skill_selector:
-            try:
-                active_matches = list(self._skill_selector.select(user_message, skills))
-            except Exception:
-                active_matches = []
+        active_matches = list(active_skill_matches or [])
 
         active_content = ""
         if active_matches:

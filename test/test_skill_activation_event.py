@@ -11,8 +11,64 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
-from agent.domain import ParsedToolCall
+from agent.domain import ParsedToolCall, Skill, SkillMatch
 from agent.domain.events import AssistantDeltaEvent, SkillActivatedEvent
+
+
+def _skill(name: str = "demo") -> Skill:
+    return Skill(
+        name=name,
+        description="Demo skill for tests.",
+        body="# Demo\nFollow demo instructions.",
+        path=f"/tmp/{name}/SKILL.md",
+        triggers=["demo trigger"],
+        source="project",
+    )
+
+
+class FakeSession:
+    def __init__(self, user_content: str):
+        self._messages = [{"role": "user", "content": user_content}]
+        self.persisted_messages = []
+
+    def now_iso(self) -> str:
+        return "2026-05-19T00:00:00Z"
+
+    async def get_messages_slice(self, *args, **kwargs):
+        return [dict(message) for message in self._messages]
+
+    async def persist_message(self, *args, **kwargs):
+        self.persisted_messages.append((args, kwargs))
+
+
+class FakeContextManager:
+    def __init__(self, selected_matches: list[SkillMatch]):
+        self.selected_matches = selected_matches
+        self.selected_messages: list[str] = []
+        self.build_active_matches: list[list[SkillMatch]] = []
+
+    def select_active_skills_for_turn(self, user_message: str) -> list[SkillMatch]:
+        self.selected_messages.append(user_message)
+        return list(self.selected_matches)
+
+    async def build_messages_async(self, *args, **kwargs):
+        active_matches = list(kwargs.get("active_skill_matches") or [])
+        self.build_active_matches.append(active_matches)
+        return MagicMock(
+            messages=[{"role": "system", "content": "sys"}],
+            decisions={
+                "active_skills": [
+                    {
+                        "name": match.skill.name,
+                        "reason": match.reason,
+                        "score": match.score,
+                        "source": match.skill.source,
+                        "path": match.skill.path,
+                    }
+                    for match in active_matches
+                ]
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -31,38 +87,20 @@ async def test_skill_activation_event_precedes_assistant_delta() -> None:
 
     mock_parser = MagicMock()
     mock_parser.consume_async_stream = mock_consume
-
-    context = MagicMock(
-        messages=[{"role": "system", "content": "sys"}],
-        decisions={
-            "active_skills": [
-                {
-                    "name": "demo",
-                    "reason": "explicit_dollar_name",
-                    "score": 100,
-                    "source": "project",
-                    "path": "/tmp/demo/SKILL.md",
-                }
-            ]
-        },
-    )
-    mock_context = MagicMock()
-    mock_context.build_messages_async = AsyncMock(return_value=context)
-
-    mock_session = MagicMock()
-    mock_session.now_iso.return_value = "2026-05-19T00:00:00Z"
-    mock_session.persist_message = AsyncMock()
+    skill = _skill()
+    context_manager = FakeContextManager([SkillMatch(skill=skill, reason="explicit_dollar_name", score=100)])
+    session = FakeSession("please use $demo")
 
     runner = AsyncTurnRunner(
         chat_client=mock_client,
         tool_processor=MagicMock(),
         stream_parser=mock_parser,
         tool_schemas=[],
-        context_manager=mock_context,
+        context_manager=context_manager,
     )
 
     events = []
-    async for event in runner.run_turn(mock_session):
+    async for event in runner.run_turn(session):
         events.append(event)
 
     if not isinstance(events[0], SkillActivatedEvent):
@@ -73,6 +111,8 @@ async def test_skill_activation_event_precedes_assistant_delta() -> None:
     first_delta = next(index for index, event in enumerate(events) if isinstance(event, AssistantDeltaEvent))
     if first_delta <= 0:
         raise AssertionError(f"Expected assistant delta after skill event, got: {events}")
+    if context_manager.selected_messages != ["please use $demo"]:
+        raise AssertionError(f"Expected one turn-level skill selection, got: {context_manager.selected_messages}")
 
 
 @pytest.mark.asyncio
@@ -98,34 +138,10 @@ async def test_skill_activation_event_emitted_once_per_turn() -> None:
     mock_parser = MagicMock()
     mock_parser.consume_async_stream = mock_consume
 
-    context = MagicMock(
-        messages=[{"role": "system", "content": "sys"}],
-        decisions={
-            "active_skills": [
-                {
-                    "name": "demo",
-                    "reason": "explicit_dollar_name",
-                    "score": 100,
-                    "source": "project",
-                    "path": "/tmp/demo/SKILL.md",
-                }
-            ]
-        },
-    )
-
-    build_count = 0
-
-    async def build_messages_async(*args, **kwargs):
-        nonlocal build_count
-        build_count += 1
-        return context
-
-    mock_context = MagicMock()
-    mock_context.build_messages_async = build_messages_async
-
-    mock_session = MagicMock()
-    mock_session.now_iso.return_value = "2026-05-19T00:00:00Z"
-    mock_session.persist_message = AsyncMock()
+    skill = _skill()
+    match = SkillMatch(skill=skill, reason="explicit_dollar_name", score=100)
+    context_manager = FakeContextManager([match])
+    session = FakeSession("please use $demo")
 
     async def execute(*args, **kwargs):
         yield MagicMock()
@@ -138,18 +154,62 @@ async def test_skill_activation_event_emitted_once_per_turn() -> None:
         tool_processor=mock_processor,
         stream_parser=mock_parser,
         tool_schemas=[],
-        context_manager=mock_context,
+        context_manager=context_manager,
     )
 
     events = []
-    async for event in runner.run_turn(mock_session):
+    async for event in runner.run_turn(session):
         events.append(event)
 
     skill_events = [event for event in events if isinstance(event, SkillActivatedEvent)]
     if len(skill_events) != 1:
         raise AssertionError(f"Expected one skill event per turn, got: {skill_events}")
-    if build_count < 2:
-        raise AssertionError(f"Expected multiple context builds due to tool call, got: {build_count}")
+    if context_manager.selected_messages != ["please use $demo"]:
+        raise AssertionError(f"Expected skill selection once, got: {context_manager.selected_messages}")
+    if len(context_manager.build_active_matches) < 2:
+        raise AssertionError(f"Expected multiple context builds due to tool call, got: {context_manager.build_active_matches}")
+    if any(matches != [match] for matches in context_manager.build_active_matches):
+        raise AssertionError(f"Expected same active skill matches on each build, got: {context_manager.build_active_matches}")
+
+
+@pytest.mark.asyncio
+async def test_plain_trigger_does_not_emit_skill_activation_event() -> None:
+    mock_client = AsyncMock()
+
+    async def mock_stream(*args, **kwargs):
+        yield MagicMock()
+
+    mock_client.stream = mock_stream
+
+    async def mock_consume(*args, **kwargs):
+        on_content_async = args[1]
+        await on_content_async("Hello")
+        return "Hello", []
+
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = mock_consume
+    context_manager = FakeContextManager([])
+    session = FakeSession("demo trigger")
+
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=context_manager,
+    )
+
+    events = []
+    async for event in runner.run_turn(session):
+        events.append(event)
+
+    skill_events = [event for event in events if isinstance(event, SkillActivatedEvent)]
+    if skill_events:
+        raise AssertionError(f"Expected no skill activation events, got: {skill_events}")
+    if context_manager.selected_messages != ["demo trigger"]:
+        raise AssertionError(f"Expected one turn-level skill selection, got: {context_manager.selected_messages}")
+    if context_manager.build_active_matches != [[]]:
+        raise AssertionError(f"Expected no active skill matches, got: {context_manager.build_active_matches}")
 
 
 def main() -> int:
@@ -157,6 +217,7 @@ def main() -> int:
 
     asyncio.run(test_skill_activation_event_precedes_assistant_delta())
     asyncio.run(test_skill_activation_event_emitted_once_per_turn())
+    asyncio.run(test_plain_trigger_does_not_emit_skill_activation_event())
     print("Skill activation event tests passed.")
     return 0
 

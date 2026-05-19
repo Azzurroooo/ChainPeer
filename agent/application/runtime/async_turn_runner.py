@@ -57,12 +57,19 @@ class AsyncTurnRunner:
         
         try:
             emitted_skill_names: set[str] = set()
+            turn_active_skill_matches: list | None = None
             while True:
                 if cancellation_token and cancellation_token.is_cancelled:
                     yield TurnCancelledEvent(ts=session.now_iso(), reason=cancellation_token.reason)
                     return
-                
-                context = await self._context_manager.build_messages_async(session=session)
+
+                if turn_active_skill_matches is None:
+                    turn_active_skill_matches = await self._resolve_turn_active_skills(session)
+
+                context = await self._context_manager.build_messages_async(
+                    session=session,
+                    active_skill_matches=turn_active_skill_matches,
+                )
                 context_decisions = context.decisions if isinstance(getattr(context, "decisions", None), dict) else {}
                 for item in context_decisions.get("active_skills") or []:
                     skill_name = str(item.get("name") or "")
@@ -184,3 +191,25 @@ class AsyncTurnRunner:
             # We don't have session.now_iso() guaranteed here, but we try
             ts = session.now_iso() if hasattr(session, 'now_iso') else "unknown"
             yield TurnFailedEvent(ts=ts, error=str(e))
+
+    async def _resolve_turn_active_skills(self, session: AsyncSessionStore) -> list:
+        selector = getattr(self._context_manager, "select_active_skills_for_turn", None)
+        if not callable(selector):
+            return []
+        user_message = await self._latest_user_content(session)
+        try:
+            return list(selector(user_message))
+        except Exception:
+            return []
+
+    async def _latest_user_content(self, session: AsyncSessionStore) -> str:
+        try:
+            messages = await session.get_messages_slice()
+        except Exception:
+            return ""
+        for message in reversed(messages):
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content", "")
+            return content if isinstance(content, str) else ""
+        return ""
