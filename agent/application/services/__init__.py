@@ -5,6 +5,7 @@ from .context_manager import ContextBuildResult, ContextManager, ContextSnapshot
 from .conversation_summary_service import ConversationSummaryService
 from .tool_context_policy import ToolContextPolicy
 from .job_service import JobService
+from .skill_selector import SkillSelector
 
 __all__ = [
     "ContextBudget",
@@ -16,4 +17,5 @@ __all__ = [
     "ConversationSummaryService",
     "ToolContextPolicy",
     "JobService",
+    "SkillSelector",
 ]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from agent.domain.skills import render_active_skill_instructions, render_skill_index
+
 from .context_estimator import ContextEstimator
 from .conversation_summary_service import ConversationSummaryService
 from .tool_context_policy import ToolContextPolicy
@@ -39,12 +41,20 @@ class ContextManager:
         tool_context_policy: ToolContextPolicy | None = None,
         hot_message_limit: int = 6,
         summary_step_threshold: int = 6,
+        skill_repository=None,
+        skill_selector=None,
+        skill_index_char_limit: int = 3000,
+        active_skill_char_limit: int = 12000,
     ):
         self._estimator = estimator or ContextEstimator()
         self._summary_service = summary_service or ConversationSummaryService()
         self._tool_context_policy = tool_context_policy or ToolContextPolicy()
         self._hot_message_limit = max(1, int(hot_message_limit))
         self._summary_step_threshold = max(1, int(summary_step_threshold))
+        self._skill_repository = skill_repository
+        self._skill_selector = skill_selector
+        self._skill_index_char_limit = max(0, int(skill_index_char_limit))
+        self._active_skill_char_limit = max(0, int(active_skill_char_limit))
 
     async def build_messages_async(self, session, pending_messages: list[dict] | None = None) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in await session.get_messages_slice()]
@@ -55,6 +65,11 @@ class ContextManager:
             session=session,
             tool_char_budget=budget.tool_budget_tokens * 4,
         )
+        skill_messages, skill_stats, skill_decisions = self._build_skill_messages(
+            self._latest_user_content(persisted_messages + pending)
+        )
+        if skill_messages:
+            full_messages = self._insert_after_first_system(full_messages, skill_messages)
 
         initial_estimate = self._estimator.estimate_messages(full_messages)
         messages = list(full_messages)
@@ -116,6 +131,7 @@ class ContextManager:
             "pre_compaction_conversation_tokens": initial_estimate.conversation_tokens,
             "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
             "budget": budget.to_dict(),
+            **skill_stats,
         }
         decisions = {
             "mode": "session_backed",
@@ -131,6 +147,7 @@ class ContextManager:
             "rolling_summary_generated": summary_generated,
             "hot_message_limit": self._hot_message_limit,
             "tool_policy_applied": True,
+            **skill_decisions,
         }
         result = ContextBuildResult(messages=final_messages, stats=stats, decisions=decisions, snapshot=snapshot)
         await session.persist_context_snapshot(
@@ -160,6 +177,7 @@ class ContextManager:
                 "budget": budget.to_dict(),
                 "snapshot": asdict(snapshot),
                 "decisions": decisions,
+                **skill_stats,
             }
         )
         return result
@@ -271,6 +289,99 @@ class ContextManager:
 
     def _strip_internal_fields(self, message: dict) -> dict:
         return {key: value for key, value in dict(message).items() if not key.startswith("_")}
+
+    def _latest_user_content(self, messages: list[dict]) -> str:
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+            content = message.get("content", "")
+            if isinstance(content, str):
+                return content
+        return ""
+
+    def _build_skill_messages(self, user_message: str) -> tuple[list[dict], dict, dict]:
+        stats = {
+            "skill_count": 0,
+            "active_skill_count": 0,
+            "skill_index_chars": 0,
+            "active_skill_chars": 0,
+        }
+        decisions = {
+            "skills_available": False,
+            "active_skills": [],
+            "skill_injection_applied": False,
+        }
+        if not self._skill_repository:
+            return [], stats, decisions
+
+        try:
+            skills = list(self._skill_repository.list_skills())
+        except Exception:
+            return [], stats, decisions
+        if not skills:
+            return [], stats, decisions
+
+        index_content = self._truncate_with_hint(
+            render_skill_index(skills),
+            self._skill_index_char_limit,
+            "\n...(skill index truncated due to context budget)...",
+        )
+        messages = [{"role": "system", "content": index_content}] if index_content else []
+        active_matches = []
+        if self._skill_selector:
+            try:
+                active_matches = list(self._skill_selector.select(user_message, skills))
+            except Exception:
+                active_matches = []
+
+        active_content = ""
+        if active_matches:
+            active_content = render_active_skill_instructions(active_matches, self._active_skill_char_limit)
+            if active_content:
+                messages.append({"role": "system", "content": active_content})
+
+        stats.update(
+            {
+                "skill_count": len(skills),
+                "active_skill_count": len(active_matches),
+                "skill_index_chars": len(index_content),
+                "active_skill_chars": len(active_content),
+            }
+        )
+        decisions.update(
+            {
+                "skills_available": True,
+                "active_skills": [
+                    {"name": match.skill.name, "reason": match.reason, "score": match.score}
+                    for match in active_matches
+                ],
+                "skill_injection_applied": bool(messages),
+            }
+        )
+        return messages, stats, decisions
+
+    def _insert_after_first_system(self, messages: list[dict], extra_messages: list[dict]) -> list[dict]:
+        if not extra_messages:
+            return list(messages)
+        result: list[dict] = []
+        inserted = False
+        for message in messages:
+            result.append(dict(message))
+            if not inserted and message.get("role") == "system":
+                result.extend(dict(item) for item in extra_messages)
+                inserted = True
+        if not inserted:
+            result = [dict(item) for item in extra_messages] + result
+        return result
+
+    def _truncate_with_hint(self, text: str, limit: int, hint: str) -> str:
+        if limit <= 0:
+            return ""
+        if len(text) <= limit:
+            return text
+        if limit <= len(hint):
+            return hint[:limit]
+        return text[: limit - len(hint)].rstrip() + hint
 
     async def _compact_cold_conversation_async(self, messages: list[dict], session) -> tuple[list[dict], list[dict], int, bool]:
         hot_indices = self._hot_message_indices(messages)

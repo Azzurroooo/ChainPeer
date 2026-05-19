@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agent.application import ContextManager, ToolExecutor, JobService
+from agent.application.services.skill_selector import SkillSelector
 from agent.application.runtime.async_runtime_facade import AsyncRuntimeFacade
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
 from agent.application.runtime.message_stream_parser import MessageStreamParser
@@ -12,6 +13,7 @@ from agent.infrastructure.config import Config
 from agent.infrastructure.llm.openai_async_chat_client import AsyncOpenAIChatClient
 from agent.infrastructure.persistence import JobStoreJsonl, TaskOutputStoreFile
 from agent.infrastructure.persistence.async_jsonl_session_store import AsyncJsonlSessionStore
+from agent.infrastructure.skills import SkillRepository
 from agent.infrastructure.tools import DefaultToolRegistry
 from agent.interfaces.cli import ChatCLI
 from agent.prompts import SYSTEM_PROMPT
@@ -45,6 +47,8 @@ def build_basic_agent_dependencies(
     tool_executor = ToolExecutor(registry=tool_registry, job_service=job_service)
     
     async_chat_client = AsyncOpenAIChatClient(async_client=async_client, model=model)
+    skill_repository = SkillRepository()
+    skill_selector = SkillSelector(max_active_skills=2)
     
     # Alignment B replaces ToolCallProcessor with AsyncToolCallProcessor
     from agent.application.runtime.async_tool_call_processor import AsyncToolCallProcessor
@@ -57,7 +61,10 @@ def build_basic_agent_dependencies(
         tool_processor=async_tool_processor,
         stream_parser=stream_parser,
         tool_schemas=tool_registry.schemas,
-        context_manager=ContextManager(),
+        context_manager=ContextManager(
+            skill_repository=skill_repository,
+            skill_selector=skill_selector,
+        ),
         debug=debug,
     )
     
@@ -72,4 +79,6 @@ def build_basic_agent_dependencies(
         "runtime": runtime,
         "cli": cli,
         "job_service": job_service,
+        "skill_repository": skill_repository,
+        "skill_selector": skill_selector,
     }

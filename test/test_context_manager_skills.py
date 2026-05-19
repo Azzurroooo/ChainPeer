@@ -1,0 +1,140 @@
+import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(PROJECT_ROOT)
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import pytest
+
+from agent.application.services import ContextManager, SkillSelector
+from agent.domain import Skill
+
+
+class QueryOnlySession:
+    def __init__(self, messages):
+        self._messages = [dict(message) for message in messages]
+        self.latest_snapshot = None
+
+    async def get_messages_slice(self, start=None, end=None, roles=None):
+        messages = [dict(message) for message in self._messages]
+        if roles:
+            allowed = set(roles)
+            messages = [message for message in messages if message.get("role") in allowed]
+        return messages[slice(start, end)]
+
+    async def get_tool_records(self, limit=None, call_ids=None):
+        return []
+
+    async def get_tool_summaries(self, call_ids=None):
+        return {}
+
+    async def persist_tool_summary(self, summary):
+        return None
+
+    async def get_latest_conversation_summary(self):
+        return None
+
+    async def persist_conversation_summary(self, summary):
+        return None
+
+    async def persist_context_snapshot(self, snapshot):
+        self.latest_snapshot = dict(snapshot)
+
+
+class StaticSkillRepository:
+    def __init__(self, skills):
+        self._skills = list(skills)
+
+    def list_skills(self):
+        return list(self._skills)
+
+
+def _skill(name: str = "demo") -> Skill:
+    return Skill(
+        name=name,
+        description="Demo skill for tests.",
+        body="# Demo\nFollow demo instructions.",
+        path=f"/tmp/{name}/SKILL.md",
+        triggers=["demo trigger"],
+        source="project",
+    )
+
+
+@pytest.mark.asyncio
+async def test_context_manager_does_not_inject_when_no_skills() -> None:
+    session = QueryOnlySession([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ])
+    manager = ContextManager(skill_repository=StaticSkillRepository([]), skill_selector=SkillSelector())
+
+    result = await manager.build_messages_async(session=session)
+
+    if result.messages != session._messages:
+        raise AssertionError(f"Expected unchanged messages, got: {result.messages}")
+    if result.stats.get("skill_count") != 0:
+        raise AssertionError(f"Unexpected skill stats: {result.stats}")
+    if result.decisions.get("skill_injection_applied") is not False:
+        raise AssertionError(f"Unexpected skill decisions: {result.decisions}")
+
+
+@pytest.mark.asyncio
+async def test_context_manager_injects_index_without_active_body() -> None:
+    session = QueryOnlySession([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ])
+    manager = ContextManager(skill_repository=StaticSkillRepository([_skill()]), skill_selector=SkillSelector())
+
+    result = await manager.build_messages_async(session=session)
+
+    if result.messages[0] != {"role": "system", "content": "sys"}:
+        raise AssertionError(f"Expected original system first, got: {result.messages}")
+    if not result.messages[1].get("content", "").startswith("Available skills:"):
+        raise AssertionError(f"Expected skill index after system, got: {result.messages}")
+    if any("Active skill instructions:" in message.get("content", "") for message in result.messages):
+        raise AssertionError(f"Did not expect active body, got: {result.messages}")
+    if result.stats.get("skill_count") != 1 or result.stats.get("active_skill_count") != 0:
+        raise AssertionError(f"Unexpected skill stats: {result.stats}")
+
+
+@pytest.mark.asyncio
+async def test_context_manager_injects_active_skill_body() -> None:
+    session = QueryOnlySession([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "please use $demo"},
+    ])
+    manager = ContextManager(skill_repository=StaticSkillRepository([_skill()]), skill_selector=SkillSelector())
+
+    result = await manager.build_messages_async(session=session)
+
+    contents = [message.get("content", "") for message in result.messages]
+    if not any(content.startswith("Available skills:") for content in contents):
+        raise AssertionError(f"Expected skill index, got: {result.messages}")
+    if not any("Active skill instructions:" in content and "Follow demo instructions." in content for content in contents):
+        raise AssertionError(f"Expected active skill body, got: {result.messages}")
+    if result.stats.get("active_skill_count") != 1:
+        raise AssertionError(f"Unexpected active skill stats: {result.stats}")
+    active = result.decisions.get("active_skills")
+    if not active or active[0].get("name") != "demo":
+        raise AssertionError(f"Unexpected active skill decisions: {result.decisions}")
+
+
+def main() -> int:
+    import asyncio
+
+    async def _run_all():
+        await test_context_manager_does_not_inject_when_no_skills()
+        await test_context_manager_injects_index_without_active_body()
+        await test_context_manager_injects_active_skill_body()
+
+    asyncio.run(_run_all())
+    print("ContextManager skill tests passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

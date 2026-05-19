@@ -12,6 +12,7 @@ from .plan import (
     plan_reorder,
     plan_update_step,
 )
+from .skill import skill_create
 from .web import fetch_web_page, search_web
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "plan_reorder",
     "plan_next",
     "plan_close",
+    "skill_create",
     "fetch_web_page",
     "search_web",
 ]

@@ -23,6 +23,7 @@ from .tools import (
     read_file,
     read_pdf,
     search_web,
+    skill_create,
     write_file,
 )
 
@@ -43,6 +44,7 @@ TOOLS: dict[str, Callable] = {
     "plan_reorder": plan_reorder,
     "plan_next": plan_next,
     "plan_close": plan_close,
+    "skill_create": skill_create,
     "search_web": search_web,
     "fetch_web_page": fetch_web_page,
 }
@@ -156,6 +158,17 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
         "param_descriptions": {
             "summary": "计划完成总结",
             "expected_version": "必填版本号，用于乐观锁",
+        },
+    },
+    "skill_create": {
+        "description": "创建格式正确的 ChainPeer Skill。自动写入 .chainpeer/skills/<name>/SKILL.md 或用户级 ~/.chainpeer/skills/<name>/SKILL.md，并生成稳定的 frontmatter。",
+        "param_descriptions": {
+            "name": "Skill 名称。只能包含字母、数字、下划线和连字符。",
+            "description": "Skill 的简短说明，写入 frontmatter，用于上下文中的 skill index。",
+            "body": "SKILL.md 正文指令内容。",
+            "triggers": "可选触发短语列表。为空时写入 triggers: []。",
+            "scope": {"description": "写入范围：project 写到当前项目，user 写到用户目录。默认 project。", "enum": ["project", "user"]},
+            "overwrite": "是否覆盖已存在的 SKILL.md。默认 False。",
         },
     },
     "search_web": {
