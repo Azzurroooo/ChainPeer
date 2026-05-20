@@ -197,6 +197,84 @@ async def test_context_manager_compacts_with_real_session_store(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_context_manager_conversation_hot_zone_ignores_tool_messages() -> None:
+    session_messages = [{"role": "system", "content": "sys"}]
+    for index in range(1, 5):
+        session_messages.append({"role": "user", "content": f"old user {index} " + ("x" * 80)})
+        session_messages.append({"role": "assistant", "content": f"old assistant {index} " + ("y" * 80)})
+
+    current_question = "current user question should stay hot"
+    session_messages.append({"role": "user", "content": current_question})
+    session_messages.append(
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
+                {"id": "call_2", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
+                {"id": "call_3", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
+            ],
+        }
+    )
+    session_messages.extend(
+        [
+            {"role": "tool", "tool_call_id": "call_1", "content": "placeholder"},
+            {"role": "tool", "tool_call_id": "call_2", "content": "placeholder"},
+            {"role": "tool", "tool_call_id": "call_3", "content": "placeholder"},
+        ]
+    )
+    session_messages.append(
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call_4", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
+                {"id": "call_5", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
+                {"id": "call_6", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
+            ],
+        }
+    )
+    session_messages.extend(
+        [
+            {"role": "tool", "tool_call_id": "call_4", "content": "placeholder"},
+            {"role": "tool", "tool_call_id": "call_5", "content": "placeholder"},
+            {"role": "tool", "tool_call_id": "call_6", "content": "placeholder"},
+        ]
+    )
+    session = QueryOnlySession(session_messages)
+    session.tool_records = {
+        f"call_{index}": {
+            "id": f"call_{index}",
+            "name": "search_web" if index <= 3 else "fetch_web_page",
+            "result": {"ok": True, "tool": "web", "data": f"result {index} " + ("z" * 80)},
+        }
+        for index in range(1, 7)
+    }
+    manager = ContextManager(
+        estimator=ContextEstimator(
+            ContextBudget(
+                hard_limit_tokens=4000,
+                conversation_budget_tokens=20,
+                tool_budget_tokens=1200,
+            )
+        ),
+        hot_message_limit=2,
+    )
+
+    result = await manager.build_messages_async(session=session)
+
+    if result.decisions.get("rolling_summary_applied") is not True:
+        raise AssertionError(f"Expected rolling summary, got: {result.decisions}")
+    if not any(
+        message.get("role") == "user" and message.get("content") == current_question
+        for message in result.messages
+    ):
+        raise AssertionError(f"Expected current question to remain hot, got: {result.messages}")
+    if result.stats.get("hot_message_count") != 2:
+        raise AssertionError(f"Expected hot count to use conversation messages only, got: {result.stats}")
+    if result.messages[-1].get("role") != "tool":
+        raise AssertionError(f"Expected tool chain tail to remain intact, got: {result.messages[-3:]}")
+
+
+@pytest.mark.asyncio
 async def test_context_manager_applies_tool_temperature_policy() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
@@ -285,6 +363,7 @@ def main() -> int:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             await test_context_manager_compacts_with_real_session_store(Path(tmp))
+        await test_context_manager_conversation_hot_zone_ignores_tool_messages()
         await test_context_manager_applies_tool_temperature_policy()
         await test_context_manager_prioritizes_hot_tool_budget()
     asyncio.run(_run_all())

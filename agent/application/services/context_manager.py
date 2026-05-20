@@ -85,7 +85,7 @@ class ContextManager:
         summary_generated = False
         hot_message_count = min(
             self._hot_message_limit,
-            len([message for message in full_messages if message.get("role") != "system"]),
+            len([message for message in full_messages if self._is_conversation_message(message)]),
         )
 
         if initial_estimate.conversation_tokens >= budget.conversation_budget_tokens:
@@ -465,10 +465,17 @@ class ContextManager:
         return compacted_messages, [dict(summary_message)], covered_count, summary_generated
 
     def _hot_message_indices(self, messages: list[dict]) -> set[int]:
-        non_system_indices = [index for index, message in enumerate(messages) if message.get("role") != "system"]
-        return set(non_system_indices[-self._hot_message_limit :])
+        conversation_indices = [
+            index
+            for index, message in enumerate(messages)
+            if self._is_conversation_message(message)
+        ]
+        return set(conversation_indices[-self._hot_message_limit :])
 
     def _is_summarizable_cold_message(self, message: dict) -> bool:
+        return self._is_conversation_message(message)
+
+    def _is_conversation_message(self, message: dict) -> bool:
         if message.get("role") not in {"user", "assistant"}:
             return False
         if message.get("tool_calls"):
