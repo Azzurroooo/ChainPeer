@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agent.domain.skills import render_active_skill_instructions, render_skill_index
+from agent.domain.skills import render_active_skill_instructions
 
 from .context_estimator import ContextEstimator
 from .conversation_summary_service import ConversationSummaryService
@@ -44,7 +44,7 @@ class ContextManager:
         skill_repository=None,
         skill_selector=None,
         plan_context_provider=None,
-        skill_index_char_limit: int = 3000,
+        skill_index_char_limit: int = 0,
         active_skill_char_limit: int = 12000,
     ):
         self._estimator = estimator or ContextEstimator()
@@ -55,7 +55,6 @@ class ContextManager:
         self._skill_repository = skill_repository
         self._skill_selector = skill_selector
         self._plan_context_provider = plan_context_provider
-        self._skill_index_char_limit = max(0, int(skill_index_char_limit))
         self._active_skill_char_limit = max(0, int(active_skill_char_limit))
 
     async def build_messages_async(
@@ -351,13 +350,8 @@ class ContextManager:
         if not skills:
             return [], stats, decisions
 
-        index_content = self._truncate_with_hint(
-            render_skill_index(skills),
-            self._skill_index_char_limit,
-            "\n...(skill index truncated due to context budget)...",
-        )
-        messages = [{"role": "system", "content": index_content}] if index_content else []
         active_matches = list(active_skill_matches or [])
+        messages: list[dict] = []
 
         active_content = ""
         if active_matches:
@@ -369,7 +363,7 @@ class ContextManager:
             {
                 "skill_count": len(skills),
                 "active_skill_count": len(active_matches),
-                "skill_index_chars": len(index_content),
+                "skill_index_chars": 0,
                 "active_skill_chars": len(active_content),
             }
         )
@@ -404,15 +398,6 @@ class ContextManager:
         if not inserted:
             result = [dict(item) for item in extra_messages] + result
         return result
-
-    def _truncate_with_hint(self, text: str, limit: int, hint: str) -> str:
-        if limit <= 0:
-            return ""
-        if len(text) <= limit:
-            return text
-        if limit <= len(hint):
-            return hint[:limit]
-        return text[: limit - len(hint)].rstrip() + hint
 
     async def _compact_cold_conversation_async(self, messages: list[dict], session) -> tuple[list[dict], list[dict], int, bool]:
         hot_indices = self._hot_message_indices(messages)

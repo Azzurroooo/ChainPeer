@@ -82,7 +82,7 @@ class ChangingPlanProvider:
 
 
 @pytest.mark.asyncio
-async def test_context_manager_inserts_plan_summary_before_skills() -> None:
+async def test_context_manager_inserts_plan_summary_without_inactive_skill_index() -> None:
     provider = ChangingPlanProvider()
     manager = ContextManager(
         plan_context_provider=provider,
@@ -97,14 +97,13 @@ async def test_context_manager_inserts_plan_summary_before_skills() -> None:
     result = await manager.build_messages_async(session=session)
 
     contents = [message.get("content", "") for message in result.messages]
-    if contents[:3] != [
+    if contents[:2] != [
         "sys",
         "Active plan summary:\n- Plan: p (version 1)",
-        contents[2],
     ]:
         raise AssertionError(f"Expected system then plan summary, got: {result.messages}")
-    if not contents[2].startswith("Available skills:"):
-        raise AssertionError(f"Expected skills after plan summary, got: {result.messages}")
+    if any(content.startswith("Available skills:") for content in contents):
+        raise AssertionError(f"Did not expect inactive skill index, got: {result.messages}")
     if result.stats.get("plan_summary_chars", 0) <= 0:
         raise AssertionError(f"Expected plan stats, got: {result.stats}")
     if result.decisions.get("plan_state") != "open" or not result.decisions.get("plan_summary_injected"):
@@ -132,7 +131,7 @@ async def test_context_manager_reads_plan_summary_each_build() -> None:
 def main() -> int:
     import asyncio
 
-    asyncio.run(test_context_manager_inserts_plan_summary_before_skills())
+    asyncio.run(test_context_manager_inserts_plan_summary_without_inactive_skill_index())
     asyncio.run(test_context_manager_reads_plan_summary_each_build())
     print("ContextManager plan summary tests passed.")
     return 0

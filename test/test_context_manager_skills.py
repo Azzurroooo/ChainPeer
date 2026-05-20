@@ -82,7 +82,7 @@ async def test_context_manager_does_not_inject_when_no_skills() -> None:
 
 
 @pytest.mark.asyncio
-async def test_context_manager_injects_index_without_active_body() -> None:
+async def test_context_manager_skips_index_without_active_body() -> None:
     session = QueryOnlySession([
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hello"},
@@ -91,14 +91,16 @@ async def test_context_manager_injects_index_without_active_body() -> None:
 
     result = await manager.build_messages_async(session=session)
 
-    if result.messages[0] != {"role": "system", "content": "sys"}:
-        raise AssertionError(f"Expected original system first, got: {result.messages}")
-    if not result.messages[1].get("content", "").startswith("Available skills:"):
-        raise AssertionError(f"Expected skill index after system, got: {result.messages}")
+    if result.messages != session._messages:
+        raise AssertionError(f"Expected no skill context without active skill, got: {result.messages}")
     if any("Active skill instructions:" in message.get("content", "") for message in result.messages):
         raise AssertionError(f"Did not expect active body, got: {result.messages}")
     if result.stats.get("skill_count") != 1 or result.stats.get("active_skill_count") != 0:
         raise AssertionError(f"Unexpected skill stats: {result.stats}")
+    if result.stats.get("skill_index_chars") != 0:
+        raise AssertionError(f"Expected no skill index chars, got: {result.stats}")
+    if result.decisions.get("skills_available") is not True or result.decisions.get("skill_injection_applied") is not False:
+        raise AssertionError(f"Unexpected skill decisions: {result.decisions}")
 
 
 @pytest.mark.asyncio
@@ -114,12 +116,14 @@ async def test_context_manager_injects_active_skill_body() -> None:
     result = await manager.build_messages_async(session=session, active_skill_matches=[match])
 
     contents = [message.get("content", "") for message in result.messages]
-    if not any(content.startswith("Available skills:") for content in contents):
-        raise AssertionError(f"Expected skill index, got: {result.messages}")
+    if any(content.startswith("Available skills:") for content in contents):
+        raise AssertionError(f"Did not expect skill index, got: {result.messages}")
     if not any("Active skill instructions:" in content and "Follow demo instructions." in content for content in contents):
         raise AssertionError(f"Expected active skill body, got: {result.messages}")
-    if result.stats.get("active_skill_count") != 1:
+    if result.stats.get("active_skill_count") != 1 or result.stats.get("skill_index_chars") != 0:
         raise AssertionError(f"Unexpected active skill stats: {result.stats}")
+    if result.decisions.get("skill_injection_applied") is not True:
+        raise AssertionError(f"Expected active skill injection, got: {result.decisions}")
     active = result.decisions.get("active_skills")
     if not active or active[0].get("name") != "demo":
         raise AssertionError(f"Unexpected active skill decisions: {result.decisions}")
@@ -136,6 +140,8 @@ async def test_context_manager_does_not_parse_user_trigger() -> None:
     result = await manager.build_messages_async(session=session)
 
     contents = [message.get("content", "") for message in result.messages]
+    if any(content.startswith("Available skills:") for content in contents):
+        raise AssertionError(f"Did not expect skill index from trigger text, got: {result.messages}")
     if any("Active skill instructions:" in content for content in contents):
         raise AssertionError(f"Did not expect active skill body from trigger text, got: {result.messages}")
     if result.stats.get("active_skill_count") != 0:
@@ -159,7 +165,7 @@ def main() -> int:
 
     async def _run_all():
         await test_context_manager_does_not_inject_when_no_skills()
-        await test_context_manager_injects_index_without_active_body()
+        await test_context_manager_skips_index_without_active_body()
         await test_context_manager_injects_active_skill_body()
         await test_context_manager_does_not_parse_user_trigger()
         test_context_manager_selects_active_skills_for_turn_explicitly()
