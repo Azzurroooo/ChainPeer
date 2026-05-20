@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 
 from agent.domain.skills import render_active_skill_instructions, render_skill_index
 
@@ -184,7 +184,6 @@ class ContextManager:
                 "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
                 "over_hard_limit": final_estimate.over_hard_limit,
                 "budget": budget.to_dict(),
-                "snapshot": asdict(snapshot),
                 "decisions": decisions,
                 **plan_stats,
                 **skill_stats,

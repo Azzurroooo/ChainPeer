@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -275,6 +276,44 @@ async def test_context_manager_conversation_hot_zone_ignores_tool_messages() -> 
 
 
 @pytest.mark.asyncio
+async def test_context_manager_persists_lightweight_context_snapshot(tmp_path) -> None:
+    session = AsyncJsonlSessionStore(session_dir=str(tmp_path), system_prompt="sys")
+    await session.initialize()
+    long_output = "large tool output " + ("z" * 5000)
+    await session.persist_message(
+        "assistant",
+        "",
+        meta={"tool_calls": [{"id": "call_large", "name": "bash"}]},
+    )
+    await session.persist_tool_call(
+        call_id="call_large",
+        name="bash",
+        parsed_args={},
+        raw_args="{}",
+        ts_start=session.now_iso(),
+        ts_end=session.now_iso(),
+        result_payload=json.dumps({"ok": True, "tool": "bash", "data": long_output}),
+    )
+    await session.persist_message("tool", "", tool_call_id="call_large", tool_name="bash")
+
+    result = await ContextManager().build_messages_async(session=session)
+    meta_path = tmp_path / session.session_id / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    latest_snapshot = meta.get("latest_context_snapshot")
+
+    if not isinstance(latest_snapshot, dict):
+        raise AssertionError(f"Expected latest context snapshot metadata, got: {meta}")
+    if "snapshot" in latest_snapshot:
+        raise AssertionError(f"Did not expect full snapshot in meta, got: {latest_snapshot.keys()}")
+    if latest_snapshot.get("estimated_input_tokens") != result.stats.get("estimated_input_tokens"):
+        raise AssertionError(f"Expected lightweight stats to remain, got: {latest_snapshot}")
+    if long_output in json.dumps(latest_snapshot, ensure_ascii=False):
+        raise AssertionError("Did not expect long tool output in persisted meta snapshot")
+    if result.snapshot is None or len(result.snapshot.tool_messages) != 1:
+        raise AssertionError(f"Expected in-memory result snapshot to remain available, got: {result.snapshot}")
+
+
+@pytest.mark.asyncio
 async def test_context_manager_applies_tool_temperature_policy() -> None:
     session_messages = [
         {"role": "system", "content": "sys"},
@@ -364,6 +403,8 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as tmp:
             await test_context_manager_compacts_with_real_session_store(Path(tmp))
         await test_context_manager_conversation_hot_zone_ignores_tool_messages()
+        with tempfile.TemporaryDirectory() as tmp:
+            await test_context_manager_persists_lightweight_context_snapshot(Path(tmp))
         await test_context_manager_applies_tool_temperature_policy()
         await test_context_manager_prioritizes_hot_tool_budget()
     asyncio.run(_run_all())

@@ -469,7 +469,9 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             def _persist():
                 if not self._session_meta or not self._session_paths:
                     return
-                self._session_meta["latest_context_snapshot"] = dict(snapshot)
+                lightweight_snapshot = dict(snapshot)
+                lightweight_snapshot.pop("snapshot", None)
+                self._session_meta["latest_context_snapshot"] = lightweight_snapshot
                 self._session_meta["updated_at"] = self.now_iso()
                 self._files.write_json(self._session_paths["meta"], self._session_meta)
                 self._update_index()
