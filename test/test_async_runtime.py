@@ -7,7 +7,8 @@ from agent.domain.events import (
     AssistantDeltaEvent, 
     AssistantMessageCompletedEvent, 
     TurnCompletedEvent,
-    TurnCancelledEvent
+    TurnCancelledEvent,
+    TurnFailedEvent
 )
 from agent.application.runtime.cancellation import CancellationTokenSource
 
@@ -104,3 +105,43 @@ async def test_async_turn_runner_cancellation():
     assert len(events) == 1
     assert isinstance(events[0], TurnCancelledEvent)
     assert events[0].reason == "User cancelled"
+
+
+@pytest.mark.asyncio
+async def test_async_turn_runner_stream_cancelled_error_is_cancelled_event():
+    mock_client = AsyncMock()
+
+    async def mock_stream(*args, **kwargs):
+        yield MagicMock()
+
+    mock_client.stream = mock_stream
+
+    mock_parser = MagicMock()
+
+    async def mock_consume(*args, **kwargs):
+        raise asyncio.CancelledError("stream cancelled")
+
+    mock_parser.consume_async_stream = mock_consume
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(return_value=MagicMock(messages=[], decisions={}))
+
+    mock_session = MagicMock()
+    mock_session.now_iso.return_value = "2026-05-08T00:00:00Z"
+
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context
+    )
+
+    events = []
+    async for event in runner.run_turn(mock_session):
+        events.append(event)
+
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCancelledEvent)
+    assert events[0].reason == "stream cancelled"
+    assert not any(isinstance(event, TurnFailedEvent) for event in events)

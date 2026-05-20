@@ -120,6 +120,8 @@ class AsyncTurnRunner:
                                 cancellation_token
                             )
                             return content, calls
+                        except asyncio.CancelledError:
+                            raise
                         except Exception as e:
                             await event_queue.put(e)
                             return "", []
