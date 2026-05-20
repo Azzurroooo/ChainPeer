@@ -16,6 +16,10 @@ class ToolExecutor:
         self._registry = registry
         self._job_service = job_service
 
+    def is_async_tool(self, name: str) -> bool:
+        """Return whether the named tool should be awaited directly."""
+        return self._registry.is_async(name)
+
     def execute_sync(self, name: str, args: dict, raw_args: str | None = None) -> ToolExecutionResult:
         """Synchronous execution returning a structured ToolExecutionResult."""
         if not self._registry.has(name):

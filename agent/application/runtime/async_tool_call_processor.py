@@ -64,7 +64,7 @@ class AsyncToolCallProcessor:
                     )
                     await asyncio.to_thread(self._job_service.update_status, handle.job_id, "running")
 
-                    if self._tool_executor._registry.is_async(call.name):
+                    if self._tool_executor.is_async_tool(call.name):
                         # Inject _cancellation_token for tools that accept it (e.g. bash)
                         if call.name == "bash":
                             parsed_args = {**parsed_args, "_cancellation_token": cancellation_token}
