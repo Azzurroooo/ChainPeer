@@ -42,6 +42,7 @@ class AsyncToolCallProcessor:
             yield ToolCallStartedEvent(tool_call_id=call.call_id, tool_name=call.name)
 
             parsed_args, parse_error = parse_tool_args(call.raw_args)
+            persisted_args = dict(parsed_args)
             ts_start = session.now_iso()
 
             if parse_error:
@@ -66,9 +67,10 @@ class AsyncToolCallProcessor:
 
                     if self._tool_executor.is_async_tool(call.name):
                         # Inject _cancellation_token for tools that accept it (e.g. bash)
+                        execution_args = parsed_args
                         if call.name == "bash":
-                            parsed_args = {**parsed_args, "_cancellation_token": cancellation_token}
-                        result = await self._tool_executor.execute_async(call.name, parsed_args, call.raw_args)
+                            execution_args = {**parsed_args, "_cancellation_token": cancellation_token}
+                        result = await self._tool_executor.execute_async(call.name, execution_args, call.raw_args)
                     else:
                         def _sync_run():
                             return self._tool_executor.execute_sync(call.name, parsed_args, call.raw_args)
@@ -103,7 +105,7 @@ class AsyncToolCallProcessor:
             await session.persist_tool_call(
                 call.call_id,
                 call.name,
-                parsed_args,
+                persisted_args,
                 call.raw_args,
                 ts_start,
                 ts_end,

@@ -135,5 +135,12 @@ class AsyncOpenAIChatClient(AsyncChatClient):
                     raise asyncio.CancelledError(cancellation_token.reason)
                 yield chunk
         finally:
-            if hasattr(stream_response, 'close'):
-                await stream_response.close()
+            await self._close_stream(stream_response)
+
+    async def _close_stream(self, stream_response: Any) -> None:
+        close = getattr(stream_response, "aclose", None) or getattr(stream_response, "close", None)
+        if not callable(close):
+            return
+        result = close()
+        if asyncio.iscoroutine(result):
+            await result

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain.events import RuntimeEvent, ToolCallStartedEvent, ToolProgressEvent, ToolResultEvent
 from agent.interfaces.cli.ui import print_rainbow_logo, render_markdown, StreamingRenderer
 from prompt_toolkit import PromptSession
@@ -23,6 +24,7 @@ class ChatCLI:
         self._streaming_renderer = StreamingRenderer(self._console)
         self._prompt_session: PromptSession | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._current_cancel_source: CancellationTokenSource | None = None
 
     def start(self) -> None:
         self._render_banner()
@@ -47,11 +49,11 @@ class ChatCLI:
             self._loop()
         finally:
             try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            except KeyboardInterrupt:
-                pass
-            loop.close()
-            self._event_loop = None
+                self._shutdown_loop(loop)
+            finally:
+                if not loop.is_closed():
+                    loop.close()
+                self._event_loop = None
 
     def _render_banner(self) -> None:
         print_rainbow_logo()
@@ -101,6 +103,8 @@ class ChatCLI:
                 self._streaming_renderer.flush()
                 print()
             except KeyboardInterrupt:
+                if self._current_cancel_source:
+                    self._current_cancel_source.cancel("User interrupted")
                 self._streaming_renderer.flush()
                 print("\n[User Interrupted: Session state preserved. You can resume later.]")
             except Exception as exc:
@@ -136,9 +140,30 @@ class ChatCLI:
         return bindings
 
     async def _run_turn_async(self, user_input: str) -> None:
-        # Pass user_input directly to the runtime facade
-        async for event in self._runtime.run_turn(query=user_input):
-            self._on_event(event)
+        cancel_source = CancellationTokenSource()
+        self._current_cancel_source = cancel_source
+        event_stream = self._runtime.run_turn(query=user_input, cancellation_token=cancel_source.token)
+        try:
+            async for event in event_stream:
+                self._on_event(event)
+        finally:
+            self._current_cancel_source = None
+            if not getattr(event_stream, "ag_running", False):
+                aclose = getattr(event_stream, "aclose", None)
+                if callable(aclose):
+                    await aclose()
+
+    def _shutdown_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        if loop.is_closed():
+            return
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.run_until_complete(loop.shutdown_default_executor())
+        loop.close()
             
     def _on_event(self, event: RuntimeEvent) -> None:
         from agent.domain.events import AssistantDeltaEvent, AssistantMessageCompletedEvent, SkillActivatedEvent, ToolCallStartedEvent, ToolProgressEvent, ToolResultEvent, TurnFailedEvent, TurnCancelledEvent
