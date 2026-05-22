@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Callable
+import inspect
+from typing import Any, Callable, Coroutine
 
 from .impl import TOOLS, TOOL_SCHEMAS
 
@@ -21,5 +22,14 @@ class DefaultToolRegistry:
     def has(self, name: str) -> bool:
         return name in self._tool_map
 
-    def call(self, name: str, args: dict):
+    def is_async(self, name: str) -> bool:
+        """Return True if the tool is a coroutine function."""
+        func = self._tool_map.get(name)
+        return func is not None and inspect.iscoroutinefunction(func)
+
+    def call(self, name: str, args: dict) -> Any:
         return self._tool_map[name](**args)
+
+    async def call_async(self, name: str, args: dict) -> Any:
+        """Call an async tool and await the result."""
+        return await self._tool_map[name](**args)

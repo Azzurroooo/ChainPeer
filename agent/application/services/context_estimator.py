@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import asdict, dataclass
 
 
@@ -37,47 +38,76 @@ class ContextEstimate:
 
 
 class ContextEstimator:
-    """Estimate context size without depending on a tokenizer."""
+    """Estimate context size using exact tokenization or fallback heuristics."""
 
     def __init__(self, budget: ContextBudget | None = None):
         self._budget = budget or ContextBudget.default()
+        self._tokenizer = self._get_tokenizer()
+        self._cjk_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\U00020000-\U0002a6df\U0002a700-\U0002ebef\U00030000-\U000323af]')
 
     @property
     def budget(self) -> ContextBudget:
         return self._budget
 
+    def _get_tokenizer(self):
+        try:
+            import tiktoken
+            return tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            return None
+
     def estimate_messages(self, messages: list[dict]) -> ContextEstimate:
+        system_tokens = 0
+        conversation_tokens = 0
+        tool_tokens = 0
+        
         system_chars = 0
         conversation_chars = 0
         tool_chars = 0
+        
         for message in messages:
-            message_chars = self._estimate_message_chars(message)
+            tokens, chars = self._estimate_message_tokens(message)
             if message.get("role") == "system":
-                system_chars += message_chars
+                system_tokens += tokens
+                system_chars += chars
             elif message.get("role") == "tool" or bool(message.get("tool_calls")):
-                tool_chars += message_chars
+                tool_tokens += tokens
+                tool_chars += chars
             else:
-                conversation_chars += message_chars
+                conversation_tokens += tokens
+                conversation_chars += chars
+                
+        estimated_tokens = system_tokens + conversation_tokens + tool_tokens
         estimated_chars = system_chars + conversation_chars + tool_chars
-        estimated_tokens = self._chars_to_tokens(estimated_chars)
+        
         return ContextEstimate(
             message_count=len(messages),
             estimated_input_tokens=estimated_tokens,
             estimated_chars=estimated_chars,
-            system_tokens=self._chars_to_tokens(system_chars),
-            conversation_tokens=self._chars_to_tokens(conversation_chars),
-            tool_tokens=self._chars_to_tokens(tool_chars),
+            system_tokens=system_tokens,
+            conversation_tokens=conversation_tokens,
+            tool_tokens=tool_tokens,
             over_hard_limit=estimated_tokens >= self._budget.hard_limit_tokens,
         )
 
-    def _estimate_message_chars(self, message: dict) -> int:
+    def _estimate_message_tokens(self, message: dict) -> tuple[int, int]:
         try:
             payload = json.dumps(message, ensure_ascii=False)
         except TypeError:
             payload = str(message)
-        return len(payload)
-
-    def _chars_to_tokens(self, chars: int) -> int:
-        if chars <= 0:
-            return 0
-        return int(math.ceil(chars / 4))
+            
+        chars = len(payload)
+        
+        if self._tokenizer:
+            try:
+                tokens = len(self._tokenizer.encode(payload, disallowed_special=()))
+                return tokens, chars
+            except Exception:
+                pass
+                
+        if self._cjk_pattern.search(payload):
+            tokens = int(math.ceil(chars / 1.5))
+        else:
+            tokens = int(math.ceil(chars / 3.5))
+            
+        return tokens, chars

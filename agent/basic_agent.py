@@ -29,15 +29,15 @@ class BasicAgent:
             resume_latest=resume_latest,
         )
         self._tool_registry = dependencies["tool_registry"]
-        self._tool_executor = dependencies["tool_executor"]
         self._chat_client = dependencies["chat_client"]
         self._runtime = dependencies["runtime"]
         self._session = dependencies["session"]
         self._cli = dependencies["cli"]
-        self._api_service = dependencies["api_service"]
 
     def run(self, query: str) -> str:
-        return self._api_service.chat(query)
+        # Since AgentAPIService was deleted in Alignment D, if run() is still used,
+        # we can just use the runtime facade's sync compatibility wrapper
+        return self._runtime.run_query_sync(query)
 
     def chat(self) -> None:
         self._cli.start()

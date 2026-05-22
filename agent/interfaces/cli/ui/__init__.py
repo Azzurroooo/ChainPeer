@@ -2,6 +2,7 @@
 
 from .logo import print_quanora_logo, print_rainbow_logo
 from .markdown import markdown_renderable, render_markdown
+from .streaming_renderer import StreamingRenderer
 
 __all__ = [
     "print_quanora_logo",
@@ -9,4 +10,5 @@ __all__ = [
     "print_rainbow_logo",
     "render_markdown",
     "markdown_renderable",
+    "StreamingRenderer",
 ]

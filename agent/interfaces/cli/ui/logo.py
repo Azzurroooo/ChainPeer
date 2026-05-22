@@ -2,7 +2,7 @@
 
 Renders the Quanora ASCII logo with a cool blue → cyan gradient that evokes
 quantitative finance and aurora light. Replaces the previous rainbow renderer
-used by the ChainPeer brand.
+used by the Quanora brand.
 
 Color stops (top → bottom):
 - deep blue   #0c4a6e (sky-900)

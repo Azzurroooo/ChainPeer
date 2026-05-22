@@ -1,7 +1,7 @@
 """配置模块"""
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 
 load_dotenv()
 
@@ -22,3 +22,7 @@ class Config:
     @classmethod
     def get_client(cls) -> OpenAI:
         return OpenAI(api_key=cls.OPENAI_API_KEY, base_url=cls.OPENAI_API_BASE)
+
+    @classmethod
+    def get_async_client(cls) -> AsyncOpenAI:
+        return AsyncOpenAI(api_key=cls.OPENAI_API_KEY, base_url=cls.OPENAI_API_BASE)

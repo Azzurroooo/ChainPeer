@@ -11,7 +11,9 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.interfaces.cli.chat_cli import _StreamingRenderer
+# StreamingRenderer was extracted to its own module in the PR#3 refactor.
+# Keep the old private alias name in tests so we don't have to rewrite assertions.
+from agent.interfaces.cli.ui.streaming_renderer import StreamingRenderer as _StreamingRenderer
 
 
 def test_plain_text_without_newline_renders_immediately() -> None:

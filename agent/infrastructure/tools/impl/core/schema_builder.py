@@ -7,12 +7,15 @@ from types import NoneType, UnionType
 from typing import Any, Callable, get_args, get_origin
 
 
-def _json_type(annotation: Any) -> str:
+def _json_type(annotation: Any) -> str | dict[str, Any]:
     if annotation is inspect._empty:
         return "string"
 
     origin = get_origin(annotation)
     if origin in (list, tuple, set):
+        args = get_args(annotation)
+        if args:
+            return {"type": "array", "items": {"type": _json_type(args[0])}}
         return "array"
     if origin is dict:
         return "object"
@@ -39,9 +42,11 @@ def build_function_schema(
     name: str,
     func: Callable,
     description: str,
-    param_descriptions: dict[str, str] | None = None,
+    param_descriptions: dict[str, str | dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    import typing
     signature = inspect.signature(func)
+    resolved_hints = typing.get_type_hints(func)
     properties: dict[str, dict[str, Any]] = {}
     required: list[str] = []
     param_descriptions = param_descriptions or {}
@@ -49,9 +54,26 @@ def build_function_schema(
     for param_name, param in signature.parameters.items():
         if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
             continue
-        item: dict[str, Any] = {"type": _json_type(param.annotation)}
-        if param_name in param_descriptions:
-            item["description"] = param_descriptions[param_name]
+        # Skip private/internal parameters (prefixed with _)
+        if param_name.startswith("_"):
+            continue
+
+        actual_annotation = resolved_hints.get(param_name, param.annotation)
+        json_t = _json_type(actual_annotation)
+        # _json_type may return a dict (for array+items) or a bare type string
+        if isinstance(json_t, dict):
+            item: dict[str, Any] = json_t
+        else:
+            item: dict[str, Any] = {"type": json_t}
+
+        desc_entry = param_descriptions.get(param_name)
+        if desc_entry is not None:
+            if isinstance(desc_entry, dict):
+                # Rich override: may contain description, enum, items, etc.
+                item.update(desc_entry)
+            else:
+                item["description"] = str(desc_entry)
+
         if param.default is inspect._empty:
             required.append(param_name)
         else:
