@@ -55,10 +55,18 @@ class AssistantMessageCompletedEvent(RuntimeEvent):
 
 @dataclass(slots=True)
 class ToolCallStartedEvent(RuntimeEvent):
-    """Fired when a tool execution is about to begin."""
+    """Fired when a tool execution is about to begin.
+
+    `args_preview` is a short, human-readable summary of the tool's arguments
+    (e.g. for bash it's the command string; for read_file it's the path).
+    Computed by the runtime via render_args_preview() so the CLI can show a
+    framework-level "what is the agent about to do" panel without trusting
+    the model to narrate it.
+    """
     type: Literal["tool_call_started"] = "tool_call_started"
     tool_call_id: str = ""
     tool_name: str = ""
+    args_preview: str = ""
 
 
 @dataclass(slots=True)
@@ -72,11 +80,73 @@ class ToolProgressEvent(RuntimeEvent):
 
 @dataclass(slots=True)
 class ToolResultEvent(RuntimeEvent):
-    """Fired when a tool execution completes and returns a result."""
+    """Fired when a tool execution completes and returns a result.
+
+    `status` is "ok" | "error" parsed from the standardized tool_ok/tool_error
+    payload. `summary` is a short human-readable line for the CLI panel
+    (e.g. "3 files listed" / "Error: file not found"). `duration_ms` is the
+    wall-clock execution time. These fields are framework-computed.
+    """
     type: Literal["tool_result"] = "tool_result"
     tool_call_id: str = ""
     tool_name: str = ""
     result: str = ""
+    status: Literal["ok", "error", "unknown"] = "unknown"
+    summary: str = ""
+    duration_ms: int = 0
+
+
+@dataclass(slots=True)
+class TurnStartedEvent(RuntimeEvent):
+    """Fired at the very beginning of a turn so the CLI can show 'thinking'.
+
+    The CLI uses this to render an early progress indicator before the first
+    assistant delta arrives — addressing the perceived 'frozen' silent gap
+    while the model is reasoning.
+    """
+    type: Literal["turn_started"] = "turn_started"
+    user_input_preview: str = ""
+
+
+@dataclass(slots=True)
+class ToolBatchStartedEvent(RuntimeEvent):
+    """Fired when the runtime is about to execute a batch of N tool calls."""
+    type: Literal["tool_batch_started"] = "tool_batch_started"
+    count: int = 0
+    tool_names: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class PlanSnapshotEvent(RuntimeEvent):
+    """Fired after a plan_* tool succeeds with a compact snapshot for the CLI panel.
+
+    This lets the CLI render a live progress panel (todo / done / blocked / current focus)
+    as a framework-level UX guarantee. Parsed by the runtime from the plan tool's
+    JSON result; the agent does not need to narrate plan state in chat.
+    """
+    type: Literal["plan_snapshot"] = "plan_snapshot"
+    title: str = ""
+    goal: str = ""
+    total_steps: int = 0
+    completed_steps: int = 0
+    in_progress_steps: int = 0
+    blocked_steps: int = 0
+    current_focus: str = ""
+    version: int = 0
+
+
+@dataclass(slots=True)
+class DataIntegrityWarningEvent(RuntimeEvent):
+    """Fired when a tool result looks like a data-source failure that the
+    agent must report rather than fabricate.
+
+    Emitted as a framework-level safety signal so the user sees the issue
+    explicitly, and so logs/replay can flag fabrication risk.
+    """
+    type: Literal["data_integrity_warning"] = "data_integrity_warning"
+    tool_name: str = ""
+    reason: str = ""
+    suggested_action: str = ""
 
 
 @dataclass(slots=True)

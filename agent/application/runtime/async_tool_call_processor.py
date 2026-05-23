@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import AsyncIterator
 
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.application.services.job_service import JobService
 from agent.domain import ParsedToolCall, parse_tool_args, tool_error, tool_ok
-from agent.domain.events import RuntimeEvent, ToolCallStartedEvent, ToolResultEvent, ToolProgressEvent
+from agent.domain.events import (
+    RuntimeEvent,
+    ToolCallStartedEvent,
+    ToolResultEvent,
+    ToolProgressEvent,
+    PlanSnapshotEvent,
+    DataIntegrityWarningEvent,
+)
 from agent.application.tool_executor import ToolExecutor
 from agent.application.runtime.cancellation import CancellationToken
+from agent.application.runtime.tool_telemetry import (
+    render_args_preview,
+    parse_tool_result,
+    detect_data_integrity_warning,
+)
 
 
 class AsyncToolCallProcessor:
@@ -39,11 +52,16 @@ class AsyncToolCallProcessor:
             if cancellation_token and cancellation_token.is_cancelled:
                 break
 
-            yield ToolCallStartedEvent(tool_call_id=call.call_id, tool_name=call.name)
-
             parsed_args, parse_error = parse_tool_args(call.raw_args)
             persisted_args = dict(parsed_args)
             ts_start = session.now_iso()
+            wall_start = time.monotonic()
+
+            yield ToolCallStartedEvent(
+                tool_call_id=call.call_id,
+                tool_name=call.name,
+                args_preview=render_args_preview(call.name, parsed_args),
+            )
 
             if parse_error:
                 tool_result_str = tool_error(
@@ -98,7 +116,28 @@ class AsyncToolCallProcessor:
                 except Exception as exc:
                     tool_result_str = tool_error(call.name, str(exc), type(exc).__name__)
 
-                yield ToolResultEvent(tool_call_id=call.call_id, tool_name=call.name, result=tool_result_str)
+                duration_ms = int((time.monotonic() - wall_start) * 1000)
+                parsed = parse_tool_result(call.name, tool_result_str)
+                yield ToolResultEvent(
+                    tool_call_id=call.call_id,
+                    tool_name=call.name,
+                    result=tool_result_str,
+                    status=parsed.get("status", "unknown"),
+                    summary=parsed.get("summary", ""),
+                    duration_ms=duration_ms,
+                )
+
+                # If this was a plan_* tool, surface a plan snapshot for the CLI panel.
+                snap = parsed.get("plan_snapshot")
+                if isinstance(snap, dict):
+                    yield PlanSnapshotEvent(ts=session.now_iso(), **snap)
+
+                # Framework-level data-integrity safety: if a real data-sourcing
+                # tool failed, fire a visible warning so the agent cannot quietly
+                # fabricate the missing data downstream.
+                warning = detect_data_integrity_warning(call.name, parsed)
+                if warning:
+                    yield DataIntegrityWarningEvent(ts=session.now_iso(), **warning)
 
             ts_end = session.now_iso()
 

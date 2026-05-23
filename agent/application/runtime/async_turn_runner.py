@@ -16,6 +16,7 @@ from agent.domain.events import (
     AssistantDeltaEvent,
     AssistantMessageCompletedEvent,
     SkillActivatedEvent,
+    ToolBatchStartedEvent,
     TurnCompletedEvent,
     TurnFailedEvent,
     TurnCancelledEvent
@@ -174,7 +175,15 @@ class AsyncTurnRunner:
                     "",
                     meta={"tool_calls": [{"id": item.call_id, "name": item.name} for item in parsed_tool_calls]},
                 )
-                
+
+                # Framework-level UX: announce the upcoming tool batch so the CLI
+                # can render "executing N tools..." instead of going silent.
+                yield ToolBatchStartedEvent(
+                    ts=session.now_iso(),
+                    count=len(parsed_tool_calls),
+                    tool_names=[item.name for item in parsed_tool_calls],
+                )
+
                 # Execute tools and yield their events
                 request_id = session.now_iso()
                 

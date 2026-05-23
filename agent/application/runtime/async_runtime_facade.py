@@ -9,7 +9,7 @@ from agent.application.ports.async_chat_client import AsyncChatClient
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
 from agent.application.runtime.cancellation import CancellationToken
-from agent.domain.events import RuntimeEvent
+from agent.domain.events import RuntimeEvent, TurnStartedEvent
 
 
 class AsyncRuntimeFacade:
@@ -50,6 +50,14 @@ class AsyncRuntimeFacade:
 
         if query:
             await self._session_store.persist_message("user", query)
+
+        # Framework-level UX guarantee: emit a TurnStartedEvent BEFORE any
+        # model latency, so the CLI can render a "thinking..." indicator
+        # immediately rather than freezing silently.
+        preview = (query or "")[:120]
+        if len(query or "") > 120:
+            preview += "…"
+        yield TurnStartedEvent(ts=self._session_store.now_iso(), user_input_preview=preview)
 
         async for event in self._turn_runner.run_turn(
             session=self._session_store,
