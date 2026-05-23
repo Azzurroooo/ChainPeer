@@ -12,44 +12,203 @@ _GREP_SKIP_DIRS = frozenset({
 })
 _GREP_MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
+# ── 智能路径检索：常见后缀 & 目录内候选文件 ──
+_COMMON_EXTENSIONS = (
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".json",
+    ".yaml", ".yml", ".toml", ".cfg", ".ini", ".txt",
+    ".html", ".css", ".scss", ".sh", ".bash", ".zsh",
+    ".go", ".rs", ".java", ".kt", ".c", ".cpp", ".h",
+    ".rb", ".php", ".sql", ".r", ".R", ".lua",
+)
+_DIR_ENTRY_FILES = (
+    "__init__.py", "index.js", "index.ts", "index.tsx",
+    "index.py", "main.py", "main.js", "main.ts",
+    "mod.rs", "lib.rs", "Cargo.toml", "setup.py",
+    "README.md",
+)
+
+# ── Session 级 read_file 缓存 ──
+_read_cache: dict[str, list[str]] = {}
+
+
+def _cache_key(path: Path, offset: int, limit: int) -> str:
+    """生成缓存键：路径 + 行范围"""
+    return f"{path.resolve()}:{offset}:{limit}"
+
+
+def _smart_resolve(path: Path) -> Path | None:
+    """当原始路径不存在或为目录时，尝试智能检索附近变体。
+    
+    策略优先级：
+    1. 原路径为目录 → 查找目录内入口文件（__init__.py 等）
+    2. 原路径不存在 → 尝试追加常见后缀（.py, .js 等）
+    3. 原路径不存在 → 在父目录中做大小写模糊匹配
+    4. 原路径不存在 → 在父目录中做前缀匹配（如 foo 匹配 foo_bar.py）
+    
+    返回找到的 Path，或 None 表示全部失败。
+    """
+    # ── 策略1：路径为目录 → 找入口文件 ──
+    if path.is_dir():
+        for entry_name in _DIR_ENTRY_FILES:
+            candidate = path / entry_name
+            if candidate.is_file():
+                return candidate
+        # 目录下没有入口文件，列出目录内所有 .py / .md 文件供参考
+        candidates = sorted(
+            f for f in path.iterdir()
+            if f.is_file() and not f.name.startswith('.')
+        )
+        if candidates:
+            return candidates[0]  # 返回第一个非隐藏文件作为最佳猜测
+        return None
+
+    # ── 策略2：追加常见后缀 ──
+    if not path.exists():
+        # 跳过已有后缀的情况（避免 foo.py → foo.py.py）
+        if path.suffix and path.suffix in _COMMON_EXTENSIONS:
+            pass  # 已经是常见后缀，不再追加
+        else:
+            for ext in _COMMON_EXTENSIONS:
+                candidate = Path(str(path) + ext)
+                if candidate.is_file():
+                    return candidate
+
+        # ── 策略3：父目录中大小写模糊匹配 ──
+        parent = path.parent
+        stem = path.stem.lower()
+        suffix = path.suffix.lower()
+        if parent.is_dir():
+            for sibling in parent.iterdir():
+                if not sibling.is_file():
+                    continue
+                if sibling.stem.lower() == stem and sibling.suffix.lower() == suffix:
+                    return sibling
+
+            # ── 策略4：前缀匹配（stem 匹配，要求分隔符边界：foo → foo-bar.py 但不匹配 foo.p）──
+            for sibling in sorted(parent.iterdir(), key=lambda s: s.name):
+                if not sibling.is_file():
+                    continue
+                sib_stem_lower = sibling.stem.lower()
+                # 只在分隔符边界上匹配：stem 以 target_stem 后紧跟 - 或 _ 开头
+                if sib_stem_lower == stem or sib_stem_lower.startswith(stem + "-") or sib_stem_lower.startswith(stem + "_"):
+                    return sibling
+
+    return None
+
 
 def read_file(file_path: str, offset: int = 1, limit: int = 1000) -> str:
     """
     读取文件内容，支持分页和行号显示。
+    当路径不存在或指向目录时，自动尝试智能检索附近变体。
     :param file_path: 文件路径
     :param offset: 起始行号 (默认 1)
     :param limit: 读取最大行数 (默认 1000)
     """
     try:
         path = Path(file_path)
-        if not path.exists():
-            return tool_error("read_file", f"文件不存在: {file_path}", "NotFound")
+        original_path = path
+        
+        # ── 智能路径检索 ──
+        smart_hint = ""
         if not path.is_file():
-            return tool_error("read_file", f"路径不是文件: {file_path}", "NotAFile")
-        if path.stat().st_size > 10 * 1024 * 1024:
-            return tool_error("read_file", "文件过大（>10MB），请使用更精确的搜索或限制读取范围。", "FileTooLarge")
+            resolved = _smart_resolve(path)
+            if resolved is not None:
+                path = resolved
+                smart_hint = f" (智能检索: {original_path} → {path})"
+            else:
+                # 全部变体都失败，给出详细错误
+                if not original_path.exists():
+                    # 收集父目录中可能相关的文件名供参考
+                    parent = original_path.parent
+                    nearby = ""
+                    if parent.is_dir():
+                        siblings = sorted(
+                            f.name for f in parent.iterdir()
+                            if f.is_file() and not f.name.startswith('.')
+                        )[:10]
+                        if siblings:
+                            nearby = f"\n父目录中的文件: {', '.join(siblings)}"
+                    return tool_error(
+                        "read_file",
+                        f"文件不存在: {file_path}{nearby}\n提示: 已尝试追加常见后缀和大小写模糊匹配，均未找到匹配文件",
+                        "NotFound",
+                    )
+                else:
+                    # 路径存在但不是文件（目录且无入口文件）
+                    dir_contents = sorted(
+                        f.name for f in original_path.iterdir()
+                        if f.is_file() and not f.name.startswith('.')
+                    )[:10]
+                    contents_hint = ""
+                    if dir_contents:
+                        contents_hint = f"\n目录中的文件: {', '.join(dir_contents)}"
+                    return tool_error(
+                        "read_file",
+                        f"路径不是文件: {file_path} (这是一个空目录){contents_hint}",
+                        "NotAFile",
+                    )
 
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+        # ── 缓存检查：先查完整文件缓存，再查精确查询缓存 ──
+        full_cache_k = _cache_key(path, 1, 999999)
+        exact_cache_k = _cache_key(path, offset, limit)
 
-        total_lines = len(lines)
-        start_idx = max(0, offset - 1)
-        end_idx = min(total_lines, start_idx + limit)
+        cached_lines = None
+        was_cached = False
 
-        if start_idx >= total_lines:
-            return tool_error("read_file", f"起始行 {offset} 超出文件总行数 ({total_lines} 行)。", "OffsetOutOfRange", meta={"total_lines": total_lines})
+        # 优先查完整文件缓存（可服务任意 offset/limit）
+        if full_cache_k in _read_cache:
+            cached_lines = _read_cache[full_cache_k]
+            was_cached = True
+        elif exact_cache_k in _read_cache:
+            cached_lines = _read_cache[exact_cache_k]
+            was_cached = True
 
-        output = [f"Showing lines {start_idx + 1} to {end_idx} of {total_lines}:"]
-        for i in range(start_idx, end_idx):
-            output.append(f"{i + 1:4d} | {lines[i].rstrip(chr(10))}")
+        if was_cached and cached_lines is not None:
+            total_lines = len(cached_lines)
+            end = min(offset - 1 + limit, total_lines)
+            result_lines = cached_lines[offset - 1 : end]
+            numbered = [f"{i}|{line}" for i, line in zip(range(offset, offset + len(result_lines)), result_lines)]
+            content = "\n".join(numbered)
+            return tool_ok(
+                "read_file",
+                content + f"\n\n[缓存命中{smart_hint}] 文件共 {total_lines} 行",
+                meta={
+                    "file_path": str(path),
+                    "offset": offset,
+                    "limit": limit,
+                    "total_lines": total_lines,
+                    "cached": True,
+                    "smart_resolved": smart_hint != "",
+                },
+            )
+
+        # ── 实际读取 ──
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        total_lines = len(raw_lines)
+
+        # 写入完整文件缓存（可被后续任意 offset/limit 查询复用）
+        _read_cache[full_cache_k] = raw_lines
+
+        end = min(offset - 1 + limit, total_lines)
+        result_lines = raw_lines[offset - 1 : end]
+        numbered = [f"{i}|{line}" for i, line in zip(range(offset, offset + len(result_lines)), result_lines)]
+        content = "\n".join(numbered)
 
         return tool_ok(
             "read_file",
-            "\n".join(output),
-            meta={"file_path": str(path.resolve()), "offset": offset, "limit": limit, "total_lines": total_lines},
+            content + f"\n\n[共 {total_lines} 行{smart_hint}]",
+            meta={
+                "file_path": str(path),
+                "offset": offset,
+                "limit": limit,
+                "total_lines": total_lines,
+                "cached": False,
+                "smart_resolved": smart_hint != "",
+            },
         )
     except Exception as e:
-        return tool_error("read_file", f"读取错误: {e}", type(e).__name__)
+        return tool_error("read_file", f"读取失败: {e}", type(e).__name__)
+
 
 def write_file(file_path: str, content: str) -> str:
     try:

@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from openai import OpenAI, AsyncOpenAI
 
 from agent.domain import WorkspaceConfig, WorkspaceGuard
+from agent.domain.project_manager import find_or_create_project_dir
 
 load_dotenv()
 
@@ -86,7 +87,18 @@ def _resolve_protected_paths(workspace_root: Path) -> tuple[Path, ...]:
     return tuple(out)
 
 
-_WORKSPACE_ROOT = _resolve_workspace_root()
+_WORKSPACE_BASE = _resolve_workspace_root()
+# ── 项目级 workspace 分区 ──
+# 如果设置了 QUANORA_PROJECT_NAME 环境变量，workspace 将在
+# _WORKSPACE_BASE/<project_slug> 子目录中创建；否则退回默认行为。
+_PROJECT_NAME = os.environ.get("QUANORA_PROJECT_NAME", "")
+if _PROJECT_NAME:
+    _WORKSPACE_ROOT = find_or_create_project_dir(
+        workspace_root=_WORKSPACE_BASE,
+        task_description=_PROJECT_NAME,
+    )
+else:
+    _WORKSPACE_ROOT = _WORKSPACE_BASE
 # Create the workspace dir on first import so the agent has somewhere to write
 # from the moment it boots. We do NOT touch protected paths.
 try:
