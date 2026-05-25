@@ -25,14 +25,6 @@ def _plan(status: str = "active") -> dict:
         "version": 7,
         "objectives": [{"metric": "sharpe", "operator": ">=", "target": 3.0, "current": 2.1}],
         "constraints": [{"metric": "max_drawdown", "operator": "<=", "target": 0.12, "current": 0.15}],
-        "metrics": {"annual_return": 0.08, "sharpe": 2.1, "max_drawdown": 0.15},
-        "observations": [
-            {
-                "summary": "Volatility filter improved Sharpe but worsened drawdown.",
-                "hypothesis": "Use position sizing.",
-                "next_action": "Add position sizing experiment.",
-            }
-        ],
         "steps": [
             {"step_id": "s1", "title": "baseline", "status": "completed", "order": 0},
             {
@@ -54,13 +46,15 @@ def test_render_compact_plan_summary_contains_key_state() -> None:
         "Active plan summary:",
         "strategy_optimization (version 7)",
         "Optimize to CAGR >= 10% and Sharpe >= 3",
-        "sharpe >= 3.0 (current 2.1)",
-        "max_drawdown <= 0.12 (current 0.15)",
+        "sharpe >= 3.0",
+        "max_drawdown <= 0.12",
         "Current focus: s2 - test volatility filter",
-        "Volatility filter improved Sharpe",
     ]:
         if expected not in text:
             raise AssertionError(f"Expected {expected!r} in summary:\n{text}")
+    for forbidden in ["Latest metrics", "Latest observation", "Hypothesis", "Next action", "current 2.1", "current 0.15"]:
+        if forbidden in text:
+            raise AssertionError(f"Did not expect {forbidden!r} in summary:\n{text}")
     if "unlisted pending" in text:
         raise AssertionError(f"Did not expect full step list in summary:\n{text}")
 

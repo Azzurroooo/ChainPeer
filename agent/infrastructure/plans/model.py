@@ -9,7 +9,6 @@ PLAN_STATUS = {"active", "completed", "canceled"}
 STEP_STATUS = {"pending", "in_progress", "blocked", "completed", "canceled"}
 TERMINAL_STEP_STATUS = {"completed", "canceled"}
 STEP_MUTABLE_FIELDS = {"title", "description", "priority", "owner", "acceptance", "note", "blocked_reason"}
-OBSERVATION_LIMIT = 20
 
 STEP_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"in_progress", "blocked", "canceled"},
@@ -24,16 +23,10 @@ def ensure_plan_defaults(plan: dict[str, Any]) -> dict[str, Any]:
     plan.setdefault("schema_version", PLAN_SCHEMA_VERSION)
     plan.setdefault("objectives", [])
     plan.setdefault("constraints", [])
-    plan.setdefault("metrics", {})
-    plan.setdefault("observations", [])
     if not isinstance(plan["objectives"], list):
         plan["objectives"] = []
     if not isinstance(plan["constraints"], list):
         plan["constraints"] = []
-    if not isinstance(plan["metrics"], dict):
-        plan["metrics"] = {}
-    if not isinstance(plan["observations"], list):
-        plan["observations"] = []
     return plan
 
 

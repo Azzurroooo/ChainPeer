@@ -11,13 +11,10 @@ from .helpers import (
     load_json_object,
     next_step_id,
     normalized_items,
-    normalized_metrics,
     normalized_step,
     plan_meta,
-    sync_current_metrics,
 )
 from .model import (
-    OBSERVATION_LIMIT,
     PLAN_SCHEMA_VERSION,
     STEP_MUTABLE_FIELDS,
     STEP_TRANSITIONS,
@@ -44,7 +41,6 @@ def create_plan(
     expected_version: int | None = None,
     objectives: list[dict[str, Any]] | None = None,
     constraints: list[dict[str, Any]] | None = None,
-    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     plan_file, events_file, session_id = plan_paths()
     if plan_file.exists():
@@ -65,7 +61,6 @@ def create_plan(
             raise DependencyViolation(f"Step {step['step_id']} violates dependency precondition.")
 
     now = now_iso()
-    metric_map = normalized_metrics(metrics)
     plan = {
         "schema_version": PLAN_SCHEMA_VERSION,
         "plan_id": uuid.uuid4().hex[:12],
@@ -76,14 +71,11 @@ def create_plan(
         "summary": "",
         "objectives": normalized_items(objectives),
         "constraints": normalized_items(constraints),
-        "metrics": metric_map,
-        "observations": [],
         "version": 1,
         "created_at": now,
         "updated_at": now,
         "steps": normalized,
     }
-    sync_current_metrics(plan, metric_map)
     plan_file.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(plan_file, plan)
     append_event(
@@ -290,7 +282,6 @@ def update_meta(
     goal: str | None = None,
     objectives: list[dict[str, Any]] | None = None,
     constraints: list[dict[str, Any]] | None = None,
-    metrics: dict[str, Any] | None = None,
     summary: str | None = None,
 ) -> dict[str, Any]:
     plan, plan_file, events_file = load_plan()
@@ -311,11 +302,6 @@ def update_meta(
     if constraints is not None:
         plan["constraints"] = normalized_items(constraints)
         updates["constraints"] = plan["constraints"]
-    if metrics is not None:
-        metric_map = normalized_metrics(metrics)
-        plan["metrics"].update(metric_map)
-        sync_current_metrics(plan, metric_map)
-        updates["metrics"] = metric_map
 
     if not updates:
         raise ValueError("At least one metadata field must be provided.")
@@ -328,49 +314,3 @@ def update_meta(
         payload=updates,
     )
     return plan_meta(plan)
-
-
-def record_observation(
-    summary: str,
-    expected_version: int,
-    step_id: str | None = None,
-    metrics: dict[str, Any] | None = None,
-    hypothesis: str = "",
-    next_action: str = "",
-    tags: list[str] | None = None,
-) -> dict[str, Any]:
-    plan, plan_file, events_file = load_plan()
-    ensure_plan_defaults(plan)
-    assert_active(plan)
-    assert_expected_version(plan, expected_version)
-    text = str(summary or "").strip()
-    if not text:
-        raise ValueError("summary cannot be empty.")
-    step_by_id = step_map(plan)
-    if step_id and step_id not in step_by_id:
-        raise FileNotFoundError(f"Step not found: {step_id}")
-    metric_map = normalized_metrics(metrics)
-    observation = {
-        "observation_id": f"obs_{uuid.uuid4().hex[:8]}",
-        "ts": now_iso(),
-        "step_id": str(step_id or ""),
-        "summary": text,
-        "metrics": metric_map,
-        "hypothesis": str(hypothesis or ""),
-        "next_action": str(next_action or ""),
-        "tags": [str(item) for item in (tags or [])],
-    }
-    plan["observations"].append(observation)
-    if len(plan["observations"]) > OBSERVATION_LIMIT:
-        plan["observations"] = plan["observations"][-OBSERVATION_LIMIT:]
-    if metric_map:
-        plan["metrics"].update(metric_map)
-        sync_current_metrics(plan, metric_map)
-    persist_plan_update(
-        plan=plan,
-        plan_file=plan_file,
-        events_file=events_file,
-        event_type="observation_recorded",
-        payload={"observation": observation},
-    )
-    return {"observation": observation, "metrics": dict(plan["metrics"]), "plan": plan_meta(plan)}

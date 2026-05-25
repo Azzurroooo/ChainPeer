@@ -43,8 +43,6 @@ def render_compact_plan_summary(plan: dict[str, Any], char_limit: int = DEFAULT_
 
     counts = step_counts(plan)
     focus = _focus_step(plan)
-    metrics = _format_metrics(plan.get("metrics") if isinstance(plan.get("metrics"), dict) else {})
-    latest_observation = _latest_observation(plan)
     lines = [
         "Active plan summary:",
         f"- Plan: {_plan_label(plan)}",
@@ -70,16 +68,6 @@ def render_compact_plan_summary(plan: dict[str, Any], char_limit: int = DEFAULT_
         note = str(focus.get("note") or "").strip()
         if note:
             lines.append(f"- Focus note: {note}")
-    if metrics:
-        lines.append(f"- Latest metrics: {metrics}")
-    if latest_observation:
-        lines.append(f"- Latest observation: {latest_observation.get('summary')}")
-        hypothesis = str(latest_observation.get("hypothesis") or "").strip()
-        if hypothesis:
-            lines.append(f"- Hypothesis: {hypothesis}")
-        next_action = str(latest_observation.get("next_action") or "").strip()
-        if next_action:
-            lines.append(f"- Next action: {next_action}")
     return _truncate("\n".join(lines), char_limit)
 
 
@@ -139,37 +127,15 @@ def _format_targets(value: Any, limit: int) -> str:
         metric = str(item.get("metric") or item.get("name") or "").strip()
         operator = str(item.get("operator") or "").strip()
         target = item.get("target")
-        current = item.get("current")
         unit = str(item.get("unit") or "").strip()
         if not metric:
             rendered.append(_compact_json(item))
             continue
         text = f"{metric} {operator} {target}".strip()
-        if current not in (None, ""):
-            text += f" (current {current})"
         if unit:
             text += f" {unit}"
         rendered.append(text)
     return "; ".join(rendered)
-
-
-def _format_metrics(metrics: dict[str, Any], limit: int = 8) -> str:
-    pairs = []
-    for index, key in enumerate(sorted(metrics.keys())):
-        if index >= limit:
-            break
-        pairs.append(f"{key}={metrics[key]}")
-    return ", ".join(pairs)
-
-
-def _latest_observation(plan: dict[str, Any]) -> dict[str, Any] | None:
-    observations = plan.get("observations")
-    if not isinstance(observations, list):
-        return None
-    for item in reversed(observations):
-        if isinstance(item, dict):
-            return item
-    return None
 
 
 def _compact_json(value: Any) -> str:

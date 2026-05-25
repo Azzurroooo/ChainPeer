@@ -17,11 +17,11 @@ from agent.infrastructure.tools.impl.tools.plan import (
     plan_get,
     plan_link_dependency,
     plan_next,
-    plan_record_observation,
     plan_reorder,
     plan_update_meta,
     plan_update_step,
 )
+from agent.infrastructure.tools.impl import TOOLS, TOOL_SCHEMAS
 
 @pytest.fixture(autouse=True)
 def setup_session(tmp_path: Path):
@@ -73,7 +73,6 @@ def create_and_next() -> tuple[str, int]:
                 _steps(),
                 objectives=[{"metric": "sharpe", "operator": ">=", "target": 3.0}],
                 constraints=[{"metric": "max_drawdown", "operator": "<=", "target": 0.12}],
-                metrics={"sharpe": 1.8, "max_drawdown": 0.16},
             )
         )
     )
@@ -83,11 +82,8 @@ def create_and_next() -> tuple[str, int]:
     plan_id = data.get("plan_id")
     if not isinstance(plan_id, str) or not plan_id:
         raise AssertionError(f"Invalid plan_id: {data}")
-    if data.get("metrics", {}).get("sharpe") != 1.8:
-        raise AssertionError(f"Expected metrics on create, got: {data}")
-    objective = (data.get("objectives") or [{}])[0]
-    if objective.get("current") != 1.8:
-        raise AssertionError(f"Expected objective current sync, got: {objective}")
+    if "metrics" in data or "observations" in data:
+        raise AssertionError(f"Plan should not contain fact-memory fields, got: {data}")
 
     ready = assert_ok(parse_payload(plan_next("ready"))).get("data") or []
     ready_ids = {item.get("step_id") for item in ready}
@@ -192,47 +188,36 @@ def test_iterative_plan_tools(tmp_path: Path) -> None:
                 goal="Optimize to CAGR >= 10% and Sharpe >= 3",
                 objectives=[{"metric": "sharpe", "operator": ">=", "target": 3.0}],
                 constraints=[{"metric": "max_drawdown", "operator": "<=", "target": 0.12}],
-                metrics={"sharpe": 2.1, "max_drawdown": 0.15},
             )
         )
     )
     version = int(meta["meta"]["version"])
     data = meta.get("data") or {}
-    if data.get("metrics", {}).get("sharpe") != 2.1:
-        raise AssertionError(f"Expected metric merge, got: {data}")
-    if (data.get("objectives") or [{}])[0].get("current") != 2.1:
-        raise AssertionError(f"Expected objective current sync, got: {data}")
-
-    observation = assert_ok(
-        parse_payload(
-            plan_record_observation(
-                "Volatility filter improved Sharpe but drawdown worsened.",
-                expected_version=version,
-                step_id="step_2",
-                metrics={"sharpe": 2.2, "max_drawdown": 0.17},
-                hypothesis="Use position sizing instead of hard filtering.",
-                next_action="Add position sizing experiment.",
-                tags=["backtest"],
-            )
-        )
-    )
-    version = int(observation["meta"]["version"])
-    obs = (observation.get("data") or {}).get("observation") or {}
-    if not str(obs.get("observation_id", "")).startswith("obs_"):
-        raise AssertionError(f"Expected observation id, got: {obs}")
-
-    for index in range(25):
-        payload = assert_ok(parse_payload(plan_record_observation(f"obs {index}", expected_version=version)))
-        version = int(payload["meta"]["version"])
+    if "metrics" in data or "observation_count" in data:
+        raise AssertionError(f"Plan meta should not expose fact-memory fields, got: {data}")
 
     current = assert_ok(parse_payload(plan_get())).get("data") or {}
-    if len(current.get("observations") or []) != 20:
-        raise AssertionError(f"Expected recent 20 observations, got: {len(current.get('observations') or [])}")
+    if "metrics" in current or "observations" in current:
+        raise AssertionError(f"Plan should not contain fact-memory fields, got: {current}")
 
     events = tmp_path / "test_plan_session" / "plan_events.jsonl"
     content = events.read_text(encoding="utf-8")
-    if "observation_recorded" not in content or "step_added" not in content:
+    if "observation_recorded" in content:
+        raise AssertionError(f"Did not expect observation events, got: {content}")
+    if "step_added" not in content or "plan_meta_updated" not in content:
         raise AssertionError(f"Expected iterative events, got: {content}")
+
+
+def test_plan_schema_excludes_observation_and_metrics() -> None:
+    if "plan_record_observation" in TOOLS:
+        raise AssertionError("plan_record_observation should not be registered.")
+    schemas = {item["function"]["name"]: item["function"] for item in TOOL_SCHEMAS}
+    if "plan_record_observation" in schemas:
+        raise AssertionError("plan_record_observation schema should not be registered.")
+    for name in ("plan_create", "plan_update_meta"):
+        props = ((schemas.get(name) or {}).get("parameters") or {}).get("properties") or {}
+        if "metrics" in props:
+            raise AssertionError(f"{name} schema should not contain metrics: {props}")
 
 
 def test_plan_next_all_steps_terminal() -> None:

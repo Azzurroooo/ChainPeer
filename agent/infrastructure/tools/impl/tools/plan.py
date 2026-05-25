@@ -16,10 +16,9 @@ def plan_create(
     expected_version: int | None = None,
     objectives: list[dict[str, Any]] | None = None,
     constraints: list[dict[str, Any]] | None = None,
-    metrics: dict[str, Any] | None = None,
 ) -> str:
     try:
-        plan = ops.create_plan(title, goal, steps, expected_version, objectives, constraints, metrics)
+        plan = ops.create_plan(title, goal, steps, expected_version, objectives, constraints)
         return tool_ok("plan_create", plan, meta={"plan_id": plan["plan_id"], "version": plan["version"]})
     except Exception as exc:
         return _tool_exception("plan_create", exc)
@@ -107,11 +106,10 @@ def plan_update_meta(
     goal: str | None = None,
     objectives: list[dict[str, Any]] | None = None,
     constraints: list[dict[str, Any]] | None = None,
-    metrics: dict[str, Any] | None = None,
     summary: str | None = None,
 ) -> str:
     try:
-        meta_data = ops.update_meta(expected_version, goal, objectives, constraints, metrics, summary)
+        meta_data = ops.update_meta(expected_version, goal, objectives, constraints, summary)
         return tool_ok(
             "plan_update_meta",
             meta_data,
@@ -119,27 +117,6 @@ def plan_update_meta(
         )
     except Exception as exc:
         return _tool_exception("plan_update_meta", exc)
-
-
-def plan_record_observation(
-    summary: str,
-    expected_version: int,
-    step_id: str | None = None,
-    metrics: dict[str, Any] | None = None,
-    hypothesis: str = "",
-    next_action: str = "",
-    tags: list[str] | None = None,
-) -> str:
-    try:
-        data = ops.record_observation(summary, expected_version, step_id, metrics, hypothesis, next_action, tags)
-        plan_meta = data.get("plan", {}) if isinstance(data, dict) else {}
-        return tool_ok(
-            "plan_record_observation",
-            data,
-            meta={"plan_id": plan_meta.get("plan_id"), "version": plan_meta.get("version")},
-        )
-    except Exception as exc:
-        return _tool_exception("plan_record_observation", exc)
 
 
 def _current_version() -> int | None:

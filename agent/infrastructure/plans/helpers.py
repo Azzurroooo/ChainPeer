@@ -77,29 +77,6 @@ def normalized_items(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]
     return normalized
 
 
-def normalized_metrics(metrics: dict[str, Any] | None) -> dict[str, Any]:
-    if metrics is None:
-        return {}
-    if not isinstance(metrics, dict):
-        raise ValueError("metrics must be object.")
-    return dict(metrics)
-
-
-def sync_current_metrics(plan: dict[str, Any], metrics: dict[str, Any]) -> None:
-    if not metrics:
-        return
-    for collection_key in ("objectives", "constraints"):
-        items = plan.get(collection_key)
-        if not isinstance(items, list):
-            continue
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            metric = item.get("metric")
-            if metric in metrics:
-                item["current"] = metrics[metric]
-
-
 def plan_meta(plan: dict[str, Any]) -> dict[str, Any]:
     return {
         "plan_id": plan.get("plan_id"),
@@ -110,8 +87,6 @@ def plan_meta(plan: dict[str, Any]) -> dict[str, Any]:
         "version": plan.get("version"),
         "objectives": plan.get("objectives", []),
         "constraints": plan.get("constraints", []),
-        "metrics": plan.get("metrics", {}),
-        "observation_count": len(plan.get("observations", [])) if isinstance(plan.get("observations"), list) else 0,
     }
 
 
