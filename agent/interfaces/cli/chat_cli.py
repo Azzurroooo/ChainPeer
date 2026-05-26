@@ -6,6 +6,7 @@ import asyncio
 
 from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain.events import RuntimeEvent, ToolCallStartedEvent, ToolProgressEvent, ToolResultEvent
+from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.interfaces.cli.ui import print_rainbow_logo, render_markdown, StreamingRenderer
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
@@ -25,6 +26,7 @@ class ChatCLI:
         self._prompt_session: PromptSession | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._current_cancel_source: CancellationTokenSource | None = None
+        self._slash_router = SlashCommandRouter()
 
     def start(self) -> None:
         self._render_banner()
@@ -93,6 +95,11 @@ class ChatCLI:
                 break
             if not user_input:
                 continue
+            if self._is_slash_command(user_input):
+                should_exit = self._event_loop.run_until_complete(self._run_slash_command_async(user_input))
+                if should_exit:
+                    break
+                continue
 
             print("\nAgent:")
             self._assistant_buffer = []
@@ -152,6 +159,18 @@ class ChatCLI:
                 aclose = getattr(event_stream, "aclose", None)
                 if callable(aclose):
                     await aclose()
+
+    def _is_slash_command(self, text: str) -> bool:
+        return text.lstrip().startswith("/")
+
+    async def _run_slash_command_async(self, user_input: str) -> bool:
+        result = await self._slash_router.execute(
+            user_input,
+            SlashCommandContext(runtime=self._runtime, session=self._session, debug=self._debug),
+        )
+        if result.text:
+            render_markdown(result.text)
+        return result.should_exit
 
     def _shutdown_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         if loop.is_closed():
