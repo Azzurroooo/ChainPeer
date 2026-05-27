@@ -1,10 +1,12 @@
 from agent.basic_agent import BasicAgent
 from agent.infrastructure.config import Config
+from agent.version import __version__
 import argparse
 import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Basic Agent CLI")
+    parser.add_argument("--version", action="version", version=f"chainpeer {__version__}")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode (non-streaming output)")
     parser.add_argument("--allow-unsafe-bash", action="store_true", help="Allow potentially dangerous shell commands")
     parser.add_argument("--session", type=str, default=None, help="Session ID to load")
