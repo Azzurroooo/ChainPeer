@@ -1,20 +1,32 @@
 import os
 import platform
-import datetime
+
+from agent.infrastructure.tools.impl.tools.bash_session_pool import BashSessionPool
+
+
+def _detect_shell_display() -> tuple[str, str]:
+    pool = BashSessionPool()
+    shell_type = {
+        "bash": "Bash",
+        "sh": "POSIX sh",
+        "powershell": "PowerShell",
+        "unavailable": "Unavailable",
+    }.get(pool._default_backend, pool._default_backend)
+    return shell_type, pool._default_executable or "not found"
 
 
 def get_system_info():
     """动态获取系统信息"""
     system = platform.system()
     cwd = os.getcwd()
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    shell_type, shell_executable = _detect_shell_display()
 
     return f"""
 <environment_context>
 Operating System: {system}
 Current Working Directory (Project Root): {cwd}
-Start Time: {now}
-Shell Type: {'Git Bash / Bash' if system == 'Windows' else 'Bash'}
+Shell Type: {shell_type}
+Shell Executable: {shell_executable}
 </environment_context>
 """
 

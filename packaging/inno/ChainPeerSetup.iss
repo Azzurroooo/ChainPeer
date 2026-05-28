@@ -3,10 +3,9 @@
 #define MyAppPublisher "ChainPeer"
 #define MyAppVersion GetEnv("CHAINPEER_VERSION")
 #if MyAppVersion == ""
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.1.1"
 #endif
-#define GitBundleDir "..\..\dist\chainpeer\portable-git"
-#define HasGitBundle DirExists(GitBundleDir)
+#define GitInstallerUrl GetEnv("CHAINPEER_GIT_INSTALLER_URL")
 
 [Setup]
 AppId={{6F02B7C9-5B44-4EB9-8B1E-8A6FC894F0D6}
@@ -30,9 +29,6 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Source: "..\..\dist\chainpeer\chainpeer.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: core
 Source: "..\..\dist\chainpeer\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
 Source: "..\..\dist\chainpeer\templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
-#if HasGitBundle
-Source: "{#GitBundleDir}\*"; DestDir: "{app}\portable-git"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: git
-#endif
 
 [Types]
 Name: "full"; Description: "Full installation"
@@ -41,16 +37,9 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
 Name: "core"; Description: "ChainPeer CLI"; Types: full compact custom; Flags: fixed
-#if HasGitBundle
-Name: "git"; Description: "Bundled Git command support (recommended)"; Types: full custom
-#endif
 
 [Tasks]
 Name: "add_chainpeer_path"; Description: "Add ChainPeer to user PATH"; Flags: checkedonce
-#if HasGitBundle
-Name: "add_git_path"; Description: "Add bundled git to user PATH"; Components: git; Flags: checkedonce
-Name: "add_bash_path"; Description: "Add bundled POSIX shell tools to user PATH"; Components: git; Flags: unchecked
-#endif
 
 [Icons]
 Name: "{group}\ChainPeer"; Filename: "{app}\{#MyAppExeName}"
@@ -62,6 +51,14 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 [Code]
 const
   WM_SETTINGCHANGE = $001A;
+  GitInstallerFileName = 'GitForWindowsSetup.exe';
+  GitInstallerUrl = '{#GitInstallerUrl}';
+
+var
+  GitOptionPage: TInputOptionWizardPage;
+  DownloadPage: TDownloadWizardPage;
+  ExistingGitPath: String;
+  ShouldInstallGit: Boolean;
 
 function SendMessageTimeout(hWnd: LongWord; Msg: LongWord; wParam: LongWord; lParam: String;
   fuFlags: LongWord; uTimeout: LongWord; var lpdwResult: LongWord): LongWord;
@@ -96,11 +93,6 @@ begin
   end;
 end;
 
-function NeedsAddPath(Dir: String): Boolean;
-begin
-  Result := not PathContains(Dir, CurrentUserPath());
-end;
-
 function AddPath(PathValue, Dir: String): String;
 begin
   if PathValue = '' then
@@ -111,14 +103,6 @@ begin
     Result := PathValue + ';' + Dir;
 end;
 
-function AddExistingPath(PathValue, Dir: String): String;
-begin
-  if DirExists(Dir) then
-    Result := AddPath(PathValue, Dir)
-  else
-    Result := PathValue;
-end;
-
 function AddPaths(Param: String): String;
 var
   PathValue: String;
@@ -126,25 +110,12 @@ begin
   PathValue := CurrentUserPath();
   if WizardIsTaskSelected('add_chainpeer_path') then
     PathValue := AddPath(PathValue, ExpandConstant('{app}'));
-#if HasGitBundle
-  if WizardIsTaskSelected('add_git_path') then
-    PathValue := AddPath(PathValue, ExpandConstant('{app}\portable-git\cmd'));
-  if WizardIsTaskSelected('add_bash_path') then
-  begin
-    PathValue := AddExistingPath(PathValue, ExpandConstant('{app}\portable-git\bin'));
-    PathValue := AddExistingPath(PathValue, ExpandConstant('{app}\portable-git\usr\bin'));
-  end;
-#endif
   Result := PathValue;
 end;
 
 function AnyPathTaskSelected(): Boolean;
 begin
-  Result := WizardIsTaskSelected('add_chainpeer_path')
-#if HasGitBundle
-    or WizardIsTaskSelected('add_git_path') or WizardIsTaskSelected('add_bash_path')
-#endif
-    ;
+  Result := WizardIsTaskSelected('add_chainpeer_path');
 end;
 
 function RemovePath(PathValue, Dir: String): String;
@@ -179,9 +150,6 @@ var
 begin
   PathValue := CurrentUserPath();
   PathValue := RemovePath(PathValue, ExpandConstant('{app}'));
-  PathValue := RemovePath(PathValue, ExpandConstant('{app}\portable-git\cmd'));
-  PathValue := RemovePath(PathValue, ExpandConstant('{app}\portable-git\bin'));
-  PathValue := RemovePath(PathValue, ExpandConstant('{app}\portable-git\usr\bin'));
   RegWriteExpandStringValue(HKCU, 'Environment', 'Path', PathValue);
 end;
 
@@ -192,10 +160,243 @@ begin
   SendMessageTimeout($FFFF, WM_SETTINGCHANGE, 0, 'Environment', 2, 5000, ResultCode);
 end;
 
+function TryGitCandidate(Path: String; var GitPath: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := False;
+  if not FileExists(Path) then
+    Exit;
+  if Exec(Path, '--version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+  begin
+    GitPath := Path;
+    Result := True;
+  end;
+end;
+
+function DetectGit(var GitPath: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := False;
+  GitPath := '';
+
+  if Exec('git.exe', '--version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+  begin
+    GitPath := 'git.exe';
+    Result := True;
+    Exit;
+  end;
+
+  if TryGitCandidate(ExpandConstant('{autopf}\Git\cmd\git.exe'), GitPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if TryGitCandidate(ExpandConstant('{pf}\Git\cmd\git.exe'), GitPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if TryGitCandidate(ExpandConstant('{pf32}\Git\cmd\git.exe'), GitPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if TryGitCandidate(ExpandConstant('{localappdata}\Programs\Git\cmd\git.exe'), GitPath) then
+  begin
+    Result := True;
+    Exit;
+  end;
+end;
+
+function GitInstallerRequested(): Boolean;
+begin
+  Result := ShouldInstallGit and (GitInstallerUrl <> '');
+end;
+
+function GitInstallInfPath(): String;
+begin
+  Result := ExpandConstant('{tmp}\chainpeer-git-install-options.inf');
+end;
+
+procedure WriteGitInstallInf();
+var
+  Lines: String;
+begin
+  Lines :=
+    '[Setup]' + #13#10 +
+    'Lang=default' + #13#10 +
+    'Dir=' + #13#10 +
+    'Group=Git' + #13#10 +
+    'NoIcons=0' + #13#10 +
+    'SetupType=default' + #13#10 +
+    'Components=gitlfs,assoc,assoc_sh' + #13#10 +
+    'Tasks=' + #13#10 +
+    'EditorOption=VIM' + #13#10 +
+    'CustomEditorPath=' + #13#10 +
+    'DefaultBranchOption=' + #13#10 +
+    'PathOption=Cmd' + #13#10 +
+    'SSHOption=OpenSSH' + #13#10 +
+    'TortoiseOption=false' + #13#10 +
+    'CURLOption=OpenSSL' + #13#10 +
+    'CRLFOption=CRLFAlways' + #13#10 +
+    'BashTerminalOption=MinTTY' + #13#10 +
+    'GitPullBehaviorOption=Merge' + #13#10 +
+    'UseCredentialManager=Enabled' + #13#10 +
+    'PerformanceTweaksFSCache=Enabled' + #13#10 +
+    'EnableSymlinks=Disabled' + #13#10 +
+    'EnablePseudoConsoleSupport=Disabled' + #13#10 +
+    'EnableFSMonitor=Disabled' + #13#10;
+  SaveStringToFile(GitInstallInfPath(), Lines, False);
+end;
+
+function InstallGitForWindows(): Boolean;
+var
+  ResultCode: Integer;
+  InstallerPath: String;
+  Error: String;
+begin
+  Result := True;
+  if not GitInstallerRequested() then
+    Exit;
+
+  DownloadPage.Clear;
+  DownloadPage.Add(GitInstallerUrl, GitInstallerFileName, '');
+  DownloadPage.Show;
+  try
+    try
+      DownloadPage.Download;
+    except
+      if DownloadPage.AbortedByUser then
+        Error := 'Git for Windows download was canceled.'
+      else
+        Error := Format('Could not download Git for Windows from %s. %s', [GitInstallerUrl, GetExceptionMessage]);
+      Log(Error);
+      SuppressibleMsgBox(Error + #13#10#13#10 + 'ChainPeer will continue installing and can fall back to PowerShell.', mbInformation, MB_OK, IDOK);
+      Result := True;
+      Exit;
+    end;
+  finally
+    DownloadPage.Hide;
+  end;
+
+  InstallerPath := ExpandConstant('{tmp}\' + GitInstallerFileName);
+  if not FileExists(InstallerPath) then
+  begin
+    Log('Git installer was not found after download: ' + InstallerPath);
+    SuppressibleMsgBox('The Git installer was not found after download. ChainPeer will continue installing.', mbInformation, MB_OK, IDOK);
+    Result := True;
+    Exit;
+  end;
+
+  WriteGitInstallInf();
+  if not Exec(InstallerPath, '/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOADINF="' + GitInstallInfPath() + '"',
+    '', SW_SHOW, ewWaitUntilTerminated, ResultCode) then
+  begin
+    SuppressibleMsgBox('Git for Windows could not be started. ChainPeer will continue installing.', mbInformation, MB_OK, IDOK);
+    Result := True;
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    SuppressibleMsgBox(Format('Git for Windows installer exited with code %d. ChainPeer will continue installing.', [ResultCode]),
+      mbInformation, MB_OK, IDOK);
+    Result := True;
+    Exit;
+  end;
+
+  BroadcastEnvironmentChange();
+end;
+
+function UserSettingsDir(): String;
+var
+  ProfileDir: String;
+begin
+  ProfileDir := ExpandConstant('{%USERPROFILE}');
+  if ProfileDir = '' then
+    ProfileDir := ExpandConstant('{userprofile}');
+  Result := AddBackslash(ProfileDir) + '.chainpeer';
+end;
+
+function UserSettingsPath(): String;
+begin
+  Result := UserSettingsDir() + '\settings.json';
+end;
+
+procedure EnsureUserSettings();
+var
+  TemplatePath: String;
+begin
+  if not DirExists(UserSettingsDir()) then
+    ForceDirectories(UserSettingsDir());
+
+  if FileExists(UserSettingsPath()) then
+  begin
+    Log('User settings already exist: ' + UserSettingsPath());
+    Exit;
+  end;
+
+  TemplatePath := ExpandConstant('{app}\templates\settings.json');
+  if FileExists(TemplatePath) then
+  begin
+    if not CopyFile(TemplatePath, UserSettingsPath(), True) then
+      Log('Failed to copy settings template to ' + UserSettingsPath());
+  end
+  else
+  begin
+    SaveStringToFile(
+      UserSettingsPath(),
+      '{' + #13#10 +
+      '  "model": "gpt-5.5",' + #13#10 +
+      '  "apiKey": "",' + #13#10 +
+      '  "baseUrl": "",' + #13#10 +
+      '  "reasoningEffort": "xhigh"' + #13#10 +
+      '}' + #13#10,
+      False);
+  end;
+end;
+
+procedure InitializeWizard();
+begin
+  ShouldInstallGit := False;
+  DetectGit(ExistingGitPath);
+
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), nil);
+  DownloadPage.ShowBaseNameInsteadOfUrl := True;
+
+  if (ExistingGitPath = '') and (GitInstallerUrl <> '') then
+  begin
+    GitOptionPage := CreateInputOptionPage(
+      wpSelectTasks,
+      'Git for Windows',
+      'Install Git for a richer ChainPeer programming experience',
+      'Git was not detected on this computer. Installing the full official Git for Windows is recommended because it provides Git plus a richer command-line toolchain for coding tasks.',
+      True,
+      False);
+    GitOptionPage.Add('Download and install Git for Windows now');
+    GitOptionPage.Values[0] := True;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (GitOptionPage <> nil) and (CurPageID = GitOptionPage.ID) then
+    ShouldInstallGit := GitOptionPage.Values[0];
+
+  if CurPageID = wpReady then
+    Result := InstallGitForWindows();
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    EnsureUserSettings();
     BroadcastEnvironmentChange();
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

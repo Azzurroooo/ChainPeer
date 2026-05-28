@@ -1,7 +1,6 @@
 param(
-    [switch]$SkipPortableGit,
-    [switch]$SkipInstaller,
-    [switch]$AllowPortableGitFallback
+    [switch]$SkipGitInstaller,
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,18 +10,10 @@ Set-StrictMode -Version Latest
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $DistDir = Join-Path $Root "dist\chainpeer"
 $ReleaseDir = Join-Path $Root "release"
-$VendorDir = Join-Path $Root "packaging\vendor"
 $BuildVenvDir = Join-Path $Root ".venv-build"
 $BuildPython = Join-Path $BuildVenvDir "Scripts\python.exe"
-$GitVersion = "2.45.2"
-$PortableGitArchive = "PortableGit-$GitVersion-64-bit.7z.exe"
-$MinGitArchive = "MinGit-$GitVersion-64-bit.zip"
-$PortableGitUrl = "https://github.com/git-for-windows/git/releases/download/v$GitVersion.windows.1/$PortableGitArchive"
-$MinGitUrl = "https://github.com/git-for-windows/git/releases/download/v$GitVersion.windows.1/$MinGitArchive"
-$PortableGitExe = Join-Path $VendorDir $PortableGitArchive
-$MinGitZip = Join-Path $VendorDir $MinGitArchive
-$PortableGitExtractDir = Join-Path $VendorDir "portable-git-$GitVersion"
-$MinGitExtractDir = Join-Path $VendorDir "mingit-$GitVersion"
+$GitFallbackVersion = "2.54.0"
+$GitFallbackUrl = "https://github.com/git-for-windows/git/releases/download/v$GitFallbackVersion.windows.1/Git-$GitFallbackVersion-64-bit.exe"
 
 function Write-Step($Message) {
     Write-Host ""
@@ -39,93 +30,29 @@ function Get-ChainPeerVersion() {
     }
 }
 
-function Copy-PortableGit() {
-    if ($SkipPortableGit) {
-        Write-Host "Skipping MinGit bundle."
-        return
+function Get-GitInstallerUrl() {
+    if ($SkipGitInstaller) {
+        return ""
     }
 
-    New-Item -ItemType Directory -Force -Path $VendorDir | Out-Null
-
-    $SourceDir = $null
-
-    if (Test-GitBundleDir $MinGitExtractDir) {
-        $SourceDir = $MinGitExtractDir
-    } elseif ($AllowPortableGitFallback -and (Test-GitBundleDir $PortableGitExtractDir)) {
-        $SourceDir = $PortableGitExtractDir
-    }
-
-    if (-not $SourceDir) {
-        if (-not (Test-Path $MinGitZip)) {
-            Write-Step "Downloading MinGit $GitVersion"
-            try {
-                Invoke-WebRequest -Uri $MinGitUrl -OutFile $MinGitZip
-            }
-            catch {
-                Write-Warning "Failed to download MinGit: $($_.Exception.Message)"
-            }
-        }
-
-        if ((Test-Path $MinGitZip) -and (-not (Test-Path $MinGitExtractDir))) {
-            Write-Step "Extracting MinGit"
-            Expand-Archive -LiteralPath $MinGitZip -DestinationPath $MinGitExtractDir -Force
-        }
-
-        if (Test-GitBundleDir $MinGitExtractDir) {
-            $SourceDir = $MinGitExtractDir
+    Write-Step "Resolving latest Git for Windows installer"
+    try {
+        $Release = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" `
+            -Headers @{ "User-Agent" = "ChainPeer-build-script" }
+        $Asset = $Release.assets |
+            Where-Object { $_.name -match '^Git-[0-9].*-64-bit\.exe$' } |
+            Select-Object -First 1
+        if ($Asset -and $Asset.browser_download_url) {
+            return [string]$Asset.browser_download_url
         }
     }
-
-    if (-not $SourceDir) {
-        if (-not $AllowPortableGitFallback) {
-            Write-Warning "No usable MinGit bundle was found. Build will continue without bundled Git Bash."
-            return
-        }
-
-        if (-not (Test-Path $PortableGitExe)) {
-            Write-Step "Downloading PortableGit $GitVersion"
-            try {
-                Invoke-WebRequest -Uri $PortableGitUrl -OutFile $PortableGitExe
-            }
-            catch {
-                Write-Warning "Failed to download PortableGit: $($_.Exception.Message)"
-            }
-        }
-
-        if ((Test-Path $PortableGitExe) -and (-not (Test-Path $PortableGitExtractDir))) {
-            Write-Step "Extracting PortableGit"
-            New-Item -ItemType Directory -Force -Path $PortableGitExtractDir | Out-Null
-            & $PortableGitExe -y "-o$PortableGitExtractDir" | Out-Null
-        }
-
-        if (Test-GitBundleDir $PortableGitExtractDir) {
-            $SourceDir = $PortableGitExtractDir
-        }
+    catch {
+        Write-Warning "Could not resolve latest Git for Windows URL: $($_.Exception.Message)"
     }
 
-    if (-not $SourceDir) {
-        Write-Warning "No usable MinGit/PortableGit bundle was found. Build will continue without bundled Git Bash."
-        return
-    }
-
-    Write-Step "Copying MinGit bundle into dist"
-    $Target = Join-Path $DistDir "portable-git"
-    if (Test-Path $Target) {
-        Remove-Item -LiteralPath $Target -Recurse -Force
-    }
-    Copy-Item -Path $SourceDir -Destination $Target -Recurse -Force
-}
-
-function Test-GitBundleDir($Directory) {
-    if (-not (Test-Path $Directory)) {
-        return $false
-    }
-
-    $GitCandidates = @(
-        (Join-Path $Directory "cmd\git.exe"),
-        (Join-Path $Directory "mingw64\bin\git.exe")
-    )
-    return [bool]($GitCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
+    Write-Warning "Falling back to $GitFallbackUrl"
+    return $GitFallbackUrl
 }
 
 function Find-Iscc() {
@@ -194,7 +121,6 @@ if (-not (Test-Path (Join-Path $DistDir "chainpeer.exe"))) {
 }
 
 Copy-Templates
-Copy-PortableGit
 
 Write-Step "Smoke testing executable"
 & (Join-Path $DistDir "chainpeer.exe") --version
@@ -213,14 +139,19 @@ if (-not $Iscc) {
     exit 0
 }
 
+$GitInstallerUrl = Get-GitInstallerUrl
+
 Write-Step "Building Inno Setup installer"
 $env:CHAINPEER_VERSION = $Version
+$env:CHAINPEER_GIT_INSTALLER_URL = $GitInstallerUrl
 Push-Location $Root
 try {
     & $Iscc packaging\inno\ChainPeerSetup.iss
 }
 finally {
     Pop-Location
+    Remove-Item Env:CHAINPEER_VERSION -ErrorAction SilentlyContinue
+    Remove-Item Env:CHAINPEER_GIT_INSTALLER_URL -ErrorAction SilentlyContinue
 }
 
 $Installer = Join-Path $ReleaseDir "ChainPeerSetup-$Version.exe"

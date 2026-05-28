@@ -11,8 +11,8 @@ from pathlib import Path
 
 
 SHELL_UNAVAILABLE_MESSAGE = (
-    "No supported shell backend was found. Install Git for Windows, bundle MinGit "
-    "under portable-git, set CHAINPEER_BASH_PATH to bash.exe, or enable PowerShell."
+    "No supported shell backend was found. Install Git for Windows, set "
+    "CHAINPEER_BASH_PATH to bash.exe, or enable PowerShell."
 )
 
 
