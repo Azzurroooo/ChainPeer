@@ -25,6 +25,15 @@ packaging/vendor/
 .idea/
 
 # Local Notes (Optional, keep if you don't want them tracked)
+/1.png
+/1.txt
+/PRODUCT_PLAN.md
+/cheer.txt
+/poem.txt
+/session_index.json
+/test_image.py
+/test_pdf.py
+/*.pdf
 plan/
 claude_code_system_prompt_analysis.md
 claude_code_system_prompt_cn.md
