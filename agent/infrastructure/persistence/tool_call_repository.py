@@ -21,11 +21,13 @@ class ToolCallRepository:
         ts_start: str,
         ts_end: str,
         result: str,
-        model_content: str | None = None,
+        model_content: str,
         model_content_format: str | None = None,
         model_content_policy: dict[str, Any] | None = None,
         artifact_ref: str | None = None,
     ) -> None:
+        if not isinstance(model_content, str) or not model_content:
+            raise ValueError("tool record schema v2 requires non-empty model_content")
         parsed = self._parse_tool_result(result)
         ok = None
         error_type = None
@@ -48,12 +50,11 @@ class ToolCallRepository:
             "error_type": error_type,
             "error_message": error_message,
             "meta": meta,
+            "model_content": model_content,
+            "model_content_format": model_content_format or "tool_result_v1",
+            "model_content_policy": dict(model_content_policy or {}),
+            "artifact_ref": artifact_ref,
         }
-        if model_content is not None:
-            record["model_content"] = model_content
-            record["model_content_format"] = model_content_format or "tool_result_v1"
-            record["model_content_policy"] = dict(model_content_policy or {})
-            record["artifact_ref"] = artifact_ref
         self._files.append_jsonl(self._path, record)
 
     def load_tool_calls(self) -> list[dict[str, Any]]:

@@ -16,7 +16,6 @@ from agent.domain import Skill, SkillMatch
 class QueryOnlySession:
     def __init__(self, messages):
         self._messages = [dict(message) for message in messages]
-        self.latest_snapshot = None
 
     async def get_messages_slice(self, start=None, end=None, roles=None):
         messages = [dict(message) for message in self._messages]
@@ -24,24 +23,6 @@ class QueryOnlySession:
             allowed = set(roles)
             messages = [message for message in messages if message.get("role") in allowed]
         return messages[slice(start, end)]
-
-    async def get_tool_records(self, limit=None, call_ids=None):
-        return []
-
-    async def get_tool_summaries(self, call_ids=None):
-        return {}
-
-    async def persist_tool_summary(self, summary):
-        return None
-
-    async def get_latest_conversation_summary(self):
-        return None
-
-    async def persist_conversation_summary(self, summary):
-        return None
-
-    async def persist_context_snapshot(self, snapshot):
-        self.latest_snapshot = dict(snapshot)
 
 
 class StaticSkillRepository:

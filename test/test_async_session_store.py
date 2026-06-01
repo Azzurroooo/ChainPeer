@@ -27,6 +27,16 @@ async def test_async_session_store_facade(temp_session_dir):
     await async_store.initialize()
     
     assert async_store.session_id is not None
+    session_base = Path(temp_session_dir) / async_store.session_id
+    meta = json.loads((session_base / "meta.json").read_text(encoding="utf-8"))
+    assert meta["schema_version"] == "2.0"
+    assert (session_base / "messages.jsonl").exists()
+    assert (session_base / "tool_calls.jsonl").exists()
+    removed_files = ["conversation_" + "summaries.jsonl", "tool_call_" + "summaries.jsonl"]
+    for removed in removed_files:
+        assert not (session_base / removed).exists()
+    assert not (session_base / ("snap" + "shots")).exists()
+    assert not (session_base / "compactions.jsonl").exists()
     
     # Test persistence
     await async_store.persist_message("user", "Hello World")
@@ -97,25 +107,68 @@ async def test_persist_tool_call_writes_model_content(temp_session_dir):
 
 
 @pytest.mark.asyncio
-async def test_get_messages_slice_legacy_tool_record_fallback(temp_session_dir):
+async def test_get_messages_slice_rejects_tool_record_without_model_content(temp_session_dir):
     store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
     await store.initialize()
     await store.persist_message("assistant", "", meta={"tool_calls": [{"id": "legacy", "name": "bash"}]})
-    await store.persist_tool_call(
-        call_id="legacy",
-        name="bash",
-        parsed_args={},
-        raw_args="{}",
-        ts_start=store.now_iso(),
-        ts_end=store.now_iso(),
-        result_payload=json.dumps({"ok": True, "tool": "bash", "data": "legacy output"}),
-    )
+    session_base = Path(temp_session_dir) / store.session_id
+    legacy_record = {
+        "id": "legacy",
+        "ts_start": store.now_iso(),
+        "ts_end": store.now_iso(),
+        "name": "bash",
+        "args": {},
+        "raw_args": "{}",
+        "result": {"ok": True, "tool": "bash", "data": "legacy output"},
+    }
+    with (session_base / "tool_calls.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(legacy_record, ensure_ascii=False) + "\n")
     await store.persist_message("tool", "", tool_call_id="legacy", tool_name="bash")
 
-    messages = await store.get_messages_slice()
-    tool_message = next(message for message in messages if message.get("role") == "tool")
+    with pytest.raises(ValueError, match="missing model_content"):
+        await store.get_messages_slice()
 
-    assert "legacy output" in tool_message["content"]
+
+@pytest.mark.asyncio
+async def test_persist_tool_call_requires_model_content(temp_session_dir):
+    store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
+    await store.initialize()
+
+    with pytest.raises(ValueError, match="model_content"):
+        await store.persist_tool_call(
+            call_id="call_missing",
+            name="bash",
+            parsed_args={},
+            raw_args="{}",
+            ts_start=store.now_iso(),
+            ts_end=store.now_iso(),
+            result_payload=json.dumps({"ok": True, "tool": "bash", "data": "raw"}),
+            model_content="",
+        )
+
+
+@pytest.mark.asyncio
+async def test_legacy_session_schema_is_rejected(temp_session_dir):
+    session_id = "legacy_session"
+    session_base = Path(temp_session_dir) / session_id
+    session_base.mkdir(parents=True)
+    (session_base / "meta.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.1",
+                "session_id": session_id,
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "message_count": 0,
+                "tool_call_count": 0,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    store = AsyncJsonlSessionStore(session_dir=temp_session_dir, session_id=session_id)
+    with pytest.raises(ValueError, match="Unsupported legacy session schema"):
+        await store.initialize()
 
 
 @pytest.mark.asyncio
@@ -128,8 +181,10 @@ async def test_manual_compact_appends_boundary_without_rewriting_messages(temp_s
 
     record = await store.compact_context()
     after = await store.load_messages()
+    session_base = Path(temp_session_dir) / store.session_id
 
     assert after[: len(before)] == before
+    assert (session_base / "compactions.jsonl").exists()
     assert after[-1]["meta"]["kind"] == "compact_boundary"
     assert after[-1]["meta"]["compact_id"] == record["id"]
 
@@ -188,7 +243,11 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as tmp:
             await test_persist_tool_call_writes_model_content(tmp)
         with tempfile.TemporaryDirectory() as tmp:
-            await test_get_messages_slice_legacy_tool_record_fallback(tmp)
+            await test_get_messages_slice_rejects_tool_record_without_model_content(tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            await test_persist_tool_call_requires_model_content(tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            await test_legacy_session_schema_is_rejected(tmp)
         with tempfile.TemporaryDirectory() as tmp:
             await test_manual_compact_appends_boundary_without_rewriting_messages(tmp)
         with tempfile.TemporaryDirectory() as tmp:

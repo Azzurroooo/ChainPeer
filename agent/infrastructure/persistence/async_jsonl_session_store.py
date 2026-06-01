@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import uuid
-from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
 
@@ -14,7 +13,6 @@ from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.infrastructure.persistence.session_files import SessionFiles
 from agent.infrastructure.persistence.message_repository import MessageRepository
 from agent.infrastructure.persistence.tool_call_repository import ToolCallRepository
-from agent.infrastructure.persistence.summary_repository import SummaryRepository
 from agent.infrastructure.persistence.compaction_repository import CompactionRepository
 from agent.infrastructure.persistence.session_index_repository import SessionIndexRepository
 from agent.application.services.compaction_service import CompactionService
@@ -51,7 +49,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._files = SessionFiles()
         self._msg_repo = None
         self._tool_repo = None
-        self._summary_repo = None
         self._compaction_repo = None
         self._index_repo = None
         self._write_lock = asyncio.Lock()
@@ -115,16 +112,12 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             "meta": os.path.join(base, "meta.json"),
             "messages": os.path.join(base, "messages.jsonl"),
             "tool_calls": os.path.join(base, "tool_calls.jsonl"),
-            "tool_call_summaries": os.path.join(base, "tool_call_summaries.jsonl"),
-            "conversation_summaries": os.path.join(base, "conversation_summaries.jsonl"),
             "compactions": os.path.join(base, "compactions.jsonl"),
-            "snapshots": os.path.join(base, "snapshots"),
         }
 
     def _setup_repos(self):
         self._msg_repo = MessageRepository(self._files, self._session_paths["messages"])
         self._tool_repo = ToolCallRepository(self._files, self._session_paths["tool_calls"], looks_like_tool_payload)
-        self._summary_repo = SummaryRepository(self._files, self._session_paths["tool_call_summaries"], self._session_paths["conversation_summaries"])
         self._compaction_repo = CompactionRepository(self._files, self._session_paths["compactions"])
 
     def _create_session(self, session_id: str | None = None) -> None:
@@ -136,12 +129,8 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._session_paths = self._get_session_paths(session_id)
         
         os.makedirs(self._session_paths["base"], exist_ok=True)
-        os.makedirs(self._session_paths["snapshots"], exist_ok=True)
-        Path(self._session_paths["messages"]).touch()
-        Path(self._session_paths["tool_calls"]).touch()
-        Path(self._session_paths["tool_call_summaries"]).touch()
-        Path(self._session_paths["conversation_summaries"]).touch()
-        Path(self._session_paths["compactions"]).touch()
+        open(self._session_paths["messages"], "a", encoding="utf-8").close()
+        open(self._session_paths["tool_calls"], "a", encoding="utf-8").close()
         
         self._setup_repos()
         
@@ -150,7 +139,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._tool_call_count = 0
         
         self._session_meta = {
-            "schema_version": "1.1",
+            "schema_version": "2.0",
             "session_id": session_id,
             "title": "Untitled",
             "created_at": now,
@@ -171,6 +160,8 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         meta = self._files.load_json(self._session_paths["meta"])
         if not meta:
             raise ValueError(f"Session data corrupted or missing meta.json for id: {session_id}")
+        if str(meta.get("schema_version") or "") != "2.0":
+            raise ValueError("Unsupported legacy session schema; start a new session.")
             
         self._setup_repos()
         
@@ -195,11 +186,18 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             if isinstance(entry_root, str) and entry_root.strip():
                 session_root = os.path.normcase(os.path.realpath(os.path.abspath(entry_root)))
                 if current_root == session_root:
-                    scoped.append(session)
+                    session_id = session.get("id")
+                    if isinstance(session_id, str) and self._is_supported_session_id(session_id):
+                        scoped.append(session)
         if not scoped:
             return None
         scoped.sort(key=lambda s: s.get("updated_at") or "")
         return scoped[-1].get("id")
+
+    def _is_supported_session_id(self, session_id: str) -> bool:
+        meta_path = os.path.join(self._session_root, session_id, "meta.json")
+        meta = self._files.load_json(meta_path)
+        return isinstance(meta, dict) and str(meta.get("schema_version") or "") == "2.0"
 
     def _update_index(self) -> None:
         if not self._index_repo or not self._session_meta:
@@ -322,7 +320,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         ts_start: str,
         ts_end: str,
         result_payload: str,
-        model_content: str | None = None,
+        model_content: str,
         model_content_format: str | None = None,
         model_content_policy: dict[str, Any] | None = None,
         artifact_ref: str | None = None,
@@ -357,44 +355,14 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         def _load():
             return self._msg_repo.load_messages() if self._msg_repo else []
         return await asyncio.to_thread(_load)
-        
-    async def reconstruct_messages(self) -> list[dict[str, Any]]:
-        return await self.get_messages_slice()
-
-    def _truncate_value(self, value, limit: int, depth: int = 2):
-        if depth <= 0:
-            return value
-        if isinstance(value, str):
-            if len(value) <= limit:
-                return value
-            return value[:limit] + f"...(truncated:{len(value)})"
-        if isinstance(value, list):
-            return [self._truncate_value(v, limit, depth - 1) for v in value]
-        if isinstance(value, dict):
-            return {k: self._truncate_value(v, limit, depth - 1) for k, v in value.items()}
-        return value
-
-    def _summarize_tool_result(self, result):
-        if isinstance(result, dict) and "ok" in result and "tool" in result:
-            summarized = dict(result)
-            if "data" in summarized:
-                summarized["data"] = self._truncate_value(summarized["data"], 800)
-            if "error" in summarized:
-                summarized["error"] = self._truncate_value(summarized["error"], 800)
-            return summarized
-        return self._truncate_value(result, 800)
 
     def _build_tool_content(self, tool_record: dict | None) -> str:
         if not tool_record:
-            return ""
+            raise ValueError("Unsupported legacy tool record: missing tool call record.")
         model_content = tool_record.get("model_content")
-        if isinstance(model_content, str):
+        if isinstance(model_content, str) and model_content:
             return model_content
-        result = tool_record.get("result")
-        summarized = self._summarize_tool_result(result)
-        if isinstance(summarized, str):
-            return summarized
-        return json.dumps(summarized, ensure_ascii=False)
+        raise ValueError("Unsupported legacy tool record: missing model_content.")
 
     def _is_compact_boundary_message(self, message: dict[str, Any]) -> bool:
         meta = message.get("meta")
@@ -472,10 +440,14 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
                     for tc_meta in tool_calls_meta:
                         tc_id = tc_meta.get("id")
                         tc_name = tc_meta.get("name") or ""
-                        tc_record = tool_map.get(tc_id, {})
+                        if not tc_id:
+                            raise ValueError("Invalid tool call message: missing tool call id.")
+                        tc_record = tool_map.get(tc_id)
+                        if not isinstance(tc_record, dict):
+                            raise ValueError(f"Invalid tool call message: missing tool record for {tc_id}.")
                         raw_args = tc_record.get("raw_args") or ""
-                        if not raw_args and isinstance(tc_record.get("args"), dict):
-                            raw_args = json.dumps(tc_record.get("args"), ensure_ascii=False)
+                        if not raw_args:
+                            raise ValueError(f"Invalid tool call record: missing raw_args for {tc_id}.")
                         tool_msgs.append(
                             {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
                         )
@@ -494,25 +466,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             return [dict(message) for message in built_messages[slice(start, end)]]
             
         return await asyncio.to_thread(_get)
-
-    async def persist_conversation_summary(self, summary: dict[str, Any]) -> None:
-        async with self._write_lock:
-            def _persist():
-                if not self._summary_repo:
-                    return
-                record = self._summary_repo.persist_conversation_summary(self.now_iso(), summary)
-                if self._session_meta:
-                    self._session_meta["updated_at"] = self.now_iso()
-                    self._session_meta["latest_conversation_summary"] = {
-                        "id": record.get("id"),
-                        "created_at": record.get("created_at"),
-                        "covered_turns": record.get("covered_turns"),
-                        "source_message_count": record.get("source_message_count"),
-                    }
-                    self._files.write_json(self._session_paths["meta"], self._session_meta)
-                self._update_index()
-
-            await asyncio.to_thread(_persist)
 
     async def list_recent_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
         def _list():
@@ -536,52 +489,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
                 records = records[-limit:]
             return records
         return await asyncio.to_thread(_get)
-
-    async def get_tool_summaries(self, call_ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
-        def _get():
-            if not self._summary_repo:
-                return {}
-            summaries = self._summary_repo.load_tool_summaries()
-            if call_ids:
-                allowed_ids = set(call_ids)
-                summaries = [item for item in summaries if item.get("call_id") in allowed_ids]
-            return {item["call_id"]: item for item in summaries if "call_id" in item}
-        return await asyncio.to_thread(_get)
-
-    async def persist_tool_summary(self, summary: dict[str, Any]) -> None:
-        async with self._write_lock:
-            def _persist():
-                if not self._summary_repo:
-                    return
-                self._summary_repo.persist_tool_summary(self.now_iso(), summary)
-                if self._session_meta:
-                    self._session_meta["updated_at"] = self.now_iso()
-                    self._files.write_json(self._session_paths["meta"], self._session_meta)
-                self._update_index()
-            await asyncio.to_thread(_persist)
-
-    async def get_latest_conversation_summary(self) -> dict[str, Any] | None:
-        def _get():
-            if not self._summary_repo:
-                return None
-            summaries = self._summary_repo.load_conversation_summaries()
-            if not summaries:
-                return None
-            return dict(summaries[-1])
-        return await asyncio.to_thread(_get)
-
-    async def persist_context_snapshot(self, snapshot: dict[str, Any]) -> None:
-        async with self._write_lock:
-            def _persist():
-                if not self._session_meta or not self._session_paths:
-                    return
-                lightweight_snapshot = dict(snapshot)
-                lightweight_snapshot.pop("snapshot", None)
-                self._session_meta["latest_context_snapshot"] = lightweight_snapshot
-                self._session_meta["updated_at"] = self.now_iso()
-                self._files.write_json(self._session_paths["meta"], self._session_meta)
-                self._update_index()
-            await asyncio.to_thread(_persist)
 
     async def persist_sampling_usage(self, usage: dict[str, Any]) -> None:
         async with self._write_lock:

@@ -47,7 +47,7 @@ class AsyncSessionStore(Protocol):
         ts_start: str,
         ts_end: str,
         result_payload: str,
-        model_content: str | None = None,
+        model_content: str,
         model_content_format: str | None = None,
         model_content_policy: dict[str, Any] | None = None,
         artifact_ref: str | None = None,
@@ -55,21 +55,8 @@ class AsyncSessionStore(Protocol):
         """Persist tool call execution details asynchronously."""
         ...
 
-    async def reconstruct_messages(self) -> list[dict[str, Any]]:
-        """Reconstruct message history for LLM context.
-
-        Semantically identical to ``get_messages_slice()`` with default args.
-        Kept as a named alias for callers that need the full conversation
-        specifically for model input, as opposed to arbitrary slice queries.
-        """
-        ...
-
     async def load_messages(self) -> list[dict[str, Any]]:
         """Load all raw messages asynchronously."""
-        ...
-
-    async def persist_conversation_summary(self, summary: dict[str, Any]) -> None:
-        """Persist a conversation summary asynchronously."""
         ...
 
     async def list_recent_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
@@ -87,22 +74,6 @@ class AsyncSessionStore(Protocol):
 
     async def get_tool_records(self, limit: int | None = None, call_ids: list[str] | None = None) -> list[dict[str, Any]]:
         """Get tool records asynchronously."""
-        ...
-
-    async def get_tool_summaries(self, call_ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
-        """Get tool summaries asynchronously."""
-        ...
-
-    async def persist_tool_summary(self, summary: dict[str, Any]) -> None:
-        """Persist a tool summary asynchronously."""
-        ...
-
-    async def get_latest_conversation_summary(self) -> dict[str, Any] | None:
-        """Get the latest conversation summary asynchronously."""
-        ...
-
-    async def persist_context_snapshot(self, snapshot: dict[str, Any]) -> None:
-        """Persist a context snapshot asynchronously."""
         ...
 
     async def persist_compaction(self, compaction: dict[str, Any]) -> dict[str, Any]:
