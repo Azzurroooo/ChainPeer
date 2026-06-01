@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
 from rich.console import Console
 
 from agent.domain.events import (
-    ContextBuiltEvent,
     RuntimeEvent,
     SkillActivatedEvent,
     ToolCallStartedEvent,
@@ -45,8 +43,6 @@ class CliStatusRenderer:
         """Render a runtime event if it is relevant to CLI status."""
         if isinstance(event, TurnStartedEvent):
             self._handle_turn_started(event)
-        elif isinstance(event, ContextBuiltEvent):
-            self._handle_context_built(event)
         elif isinstance(event, SkillActivatedEvent):
             self._handle_skill_activated(event)
         elif isinstance(event, ToolRequestedEvent):
@@ -73,20 +69,6 @@ class CliStatusRenderer:
                 f"turn started: turn_id={event.turn_id or 'unknown'}, "
                 f"user_message_chars={event.user_message_chars}"
             )
-
-    def _handle_context_built(self, event: ContextBuiltEvent) -> None:
-        signature = self._context_signature(event)
-        if self._debug:
-            tokens = event.stats.get("estimated_input_tokens", "unknown")
-            self._print_debug(f"context built: messages={event.message_count}, tokens={tokens}")
-            return
-        if self._state.context_rendered or signature == self._state.context_signature:
-            return
-        self._state.context_rendered = True
-        self._state.context_signature = signature
-        tokens = event.stats.get("estimated_input_tokens")
-        token_text = f", ~{_format_count(tokens)} input tokens" if isinstance(tokens, int | float) else ""
-        self._print_status(f"Context: {event.message_count} messages{token_text}")
 
     def _handle_skill_activated(self, event: SkillActivatedEvent) -> None:
         skill_name = event.skill_name or "unknown"
@@ -197,14 +179,6 @@ class CliStatusRenderer:
         completed = sum(1 for item in self._state.tools.values() if item.status == "completed")
         failed = sum(1 for item in self._state.tools.values() if item.status == "failed")
         return completed, failed
-
-    def _context_signature(self, event: ContextBuiltEvent) -> str:
-        payload = {
-            "message_count": event.message_count,
-            "stats": event.stats,
-            "decisions": event.decisions,
-        }
-        return json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
 
     def _print_debug(self, message: str) -> None:
         self._print_status(f"[debug] {message}", style="dim italic")

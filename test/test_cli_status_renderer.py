@@ -79,18 +79,24 @@ def test_skill_activation_deduplicates_within_turn() -> None:
         raise AssertionError(f"Expected one skill line, got: {text!r}")
 
 
-def test_context_built_deduplicates_in_normal_mode() -> None:
+def test_context_built_is_quiet_in_normal_mode() -> None:
     renderer, output = make_renderer()
 
     event = ContextBuiltEvent(message_count=8, stats={"estimated_input_tokens": 1234})
     renderer.handle(event)
     renderer.handle(event)
 
-    text = output.getvalue()
-    if text.count("Context:") != 1:
-        raise AssertionError(f"Expected one context line, got: {text!r}")
-    if "~1.2k input tokens" not in text:
-        raise AssertionError(f"Expected compact token count, got: {text!r}")
+    if output.getvalue():
+        raise AssertionError(f"Expected no context output, got: {output.getvalue()!r}")
+
+
+def test_context_built_is_quiet_in_debug_mode() -> None:
+    renderer, output = make_renderer(debug=True)
+
+    renderer.handle(ContextBuiltEvent(message_count=8, stats={"estimated_input_tokens": 1234}))
+
+    if output.getvalue():
+        raise AssertionError(f"Expected no debug context output, got: {output.getvalue()!r}")
 
 
 def test_token_stats_updated_output() -> None:
@@ -166,7 +172,8 @@ def main() -> int:
     test_tool_lifecycle_completed_output()
     test_tool_lifecycle_failed_output()
     test_skill_activation_deduplicates_within_turn()
-    test_context_built_deduplicates_in_normal_mode()
+    test_context_built_is_quiet_in_normal_mode()
+    test_context_built_is_quiet_in_debug_mode()
     test_token_stats_updated_output()
     test_debug_tool_requested_shows_truncated_args()
     test_tool_progress_deduplicates_messages()

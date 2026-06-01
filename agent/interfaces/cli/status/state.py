@@ -24,6 +24,4 @@ class TurnDisplayState:
 
     turn_id: str = ""
     tools: dict[str, ToolDisplayState] = field(default_factory=dict)
-    context_rendered: bool = False
-    context_signature: str = ""
     activated_skills: set[str] = field(default_factory=set)
