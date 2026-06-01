@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.application import ContextManager, ToolExecutor, JobService
+from agent.application import ContextBudget, ContextEstimator, ContextManager, ToolExecutor, JobService
 from agent.application.services.skill_selector import SkillSelector
 from agent.application.runtime.async_runtime_facade import AsyncRuntimeFacade
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
@@ -67,6 +67,15 @@ def build_basic_agent_dependencies(
         stream_parser=stream_parser,
         tool_schemas=tool_registry.schemas,
         context_manager=ContextManager(
+            estimator=ContextEstimator(
+                ContextBudget(
+                    context_window_tokens=Config.CONTEXT_WINDOW_TOKENS,
+                    effective_context_window_percent=Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+                    auto_compact_token_limit=Config.AUTO_COMPACT_TOKEN_LIMIT,
+                    auto_compact_token_limit_scope=Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
+                    auto_compact_enabled=Config.AUTO_COMPACT_ENABLED,
+                )
+            ),
             skill_repository=skill_repository,
             skill_selector=skill_selector,
             plan_context_provider=plan_context_provider,

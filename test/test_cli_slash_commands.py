@@ -20,18 +20,45 @@ from agent.infrastructure.config import Config
 class FakeSession:
     session_id = "session_1"
     model = "model_a"
+    compact_called = False
 
     async def get_messages_slice(self):
         return [{"role": "system", "content": "sys"}, {"role": "user", "content": "hello"}]
+
+    async def compact_context(self):
+        self.compact_called = True
+        return {
+            "id": "compact_1",
+            "source": {
+                "message_start_index": 0,
+                "message_end_index_exclusive": 2,
+                "tool_call_ids": ["call_1"],
+            },
+        }
+
+    async def get_latest_sampling_usage(self):
+        return None
 
 
 class FakeRuntime:
     def __init__(self):
         self.called = False
+        self.compact_called = False
 
     def run_turn(self, query=None, cancellation_token=None):
         self.called = True
         return EmptyStream()
+
+    async def compact_context(self, reason="manual"):
+        self.compact_called = True
+        return {
+            "id": "runtime_compact_1",
+            "source": {
+                "message_start_index": 0,
+                "message_end_index_exclusive": 2,
+                "tool_call_ids": [],
+            },
+        }
 
 
 class EmptyStream:
@@ -77,6 +104,26 @@ async def test_status_shows_session_model_debug_and_message_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_status_shows_latest_sampling_usage() -> None:
+    class UsageSession(FakeSession):
+        async def get_latest_sampling_usage(self):
+            return {
+                "input_tokens": 121300,
+                "effective_context_window_tokens": 245480,
+                "context_usage_percent": 121300 / 245480,
+                "cached_input_tokens": 98700,
+                "cache_hit_rate": 98700 / 121300,
+                "output_tokens": 2100,
+            }
+
+    result = await SlashCommandRouter().execute("/status", _context(session=UsageSession()))
+
+    assert "Last sampling:" in result.text
+    assert "input: 121.3k / 245.5k" in result.text
+    assert "cached: 98.7k (81.4%)" in result.text
+
+
+@pytest.mark.asyncio
 async def test_config_does_not_leak_api_key(monkeypatch) -> None:
     monkeypatch.setattr(Config, "OPENAI_API_KEY", "secret-value")
     monkeypatch.setattr(Config, "OPENAI_API_BASE", "https://example.com/v1")
@@ -98,6 +145,20 @@ async def test_model_set_is_placeholder() -> None:
     result = await SlashCommandRouter().execute("/model set model_b", _context())
 
     assert "not implemented" in result.text
+
+
+@pytest.mark.asyncio
+async def test_compact_calls_session_compact_context() -> None:
+    session = FakeSession()
+    runtime = FakeRuntime()
+    context = SlashCommandContext(runtime=runtime, session=session, debug=True)
+    result = await SlashCommandRouter().execute("/compact", context)
+
+    assert runtime.compact_called is True
+    assert session.compact_called is False
+    assert "Compact complete." in result.text
+    assert "runtime_compact_1" in result.text
+    assert "tool calls: 0" in result.text
 
 
 @pytest.mark.asyncio
@@ -161,7 +222,9 @@ def main() -> int:
     asyncio.run(test_help_returns_command_list())
     asyncio.run(test_unknown_command_returns_friendly_error())
     asyncio.run(test_status_shows_session_model_debug_and_message_count())
+    asyncio.run(test_status_shows_latest_sampling_usage())
     asyncio.run(test_model_set_is_placeholder())
+    asyncio.run(test_compact_calls_session_compact_context())
     asyncio.run(test_exit_requests_cli_exit())
     asyncio.run(test_chat_cli_slash_command_does_not_call_runtime())
     asyncio.run(test_chat_cli_normal_turn_still_calls_runtime())

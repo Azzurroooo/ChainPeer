@@ -1,16 +1,16 @@
+import json
 import os
 import sys
-import json
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import pytest
-
-from agent.application.services import ContextBudget, ContextEstimator, ContextManager, ToolContextPolicy
+from agent.application.services import ContextBudget, ContextEstimator, ContextManager
 from agent.infrastructure.persistence.async_jsonl_session_store import AsyncJsonlSessionStore
 
 
@@ -18,10 +18,8 @@ class QueryOnlySession:
     def __init__(self, messages):
         self._messages = [dict(message) for message in messages]
         self.latest_snapshot = None
-        self.latest_summary = None
-        self.persisted_summaries = []
-        self.tool_records = {}
-        self.tool_summaries = {}
+        self.persisted_tool_summaries = []
+        self.persisted_conversation_summaries = []
 
     async def get_messages_slice(self, start=None, end=None, roles=None):
         messages = [dict(message) for message in self._messages]
@@ -31,29 +29,19 @@ class QueryOnlySession:
         return messages[slice(start, end)]
 
     async def get_tool_records(self, limit=None, call_ids=None):
-        records = [dict(record) for record in self.tool_records.values()]
-        if call_ids:
-            allowed = set(call_ids)
-            records = [record for record in records if record.get("id") in allowed]
-        if limit is not None:
-            records = records[-limit:]
-        return records
+        raise AssertionError("ContextManager should not read tool records during append-only build")
 
     async def get_tool_summaries(self, call_ids=None):
-        if not call_ids:
-            return {key: dict(value) for key, value in self.tool_summaries.items()}
-        allowed = set(call_ids)
-        return {key: dict(value) for key, value in self.tool_summaries.items() if key in allowed}
+        raise AssertionError("ContextManager should not read tool summaries during append-only build")
 
     async def persist_tool_summary(self, summary: dict) -> None:
-        self.tool_summaries[summary["call_id"]] = dict(summary)
+        self.persisted_tool_summaries.append(dict(summary))
 
     async def get_latest_conversation_summary(self):
-        return dict(self.latest_summary) if isinstance(self.latest_summary, dict) else None
+        raise AssertionError("ContextManager should not read rolling summaries during append-only build")
 
     async def persist_conversation_summary(self, summary: dict) -> None:
-        self.latest_summary = dict(summary)
-        self.persisted_summaries.append(dict(summary))
+        self.persisted_conversation_summaries.append(dict(summary))
 
     async def persist_context_snapshot(self, snapshot: dict) -> None:
         self.latest_snapshot = dict(snapshot)
@@ -73,39 +61,31 @@ async def test_context_manager_builds_from_session_queries() -> None:
         )
     )
     session = QueryOnlySession(session_messages)
-    session.tool_records = {
-        "c1": {
-            "id": "c1",
-            "name": "bash",
-            "result": {"ok": True, "tool": "bash", "data": "tool output"},
-        }
-    }
 
     result = await manager.build_messages_async(session=session)
 
-    expected_messages = [
-        {"role": "system", "content": "sys"},
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "world"},
-        {"role": "tool", "tool_call_id": "c1", "content": '{"tool": "bash", "ok": null}'},
-    ]
-    if result.messages != expected_messages:
+    if result.messages != session_messages:
         raise AssertionError(f"Expected session-backed messages, got: {result.messages}")
-    if (result.stats or {}).get("persisted_message_count") != 4:
+    if result.stats.get("persisted_message_count") != 4:
         raise AssertionError(f"Unexpected stats: {result.stats}")
-    if "estimated_input_tokens" not in (result.stats or {}):
+    if "estimated_input_tokens" not in result.stats:
         raise AssertionError(f"Expected estimate in stats, got: {result.stats}")
-    if (result.decisions or {}).get("source") != "session_queries":
+    if result.stats.get("context_window_tokens") != 258400:
+        raise AssertionError(f"Expected Codex-style context window stats, got: {result.stats}")
+    if result.stats.get("effective_context_window_tokens") != 245480:
+        raise AssertionError(f"Expected effective context window stats, got: {result.stats}")
+    if "context_usage_percent" not in result.stats:
+        raise AssertionError(f"Expected context usage percent, got: {result.stats}")
+    if result.decisions.get("source") != "session_queries":
         raise AssertionError(f"Unexpected decisions: {result.decisions}")
-    if (result.decisions or {}).get("compact_required") is not False:
+    if result.decisions.get("compact_required") is not False:
         raise AssertionError(f"Unexpected compact decision: {result.decisions}")
-    if "over_conversation_budget" not in (result.decisions or {}):
-        raise AssertionError(f"Expected independent conversation budget decision, got: {result.decisions}")
-    snapshot = result.snapshot
-    if snapshot is None or (snapshot.system_message or {}).get("role") != "system":
-        raise AssertionError(f"Expected system message snapshot, got: {snapshot}")
-    if len(snapshot.tool_messages) != 1:
-        raise AssertionError(f"Expected one tool message in snapshot, got: {snapshot.tool_messages}")
+    if result.decisions.get("tool_policy_applied") is not False:
+        raise AssertionError(f"Expected tool policy disabled, got: {result.decisions}")
+    if result.decisions.get("rolling_summary_applied") is not False:
+        raise AssertionError(f"Expected rolling summary disabled, got: {result.decisions}")
+    if not result.snapshot or len(result.snapshot.tool_messages) != 1:
+        raise AssertionError(f"Expected one tool message in snapshot, got: {result.snapshot}")
     if not session.latest_snapshot or session.latest_snapshot.get("message_count") != 4:
         raise AssertionError(f"Expected persisted context snapshot, got: {session.latest_snapshot}")
 
@@ -123,156 +103,75 @@ async def test_context_manager_appends_pending_messages() -> None:
 
     if result.messages != session_messages + pending:
         raise AssertionError(f"Expected pending overlay appended, got: {result.messages}")
-    if (result.stats or {}).get("pending_message_count") != 1:
+    if result.stats.get("pending_message_count") != 1:
         raise AssertionError(f"Unexpected pending stats: {result.stats}")
-    if (result.decisions or {}).get("uses_pending_overlay") is not True:
+    if result.decisions.get("uses_pending_overlay") is not True:
         raise AssertionError(f"Unexpected pending decisions: {result.decisions}")
 
 
 @pytest.mark.asyncio
-async def test_context_manager_compacts_only_cold_conversation_zone() -> None:
+async def test_context_manager_build_is_stable_and_has_no_summary_side_effects() -> None:
     session_messages = [{"role": "system", "content": "sys"}]
-    for index in range(1, 7):
-        session_messages.append({"role": "user", "content": f"user message {index} with enough text to raise the estimate"})
-        session_messages.append({"role": "assistant", "content": f"assistant reply {index} with enough text to raise the estimate"})
+    for index in range(8):
+        session_messages.append({"role": "user", "content": f"user message {index} " + ("x" * 80)})
+        session_messages.append({"role": "assistant", "content": f"assistant reply {index} " + ("y" * 80)})
     session = QueryOnlySession(session_messages)
-    manager = ContextManager(
-        estimator=ContextEstimator(
-            ContextBudget(hard_limit_tokens=2000, conversation_budget_tokens=20, tool_budget_tokens=80)
-        ),
-        hot_message_limit=4,
-    )
-
-    result = await manager.build_messages_async(session=session)
-
-    if not (result.decisions or {}).get("rolling_summary_applied"):
-        raise AssertionError(f"Expected rolling summary to be applied, got: {result.decisions}")
-    if len(session.persisted_summaries) != 1:
-        raise AssertionError(f"Expected a persisted summary, got: {session.persisted_summaries}")
-    if not result.snapshot or len(result.snapshot.summary_messages) != 1:
-        raise AssertionError(f"Expected summary message in snapshot, got: {result.snapshot}")
-    if result.stats.get("cold_compacted_message_count", 0) <= 0:
-        raise AssertionError(f"Expected compacted cold message count, got: {result.stats}")
-    if not any(message.get("content", "").startswith("Conversation summary:") for message in result.messages):
-        raise AssertionError(f"Expected rendered summary message, got: {result.messages}")
-    system_messages = [message for message in result.messages if message.get("role") == "system"]
-    if system_messages != [{"role": "system", "content": "sys"}]:
-        raise AssertionError(f"Expected only the leading system message to remain system-scoped, got: {system_messages}")
-    summary_messages = [message for message in result.messages if message.get("content", "").startswith("Conversation summary:")]
-    if len(summary_messages) != 1 or summary_messages[0].get("role") != "assistant":
-        raise AssertionError(f"Expected summary to be rendered as a single assistant message, got: {summary_messages}")
-    tail = result.messages[-4:]
-    expected_tail = session_messages[-4:]
-    if tail != expected_tail:
-        raise AssertionError(f"Expected hot zone preserved, got tail={tail}")
-
-
-@pytest.mark.asyncio
-async def test_context_manager_compacts_with_real_session_store(tmp_path) -> None:
-    session = AsyncJsonlSessionStore(session_dir=str(tmp_path), system_prompt="sys")
-    await session.initialize()
-    for index in range(1, 7):
-        await session.persist_message("user", f"user message {index} " + ("x" * 80))
-        await session.persist_message("assistant", f"assistant reply {index} " + ("y" * 80))
-
-    manager = ContextManager(
-        estimator=ContextEstimator(
-            ContextBudget(hard_limit_tokens=2000, conversation_budget_tokens=20, tool_budget_tokens=80)
-        ),
-        hot_message_limit=4,
-    )
-
-    result = await manager.build_messages_async(session=session)
-    latest_summary = await session.get_latest_conversation_summary()
-
-    if not result.decisions.get("rolling_summary_applied"):
-        raise AssertionError(f"Expected real session compaction, got: {result.decisions}")
-    if result.stats.get("summary_message_count") != 1:
-        raise AssertionError(f"Expected one summary message, got: {result.stats}")
-    if result.stats.get("cold_compacted_message_count", 0) <= 0:
-        raise AssertionError(f"Expected compacted cold messages, got: {result.stats}")
-    if not isinstance(latest_summary, dict) or latest_summary.get("source_message_count", 0) <= 0:
-        raise AssertionError(f"Expected persisted summary dict, got: {latest_summary}")
-    if not any(message.get("content", "").startswith("Conversation summary:") for message in result.messages):
-        raise AssertionError(f"Expected rendered summary in messages, got: {result.messages}")
-
-
-@pytest.mark.asyncio
-async def test_context_manager_conversation_hot_zone_ignores_tool_messages() -> None:
-    session_messages = [{"role": "system", "content": "sys"}]
-    for index in range(1, 5):
-        session_messages.append({"role": "user", "content": f"old user {index} " + ("x" * 80)})
-        session_messages.append({"role": "assistant", "content": f"old assistant {index} " + ("y" * 80)})
-
-    current_question = "current user question should stay hot"
-    session_messages.append({"role": "user", "content": current_question})
-    session_messages.append(
-        {
-            "role": "assistant",
-            "tool_calls": [
-                {"id": "call_1", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
-                {"id": "call_2", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
-                {"id": "call_3", "type": "function", "function": {"name": "search_web", "arguments": "{}"}},
-            ],
-        }
-    )
-    session_messages.extend(
-        [
-            {"role": "tool", "tool_call_id": "call_1", "content": "placeholder"},
-            {"role": "tool", "tool_call_id": "call_2", "content": "placeholder"},
-            {"role": "tool", "tool_call_id": "call_3", "content": "placeholder"},
-        ]
-    )
-    session_messages.append(
-        {
-            "role": "assistant",
-            "tool_calls": [
-                {"id": "call_4", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
-                {"id": "call_5", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
-                {"id": "call_6", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}},
-            ],
-        }
-    )
-    session_messages.extend(
-        [
-            {"role": "tool", "tool_call_id": "call_4", "content": "placeholder"},
-            {"role": "tool", "tool_call_id": "call_5", "content": "placeholder"},
-            {"role": "tool", "tool_call_id": "call_6", "content": "placeholder"},
-        ]
-    )
-    session = QueryOnlySession(session_messages)
-    session.tool_records = {
-        f"call_{index}": {
-            "id": f"call_{index}",
-            "name": "search_web" if index <= 3 else "fetch_web_page",
-            "result": {"ok": True, "tool": "web", "data": f"result {index} " + ("z" * 80)},
-        }
-        for index in range(1, 7)
-    }
     manager = ContextManager(
         estimator=ContextEstimator(
             ContextBudget(
-                hard_limit_tokens=4000,
+                hard_limit_tokens=5000,
                 conversation_budget_tokens=20,
-                tool_budget_tokens=1200,
+                tool_budget_tokens=80,
+                compact_threshold_tokens=20,
+                context_window_tokens=100,
+                auto_compact_token_limit=20,
             )
         ),
-        hot_message_limit=2,
+        hot_message_limit=4,
     )
 
-    result = await manager.build_messages_async(session=session)
+    first = await manager.build_messages_async(session=session)
+    second = await manager.build_messages_async(session=session)
 
-    if result.decisions.get("rolling_summary_applied") is not True:
-        raise AssertionError(f"Expected rolling summary, got: {result.decisions}")
-    if not any(
-        message.get("role") == "user" and message.get("content") == current_question
-        for message in result.messages
-    ):
-        raise AssertionError(f"Expected current question to remain hot, got: {result.messages}")
-    if result.stats.get("hot_message_count") != 2:
-        raise AssertionError(f"Expected hot count to use conversation messages only, got: {result.stats}")
-    if result.messages[-1].get("role") != "tool":
-        raise AssertionError(f"Expected tool chain tail to remain intact, got: {result.messages[-3:]}")
+    if first.messages != second.messages or first.messages != session_messages:
+        raise AssertionError(f"Expected stable append-only projection, got: {first.messages} / {second.messages}")
+    if session.persisted_tool_summaries or session.persisted_conversation_summaries:
+        raise AssertionError("Context build should not persist summaries")
+    if first.stats.get("summary_message_count") != 0 or first.stats.get("cold_compacted_message_count") != 0:
+        raise AssertionError(f"Expected no rolling summary stats, got: {first.stats}")
+    if first.decisions.get("compact_recommended") is not True:
+        raise AssertionError(f"Expected compact recommendation only, got: {first.decisions}")
+    if first.decisions.get("auto_compact_token_limit_reached") is not True:
+        raise AssertionError(f"Expected auto compact token limit reached, got: {first.decisions}")
+    if first.decisions.get("compact_required") is not False:
+        raise AssertionError(f"Did not expect hard-limit compact requirement, got: {first.decisions}")
+
+
+@pytest.mark.asyncio
+async def test_context_manager_new_tool_append_does_not_change_old_tool_content() -> None:
+    session_messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "tool_calls": [{"id": "old", "type": "function", "function": {"name": "bash", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "old", "content": "old fixed model content"},
+    ]
+    session = QueryOnlySession(session_messages)
+    manager = ContextManager()
+
+    first = await manager.build_messages_async(session=session)
+    session._messages.extend(
+        [
+            {"role": "assistant", "tool_calls": [{"id": "new", "type": "function", "function": {"name": "bash", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "new", "content": "new fixed model content"},
+        ]
+    )
+    second = await manager.build_messages_async(session=session)
+
+    old_first = next(message for message in first.messages if message.get("tool_call_id") == "old")
+    old_second = next(message for message in second.messages if message.get("tool_call_id") == "old")
+    if old_first != old_second:
+        raise AssertionError(f"Expected old tool content to remain fixed, got {old_first} / {old_second}")
+    if session.persisted_tool_summaries:
+        raise AssertionError(f"Did not expect tool summaries, got: {session.persisted_tool_summaries}")
 
 
 @pytest.mark.asyncio
@@ -313,100 +212,18 @@ async def test_context_manager_persists_lightweight_context_snapshot(tmp_path) -
         raise AssertionError(f"Expected in-memory result snapshot to remain available, got: {result.snapshot}")
 
 
-@pytest.mark.asyncio
-async def test_context_manager_applies_tool_temperature_policy() -> None:
-    session_messages = [
-        {"role": "system", "content": "sys"},
-        {"role": "assistant", "tool_calls": [{"id": "call_old", "type": "function", "function": {"name": "search_web", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "call_old", "content": "placeholder"},
-        {"role": "assistant", "tool_calls": [{"id": "call_mid", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "call_mid", "content": "placeholder"},
-        {"role": "assistant", "tool_calls": [{"id": "call_new", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "call_new", "content": "placeholder"},
-    ]
-    session = QueryOnlySession(session_messages)
-    session.tool_records = {
-        "call_old": {
-            "id": "call_old",
-            "name": "search_web",
-            "result": {"ok": True, "tool": "search_web", "data": "x" * 2000},
-        },
-        "call_mid": {
-            "id": "call_mid",
-            "name": "fetch_web_page",
-            "result": {"ok": True, "tool": "fetch_web_page", "data": "m" * 2000},
-        },
-        "call_new": {
-            "id": "call_new",
-            "name": "fetch_web_page",
-            "result": {"ok": True, "tool": "fetch_web_page", "data": "y" * 2000},
-        },
-    }
-    result = await ContextManager().build_messages_async(session=session)
-    tool_messages = [message for message in result.messages if message.get("role") == "tool"]
-    old_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_old")
-    new_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_new")
-
-    if len(old_tool.get("content", "")) >= len(new_tool.get("content", "")):
-        raise AssertionError(f"Expected older tool content to be more compact, got old={len(old_tool.get('content', ''))} new={len(new_tool.get('content', ''))}")
-    if "call_old" not in session.tool_summaries:
-        raise AssertionError(f"Expected a persisted tool summary for cold/warm tool calls, got: {session.tool_summaries}")
-
-
-@pytest.mark.asyncio
-async def test_context_manager_prioritizes_hot_tool_budget() -> None:
-    session_messages = [
-        {"role": "system", "content": "sys"},
-        {"role": "assistant", "tool_calls": [{"id": "call_old", "type": "function", "function": {"name": "search_web", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "call_old", "content": "placeholder"},
-        {"role": "assistant", "tool_calls": [{"id": "call_new", "type": "function", "function": {"name": "fetch_web_page", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "call_new", "content": "placeholder"},
-    ]
-    session = QueryOnlySession(session_messages)
-    session.tool_records = {
-        "call_old": {
-            "id": "call_old",
-            "name": "search_web",
-            "result": {"ok": True, "tool": "search_web", "data": "x" * 4000},
-        },
-        "call_new": {
-            "id": "call_new",
-            "name": "fetch_web_page",
-            "result": {"ok": True, "tool": "fetch_web_page", "data": "y" * 4000},
-        },
-    }
-    manager = ContextManager(
-        estimator=ContextEstimator(ContextBudget(tool_budget_tokens=15, conversation_budget_tokens=1000, hard_limit_tokens=2000)),
-        tool_context_policy=ToolContextPolicy(hot_batch_limit=1, warm_batch_limit=0),
-    )
-
-    result = await manager.build_messages_async(session=session)
-    tool_messages = [message for message in result.messages if message.get("role") == "tool"]
-    old_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_old")
-    new_tool = next(message for message in tool_messages if message.get("tool_call_id") == "call_new")
-
-    if not new_tool.get("content"):
-        raise AssertionError(f"Expected hot tool content to receive budget first, got: {new_tool}")
-    if len(new_tool.get("content", "")) < len(old_tool.get("content", "")):
-        raise AssertionError(
-            f"Expected hot tool to preserve at least as much content as cold tool, got old={len(old_tool.get('content', ''))}, new={len(new_tool.get('content', ''))}"
-        )
-
-
 def main() -> int:
     import asyncio
+    import tempfile
+
     async def _run_all():
         await test_context_manager_builds_from_session_queries()
         await test_context_manager_appends_pending_messages()
-        await test_context_manager_compacts_only_cold_conversation_zone()
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            await test_context_manager_compacts_with_real_session_store(Path(tmp))
-        await test_context_manager_conversation_hot_zone_ignores_tool_messages()
+        await test_context_manager_build_is_stable_and_has_no_summary_side_effects()
+        await test_context_manager_new_tool_append_does_not_change_old_tool_content()
         with tempfile.TemporaryDirectory() as tmp:
             await test_context_manager_persists_lightweight_context_snapshot(Path(tmp))
-        await test_context_manager_applies_tool_temperature_policy()
-        await test_context_manager_prioritizes_hot_tool_budget()
+
     asyncio.run(_run_all())
     print("ContextManager tests passed.")
     return 0

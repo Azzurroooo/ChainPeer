@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(PROJECT_ROOT)
@@ -19,6 +20,7 @@ from agent.domain.events import (
     ContextBuiltEvent,
     ToolRequestedEvent,
     ToolResultEvent,
+    TokenStatsUpdatedEvent,
     TurnStartedEvent,
     TurnCompletedEvent,
     TurnCancelledEvent,
@@ -201,6 +203,30 @@ async def test_async_runtime_facade_emits_turn_started_first():
 
 
 @pytest.mark.asyncio
+async def test_async_runtime_facade_manual_compact_uses_runner():
+    class FakeSession:
+        async def initialize(self):
+            return None
+
+    class FakeRunner:
+        def __init__(self):
+            self.called = None
+
+        async def compact_context(self, session, reason="manual", phase="manual"):
+            self.called = (session, reason, phase)
+            return {"id": "compact_1"}
+
+    session = FakeSession()
+    runner = FakeRunner()
+    facade = AsyncRuntimeFacade(turn_runner=runner, session_store=session)
+
+    record = await facade.compact_context(reason="manual")
+
+    assert record == {"id": "compact_1"}
+    assert runner.called == (session, "manual", "manual")
+
+
+@pytest.mark.asyncio
 async def test_async_turn_runner_emits_tool_requested_before_tool_execution():
     mock_client = AsyncMock()
 
@@ -269,12 +295,168 @@ async def test_async_turn_runner_emits_tool_requested_before_tool_execution():
     assert events[requested_index].turn_id == "turn_1"
 
 
+@pytest.mark.asyncio
+async def test_async_turn_runner_emits_and_persists_sampling_usage():
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock()
+
+    usage = SimpleNamespace(
+        prompt_tokens=100,
+        completion_tokens=25,
+        total_tokens=125,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=40),
+        completion_tokens_details=SimpleNamespace(reasoning_tokens=5),
+    )
+
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = AsyncMock(return_value=("Done", [], usage))
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(
+        return_value=MagicMock(
+            messages=[],
+            stats={
+                "context_window_tokens": 258400,
+                "effective_context_window_tokens": 245480,
+            },
+            decisions={},
+        )
+    )
+    mock_context.select_active_skills_for_turn = None
+
+    class FakeSession:
+        session_id = "session_1"
+
+        def __init__(self):
+            self.usages = []
+            self.window_updates = []
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+        async def persist_message(self, *args, **kwargs):
+            return None
+
+        async def persist_sampling_usage(self, usage):
+            self.usages.append(dict(usage))
+
+        async def update_auto_compact_window_from_usage(self, usage):
+            self.window_updates.append(dict(usage))
+
+    session = FakeSession()
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [event async for event in runner.run_turn(session)]
+    token_event = next(event for event in events if isinstance(event, TokenStatsUpdatedEvent))
+
+    assert token_event.stats["input_tokens"] == 100
+    assert token_event.stats["cached_input_tokens"] == 40
+    assert token_event.stats["cache_hit_rate"] == 0.4
+    assert token_event.stats["context_usage_percent"] == 100 / 245480
+    assert session.usages[-1]["output_tokens"] == 25
+    assert session.window_updates[-1]["input_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_async_turn_runner_auto_compacts_before_sampling():
+    class FakeChatClient:
+        def __init__(self):
+            self.created = 0
+            self.streamed = 0
+
+        async def create(self, messages, tools=None, cancellation_token=None):
+            self.created += 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="LLM handoff"))],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            )
+
+        def stream(self, *args, **kwargs):
+            self.streamed += 1
+            return EmptyStream()
+
+    class FakeSession:
+        session_id = "session_1"
+
+        def __init__(self):
+            self.compactions = []
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+        async def load_messages(self):
+            return [{"role": "system", "content": "sys"}, {"role": "user", "content": "hello"}]
+
+        async def get_tool_records(self, *args, **kwargs):
+            return []
+
+        async def get_latest_compaction(self):
+            return None
+
+        async def persist_compaction(self, record):
+            self.compactions.append(dict(record))
+            return dict(record)
+
+        async def persist_sampling_usage(self, usage):
+            return None
+
+        async def persist_message(self, *args, **kwargs):
+            return None
+
+    first_context = MagicMock(
+        messages=[{"role": "user", "content": "hello"}],
+        stats={"context_window_tokens": 1000, "effective_context_window_tokens": 950},
+        decisions={"auto_compact_token_limit_reached": True},
+    )
+    second_context = MagicMock(
+        messages=[{"role": "assistant", "content": "LLM handoff"}],
+        stats={"context_window_tokens": 1000, "effective_context_window_tokens": 950},
+        decisions={},
+    )
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(side_effect=[first_context, second_context])
+    mock_context.select_active_skills_for_turn = None
+
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = AsyncMock(return_value=("", [], None))
+
+    chat_client = FakeChatClient()
+    session = FakeSession()
+    runner = AsyncTurnRunner(
+        chat_client=chat_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [event async for event in runner.run_turn(session)]
+
+    assert chat_client.created == 1
+    assert chat_client.streamed == 1
+    assert len(session.compactions) == 1
+    assert session.compactions[0]["strategy"] == "llm_inline"
+    assert session.compactions[0]["reason"] == "auto"
+    assert session.compactions[0]["phase"] == "pre_sampling"
+    assert session.compactions[0]["handoff_message"]["content"] == "LLM handoff"
+    assert sum(isinstance(event, ContextBuiltEvent) for event in events) == 2
+
+
 def main() -> int:
     asyncio.run(test_async_turn_runner_stream())
     asyncio.run(test_async_turn_runner_cancellation())
     asyncio.run(test_async_turn_runner_stream_cancelled_error_is_cancelled_event())
     asyncio.run(test_async_runtime_facade_emits_turn_started_first())
+    asyncio.run(test_async_runtime_facade_manual_compact_uses_runner())
     asyncio.run(test_async_turn_runner_emits_tool_requested_before_tool_execution())
+    asyncio.run(test_async_turn_runner_emits_and_persists_sampling_usage())
+    asyncio.run(test_async_turn_runner_auto_compacts_before_sampling())
     print("Async runtime tests passed.")
     return 0
 

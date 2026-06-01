@@ -47,6 +47,10 @@ class AsyncSessionStore(Protocol):
         ts_start: str,
         ts_end: str,
         result_payload: str,
+        model_content: str | None = None,
+        model_content_format: str | None = None,
+        model_content_policy: dict[str, Any] | None = None,
+        artifact_ref: str | None = None,
     ) -> None:
         """Persist tool call execution details asynchronously."""
         ...
@@ -99,4 +103,36 @@ class AsyncSessionStore(Protocol):
 
     async def persist_context_snapshot(self, snapshot: dict[str, Any]) -> None:
         """Persist a context snapshot asynchronously."""
+        ...
+
+    async def persist_compaction(self, compaction: dict[str, Any]) -> dict[str, Any]:
+        """Persist a compact boundary and matching compaction record."""
+        ...
+
+    async def get_latest_compaction(self) -> dict[str, Any] | None:
+        """Get the latest compact boundary record."""
+        ...
+
+    async def compact_context(self) -> dict[str, Any]:
+        """Create and persist a deterministic manual compact boundary."""
+        ...
+
+    async def persist_sampling_usage(self, usage: dict[str, Any]) -> None:
+        """Persist latest provider token usage for observability."""
+        ...
+
+    async def get_latest_sampling_usage(self) -> dict[str, Any] | None:
+        """Get the latest provider token usage sample."""
+        ...
+
+    async def get_auto_compact_window(self) -> dict[str, Any]:
+        """Get current auto compact window metadata."""
+        ...
+
+    async def update_auto_compact_window_from_usage(self, usage: dict[str, Any]) -> None:
+        """Seed the auto compact window baseline from provider usage."""
+        ...
+
+    async def start_next_auto_compact_window(self) -> None:
+        """Advance to a fresh auto compact window after compacting."""
         ...

@@ -14,6 +14,7 @@ def default_handlers() -> dict[str, Callable]:
         "status": handle_status,
         "skill": handle_skill,
         "plan": handle_plan,
+        "compact": handle_compact,
         "model": handle_model,
         "login": handle_login,
         "config": handle_config,
@@ -30,6 +31,7 @@ async def handle_help(context: SlashCommandContext, args: list[str]) -> str:
             "/status    Show session status",
             "/skill     List skills",
             "/plan      Show active plan summary",
+            "/compact   Compact current session context",
             "/model     Show current model",
             "/login     Show login setup guidance",
             "/config    Show config guidance",
@@ -47,15 +49,29 @@ async def handle_status(context: SlashCommandContext, args: list[str]) -> str:
             message_count = str(len(await get_messages()))
         except Exception:
             message_count = "unknown"
-    return "\n".join(
-        [
-            "Status:",
-            f"- Session: {_value(getattr(session, 'session_id', None))}",
-            f"- Model: {_value(getattr(session, 'model', None))}",
-            f"- Debug: {str(bool(context.debug)).lower()}",
-            f"- Messages: {message_count}",
-        ]
-    )
+    lines = [
+        "Status:",
+        f"- Session: {_value(getattr(session, 'session_id', None))}",
+        f"- Model: {_value(getattr(session, 'model', None))}",
+        f"- Debug: {str(bool(context.debug)).lower()}",
+        f"- Messages: {message_count}",
+    ]
+    latest_usage = await _latest_sampling_usage(session)
+    if latest_usage:
+        effective_window = int(latest_usage.get("effective_context_window_tokens") or 0)
+        input_tokens = int(latest_usage.get("input_tokens") or 0)
+        cached_tokens = int(latest_usage.get("cached_input_tokens") or 0)
+        output_tokens = int(latest_usage.get("output_tokens") or 0)
+        limit = f" / {_format_count(effective_window)}" if effective_window > 0 else ""
+        lines.extend(
+            [
+                "Last sampling:",
+                f"- input: {_format_count(input_tokens)}{limit} ({_format_percent(latest_usage.get('context_usage_percent'))})",
+                f"- cached: {_format_count(cached_tokens)} ({_format_percent(latest_usage.get('cache_hit_rate'))})",
+                f"- output: {_format_count(output_tokens)}",
+            ]
+        )
+    return "\n".join(lines)
 
 
 async def handle_skill(context: SlashCommandContext, args: list[str]) -> str:
@@ -89,6 +105,34 @@ async def handle_plan(context: SlashCommandContext, args: list[str]) -> str:
     except Exception as exc:
         return f"Command failed: {exc}"
     return summary or "No active plan."
+
+
+async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
+    compact_context = getattr(context.runtime, "compact_context", None)
+    if callable(compact_context):
+        try:
+            record = await compact_context(reason="manual")
+        except TypeError:
+            record = await compact_context()
+    else:
+        compact_context = getattr(context.session, "compact_context", None)
+        if not callable(compact_context):
+            return "Compact is not supported by this session store."
+        record = await compact_context()
+    source = record.get("source") if isinstance(record, dict) else {}
+    if not isinstance(source, dict):
+        source = {}
+    start = source.get("message_start_index", "?")
+    end = source.get("message_end_index_exclusive", "?")
+    tool_count = len(source.get("tool_call_ids") or [])
+    return "\n".join(
+        [
+            "Compact complete.",
+            f"- id: {_value(record.get('id') if isinstance(record, dict) else None)}",
+            f"- source: messages[{start}:{end}]",
+            f"- tool calls: {tool_count}",
+        ]
+    )
 
 
 async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
@@ -127,3 +171,30 @@ async def handle_exit(context: SlashCommandContext, args: list[str]) -> SlashCom
 def _value(value: object) -> str:
     text = str(value or "").strip()
     return text or "unknown"
+
+
+async def _latest_sampling_usage(session) -> dict | None:
+    get_usage = getattr(session, "get_latest_sampling_usage", None)
+    if not callable(get_usage):
+        return None
+    try:
+        usage = await get_usage()
+        return dict(usage) if isinstance(usage, dict) else None
+    except Exception:
+        return None
+
+
+def _format_count(value: object) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if abs(number) >= 1000:
+        return f"{number / 1000:.1f}k"
+    return str(int(number))
+
+
+def _format_percent(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "0.0%"
+    return f"{value * 100:.1f}%"

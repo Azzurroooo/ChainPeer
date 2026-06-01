@@ -34,6 +34,17 @@ class AsyncRuntimeFacade:
         """Set a callback invoked on LLM API retries: (attempt: int, exception: Exception) -> None."""
         self._turn_runner.set_retry_callback(callback)
 
+    async def compact_context(self, reason: str = "manual") -> dict:
+        """Manually compact the current session through the turn runner."""
+        await self.initialize()
+        compact = getattr(self._turn_runner, "compact_context", None)
+        if not callable(compact):
+            compact_session = getattr(self._session_store, "compact_context", None)
+            if callable(compact_session):
+                return await compact_session()
+            raise RuntimeError("Compact is not supported by this runtime.")
+        return await compact(self._session_store, reason=reason, phase="manual")
+
     async def run_turn(
         self,
         session_id: str | None = None,

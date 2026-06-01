@@ -23,6 +23,11 @@ def restore_config():
         "OPENAI_USER_AGENT": Config.OPENAI_USER_AGENT,
         "DEFAULT_MODEL": Config.DEFAULT_MODEL,
         "MODEL_REASONING_EFFORT": Config.MODEL_REASONING_EFFORT,
+        "CONTEXT_WINDOW_TOKENS": Config.CONTEXT_WINDOW_TOKENS,
+        "EFFECTIVE_CONTEXT_WINDOW_PERCENT": Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+        "AUTO_COMPACT_TOKEN_LIMIT": Config.AUTO_COMPACT_TOKEN_LIMIT,
+        "AUTO_COMPACT_TOKEN_LIMIT_SCOPE": Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
+        "AUTO_COMPACT_ENABLED": Config.AUTO_COMPACT_ENABLED,
     }
     yield
     for key, value in attrs.items():
@@ -38,6 +43,11 @@ def test_config_reload_reads_settings_json(tmp_path, monkeypatch):
                 "apiKey": "settings-key",
                 "baseUrl": "https://openai945.cn/",
                 "reasoningEffort": "xhigh",
+                "contextWindow": 128000,
+                "effectiveContextWindowPercent": 90,
+                "autoCompactTokenLimit": 100000,
+                "autoCompactTokenLimitScope": "body_after_prefix",
+                "autoCompactEnabled": False,
             }
         ),
         encoding="utf-8",
@@ -52,6 +62,11 @@ def test_config_reload_reads_settings_json(tmp_path, monkeypatch):
     assert Config.OPENAI_API_BASE == "https://openai945.cn/"
     assert Config.DEFAULT_MODEL == "gpt-5.5"
     assert Config.MODEL_REASONING_EFFORT == "xhigh"
+    assert Config.CONTEXT_WINDOW_TOKENS == 128000
+    assert Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT == 90
+    assert Config.AUTO_COMPACT_TOKEN_LIMIT == 100000
+    assert Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE == "body_after_prefix"
+    assert Config.AUTO_COMPACT_ENABLED is False
 
 
 def test_config_validate_reports_settings_path_when_api_key_missing(tmp_path, monkeypatch):

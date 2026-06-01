@@ -11,6 +11,7 @@ from agent.domain import ParsedToolCall, looks_like_tool_payload, parse_tool_arg
 from agent.domain.events import RuntimeEvent, ToolCallStartedEvent, ToolResultEvent, event_meta
 from agent.application.tool_executor import ToolExecutor
 from agent.application.runtime.cancellation import CancellationToken
+from agent.application.services.tool_result_normalizer import ToolResultNormalizer
 
 
 class AsyncToolCallProcessor:
@@ -19,8 +20,9 @@ class AsyncToolCallProcessor:
     and yielding an event stream. Replaces the legacy ToolCallProcessor.
     """
 
-    def __init__(self, tool_executor: ToolExecutor):
+    def __init__(self, tool_executor: ToolExecutor, tool_result_normalizer: ToolResultNormalizer | None = None):
         self._tool_executor = tool_executor
+        self._tool_result_normalizer = tool_result_normalizer or ToolResultNormalizer()
 
     async def execute(
         self,
@@ -97,6 +99,7 @@ class AsyncToolCallProcessor:
             )
 
             ts_end = session.now_iso()
+            normalized_result = self._tool_result_normalizer.normalize(tool_result_str)
 
             await session.persist_tool_call(
                 call.call_id,
@@ -106,5 +109,9 @@ class AsyncToolCallProcessor:
                 ts_start,
                 ts_end,
                 tool_result_str,
+                model_content=normalized_result.model_content,
+                model_content_format=normalized_result.model_content_format,
+                model_content_policy=normalized_result.model_content_policy,
+                artifact_ref=normalized_result.artifact_ref,
             )
             await session.persist_message("tool", "", tool_call_id=call.call_id, tool_name=call.name)

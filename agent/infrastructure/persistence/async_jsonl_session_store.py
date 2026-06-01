@@ -15,7 +15,9 @@ from agent.infrastructure.persistence.session_files import SessionFiles
 from agent.infrastructure.persistence.message_repository import MessageRepository
 from agent.infrastructure.persistence.tool_call_repository import ToolCallRepository
 from agent.infrastructure.persistence.summary_repository import SummaryRepository
+from agent.infrastructure.persistence.compaction_repository import CompactionRepository
 from agent.infrastructure.persistence.session_index_repository import SessionIndexRepository
+from agent.application.services.compaction_service import CompactionService
 from agent.domain import looks_like_tool_payload
 
 
@@ -50,6 +52,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._msg_repo = None
         self._tool_repo = None
         self._summary_repo = None
+        self._compaction_repo = None
         self._index_repo = None
         self._write_lock = asyncio.Lock()
 
@@ -114,6 +117,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             "tool_calls": os.path.join(base, "tool_calls.jsonl"),
             "tool_call_summaries": os.path.join(base, "tool_call_summaries.jsonl"),
             "conversation_summaries": os.path.join(base, "conversation_summaries.jsonl"),
+            "compactions": os.path.join(base, "compactions.jsonl"),
             "snapshots": os.path.join(base, "snapshots"),
         }
 
@@ -121,6 +125,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._msg_repo = MessageRepository(self._files, self._session_paths["messages"])
         self._tool_repo = ToolCallRepository(self._files, self._session_paths["tool_calls"], looks_like_tool_payload)
         self._summary_repo = SummaryRepository(self._files, self._session_paths["tool_call_summaries"], self._session_paths["conversation_summaries"])
+        self._compaction_repo = CompactionRepository(self._files, self._session_paths["compactions"])
 
     def _create_session(self, session_id: str | None = None) -> None:
         if not session_id:
@@ -136,6 +141,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         Path(self._session_paths["tool_calls"]).touch()
         Path(self._session_paths["tool_call_summaries"]).touch()
         Path(self._session_paths["conversation_summaries"]).touch()
+        Path(self._session_paths["compactions"]).touch()
         
         self._setup_repos()
         
@@ -154,6 +160,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             "workspace_root": self._resolve_workspace_root(),
             "message_count": self._message_count,
             "tool_call_count": self._tool_call_count,
+            "auto_compact_window": self._default_auto_compact_window(),
         }
         self._files.write_json(self._session_paths["meta"], self._session_meta)
         self._update_index()
@@ -168,6 +175,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._setup_repos()
         
         self._session_meta = meta
+        self._session_meta.setdefault("auto_compact_window", self._default_auto_compact_window())
         self._message_count = int(meta.get("message_count") or 0)
         self._tool_call_count = int(meta.get("tool_call_count") or 0)
 
@@ -206,6 +214,35 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             "workspace_root": self._session_meta.get("workspace_root"),
         }
         self._index_repo.update_index(entry)
+
+    def _default_auto_compact_window(self) -> dict[str, Any]:
+        return {
+            "ordinal": 1,
+            "prefill_input_tokens": None,
+            "prefill_source": None,
+        }
+
+    def _auto_compact_window_sync(self) -> dict[str, Any]:
+        if not isinstance(self._session_meta, dict):
+            return self._default_auto_compact_window()
+        window = self._session_meta.get("auto_compact_window")
+        if not isinstance(window, dict):
+            window = self._default_auto_compact_window()
+            self._session_meta["auto_compact_window"] = window
+        normalized = self._default_auto_compact_window()
+        normalized.update(window)
+        try:
+            normalized["ordinal"] = max(1, int(normalized.get("ordinal") or 1))
+        except (TypeError, ValueError):
+            normalized["ordinal"] = 1
+        prefill = normalized.get("prefill_input_tokens")
+        if prefill is not None:
+            try:
+                normalized["prefill_input_tokens"] = max(0, int(prefill))
+            except (TypeError, ValueError):
+                normalized["prefill_input_tokens"] = None
+        self._session_meta["auto_compact_window"] = normalized
+        return dict(normalized)
 
     def _ensure_session_sync(self):
         self._setup_paths()
@@ -285,12 +322,28 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         ts_start: str,
         ts_end: str,
         result_payload: str,
+        model_content: str | None = None,
+        model_content_format: str | None = None,
+        model_content_policy: dict[str, Any] | None = None,
+        artifact_ref: str | None = None,
     ) -> None:
         async with self._write_lock:
             def _persist():
                 if not self._tool_repo:
                     return
-                self._tool_repo.persist_tool_call(call_id, name, parsed_args, raw_args, ts_start, ts_end, result_payload)
+                self._tool_repo.persist_tool_call(
+                    call_id,
+                    name,
+                    parsed_args,
+                    raw_args,
+                    ts_start,
+                    ts_end,
+                    result_payload,
+                    model_content=model_content,
+                    model_content_format=model_content_format,
+                    model_content_policy=model_content_policy,
+                    artifact_ref=artifact_ref,
+                )
                 self._tool_call_count += 1
                 if self._session_meta:
                     self._session_meta["tool_call_count"] = self._tool_call_count
@@ -334,11 +387,56 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
     def _build_tool_content(self, tool_record: dict | None) -> str:
         if not tool_record:
             return ""
+        model_content = tool_record.get("model_content")
+        if isinstance(model_content, str):
+            return model_content
         result = tool_record.get("result")
         summarized = self._summarize_tool_result(result)
         if isinstance(summarized, str):
             return summarized
         return json.dumps(summarized, ensure_ascii=False)
+
+    def _is_compact_boundary_message(self, message: dict[str, Any]) -> bool:
+        meta = message.get("meta")
+        return isinstance(meta, dict) and meta.get("kind") == "compact_boundary"
+
+    def _latest_compact_boundary_index(self, messages: list[dict[str, Any]]) -> int:
+        for index in range(len(messages) - 1, -1, -1):
+            if self._is_compact_boundary_message(messages[index]):
+                return index
+        return -1
+
+    def _latest_compaction_sync(self) -> dict[str, Any] | None:
+        if not self._compaction_repo:
+            return None
+        return self._compaction_repo.get_latest_compaction()
+
+    def _apply_latest_compact_boundary(
+        self,
+        messages: list[dict[str, Any]],
+        compaction: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        boundary_index = self._latest_compact_boundary_index(messages)
+        if boundary_index < 0:
+            return [dict(message) for message in messages]
+
+        projected = [
+            dict(message)
+            for message in messages[:boundary_index]
+            if message.get("role") == "system"
+        ]
+        handoff = (compaction or {}).get("handoff_message")
+        if isinstance(handoff, dict):
+            role = handoff.get("role")
+            content = handoff.get("content")
+            if role in {"user", "assistant", "system"} and isinstance(content, str):
+                projected.append({"role": role, "content": content})
+        projected.extend(
+            dict(message)
+            for message in messages[boundary_index + 1 :]
+            if not self._is_compact_boundary_message(message)
+        )
+        return projected
 
     async def get_messages_slice(
         self,
@@ -349,6 +447,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         def _get():
             messages = self._msg_repo.load_messages() if self._msg_repo else []
             tool_records = self._tool_repo.load_tool_calls() if self._tool_repo else []
+            messages = self._apply_latest_compact_boundary(messages, self._latest_compaction_sync())
 
             tool_map = {}
             for item in tool_records:
@@ -358,6 +457,8 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             built_messages = []
             for msg in messages:
                 if not isinstance(msg, dict):
+                    continue
+                if self._is_compact_boundary_message(msg):
                     continue
                 role = msg.get("role")
                 if role == "tool":
@@ -481,3 +582,122 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
                 self._files.write_json(self._session_paths["meta"], self._session_meta)
                 self._update_index()
             await asyncio.to_thread(_persist)
+
+    async def persist_sampling_usage(self, usage: dict[str, Any]) -> None:
+        async with self._write_lock:
+            def _persist():
+                if not self._session_meta or not self._session_paths:
+                    return
+                latest = dict(usage or {})
+                latest["updated_at"] = self.now_iso()
+                self._session_meta["latest_sampling_usage"] = latest
+                self._session_meta["updated_at"] = latest["updated_at"]
+                self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
+
+    async def get_latest_sampling_usage(self) -> dict[str, Any] | None:
+        def _get():
+            if not isinstance(self._session_meta, dict):
+                return None
+            usage = self._session_meta.get("latest_sampling_usage")
+            return dict(usage) if isinstance(usage, dict) else None
+
+        return await asyncio.to_thread(_get)
+
+    async def get_auto_compact_window(self) -> dict[str, Any]:
+        return await asyncio.to_thread(self._auto_compact_window_sync)
+
+    async def update_auto_compact_window_from_usage(self, usage: dict[str, Any]) -> None:
+        async with self._write_lock:
+            def _persist():
+                if not self._session_meta or not self._session_paths:
+                    return
+                input_tokens = int((usage or {}).get("input_tokens") or 0)
+                if input_tokens <= 0:
+                    return
+                window = self._auto_compact_window_sync()
+                if window.get("prefill_source") == "server":
+                    return
+                window["prefill_input_tokens"] = input_tokens
+                window["prefill_source"] = "server"
+                self._session_meta["auto_compact_window"] = window
+                self._session_meta["updated_at"] = self.now_iso()
+                self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
+
+    async def start_next_auto_compact_window(self) -> None:
+        async with self._write_lock:
+            def _persist():
+                if not self._session_meta or not self._session_paths:
+                    return
+                window = self._auto_compact_window_sync()
+                self._session_meta["auto_compact_window"] = {
+                    "ordinal": int(window.get("ordinal") or 1) + 1,
+                    "prefill_input_tokens": None,
+                    "prefill_source": None,
+                }
+                self._session_meta["updated_at"] = self.now_iso()
+                self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
+
+    async def persist_compaction(self, compaction: dict[str, Any]) -> dict[str, Any]:
+        async with self._write_lock:
+            def _persist():
+                if not self._compaction_repo or not self._msg_repo:
+                    return dict(compaction)
+                candidate = dict(compaction)
+                candidate.setdefault("id", uuid.uuid4().hex)
+                candidate.setdefault("created_at", self.now_iso())
+                candidate.setdefault("policy_version", "compact_boundary_v1")
+                record = self._compaction_repo.persist_compaction(candidate)
+                compact_id = record.get("id")
+                self._msg_repo.persist_message(
+                    self.now_iso(),
+                    "assistant",
+                    "",
+                    meta={"kind": "compact_boundary", "compact_id": compact_id},
+                )
+                self._message_count += 1
+                if self._session_meta:
+                    self._session_meta["message_count"] = self._message_count
+                    self._session_meta["updated_at"] = self.now_iso()
+                    self._session_meta["latest_compaction"] = {
+                        "id": compact_id,
+                        "created_at": record.get("created_at"),
+                        "policy_version": record.get("policy_version"),
+                        "source": record.get("source"),
+                    }
+                    self._session_meta["auto_compact_window"] = {
+                        "ordinal": int(self._auto_compact_window_sync().get("ordinal") or 1) + 1,
+                        "prefill_input_tokens": None,
+                        "prefill_source": None,
+                    }
+                    self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+                return record
+
+            return await asyncio.to_thread(_persist)
+
+    async def get_latest_compaction(self) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._latest_compaction_sync)
+
+    async def compact_context(self) -> dict[str, Any]:
+        def _build():
+            messages = self._msg_repo.load_messages() if self._msg_repo else []
+            tool_records = self._tool_repo.load_tool_calls() if self._tool_repo else []
+            previous = self._latest_compaction_sync()
+            return CompactionService().build_compaction(
+                messages=messages,
+                tool_records=tool_records,
+                previous_compaction=previous,
+                created_at=self.now_iso(),
+            )
+
+        record = await asyncio.to_thread(_build)
+        return await self.persist_compaction(record)

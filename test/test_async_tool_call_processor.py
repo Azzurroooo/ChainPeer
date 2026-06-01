@@ -38,8 +38,8 @@ class FakeSession:
     def now_iso(self):
         return "2026-05-21T00:00:00Z"
 
-    async def persist_tool_call(self, *args):
-        self.persisted_tool_calls.append(args)
+    async def persist_tool_call(self, *args, **kwargs):
+        self.persisted_tool_calls.append((args, kwargs))
 
     async def persist_message(self, *args, **kwargs):
         self.persisted_messages.append((args, kwargs))
@@ -73,9 +73,11 @@ async def test_bash_cancellation_token_is_not_persisted_in_tool_args() -> None:
     result_events = [event for event in events if isinstance(event, ToolResultEvent)]
     if result_events[-1].status != "completed":
         raise AssertionError(f"Expected completed tool result, got: {result_events[-1]}")
-    persisted_args = session.persisted_tool_calls[0][2]
+    persisted_args = session.persisted_tool_calls[0][0][2]
     if persisted_args != {"command": "date"}:
         raise AssertionError(f"Expected clean persisted args, got: {persisted_args}")
+    if not session.persisted_tool_calls[0][1].get("model_content"):
+        raise AssertionError(f"Expected normalized model content, got: {session.persisted_tool_calls[0]}")
 
 
 @pytest.mark.asyncio
@@ -122,9 +124,14 @@ async def test_successful_tool_does_not_require_job_service() -> None:
         raise AssertionError(f"Expected completed result, got: {events}")
     if len(session.persisted_tool_calls) != 1:
         raise AssertionError("Expected tool call to be persisted directly")
-    persisted_result = session.persisted_tool_calls[0][-1]
+    args, kwargs = session.persisted_tool_calls[0]
+    persisted_result = args[-1]
     if '"ok": true' not in persisted_result or '"tool": "demo_tool"' not in persisted_result:
         raise AssertionError(f"Expected standardized tool payload, got: {persisted_result}")
+    if kwargs.get("model_content_format") != "tool_result_v1":
+        raise AssertionError(f"Expected model_content_format, got: {kwargs}")
+    if kwargs.get("artifact_ref") is not None:
+        raise AssertionError(f"Expected artifact_ref None, got: {kwargs}")
 
 
 def main() -> int:

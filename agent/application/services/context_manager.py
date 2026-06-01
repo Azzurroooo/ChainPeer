@@ -62,15 +62,12 @@ class ContextManager:
         session,
         pending_messages: list[dict] | None = None,
         active_skill_matches: list | None = None,
+        allow_rescue: bool = False,
     ) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in await session.get_messages_slice()]
         pending = [dict(message) for message in (pending_messages or [])]
         budget = self._estimator.budget
-        full_messages = await self._apply_tool_context_policy_async(
-            messages=persisted_messages + pending,
-            session=session,
-            tool_char_budget=budget.tool_budget_tokens * 4,
-        )
+        full_messages = persisted_messages + pending
         plan_messages, plan_stats, plan_decisions = self._build_plan_messages()
         skill_messages, skill_stats, skill_decisions = self._build_skill_messages(active_skill_matches)
         extra_messages = plan_messages + skill_messages
@@ -87,17 +84,11 @@ class ContextManager:
             len([message for message in full_messages if self._is_conversation_message(message)]),
         )
 
-        if initial_estimate.conversation_tokens >= budget.conversation_budget_tokens:
-            messages, summary_messages, cold_compacted_message_count, summary_generated = await self._compact_cold_conversation_async(
-                messages=full_messages,
-                session=session,
-            )
-
         final_messages = [self._strip_internal_fields(message) for message in messages]
         final_estimate = self._estimator.estimate_messages(final_messages)
         
         dropped_count = 0
-        while final_estimate.over_hard_limit and len(final_messages) > 2:
+        while allow_rescue and final_estimate.over_hard_limit and len(final_messages) > 2:
             messages, final_messages = self.rescue_context(messages, final_messages)
             final_estimate = self._estimator.estimate_messages(final_messages)
             dropped_count += 1
@@ -106,23 +97,33 @@ class ContextManager:
                 
         system_message = next((dict(message) for message in final_messages if message.get("role") == "system"), None)
         non_system_messages = [dict(message) for message in final_messages if message.get("role") != "system"]
-        internal_tool_messages = [dict(message) for message in messages if message.get("role") == "tool"]
-        tool_messages = [self._strip_internal_fields(message) for message in internal_tool_messages]
+        internal_tool_messages = [dict(message) for message in final_messages if message.get("role") == "tool"]
+        tool_messages = [dict(message) for message in internal_tool_messages]
         snapshot = ContextSnapshot(
             system_message=system_message,
             recent_messages=non_system_messages,
             summary_messages=[dict(message) for message in summary_messages],
             tool_messages=tool_messages,
         )
+        compact_threshold_tokens = budget.resolved_compact_threshold_tokens()
+        auto_compact_window = await self._get_auto_compact_window(session)
+        auto_compact_window_prefill_tokens = auto_compact_window.get("prefill_input_tokens")
+        auto_compact_status = budget.auto_compact_token_status(
+            final_estimate.estimated_input_tokens,
+            auto_compact_window_prefill_tokens,
+        )
+        context_window_tokens = budget.resolved_context_window_tokens()
+        effective_context_window_tokens = budget.resolved_effective_context_window_tokens()
+        context_usage_percent = final_estimate.estimated_input_tokens / max(1, effective_context_window_tokens)
 
         stats = {
             "message_count": len(messages),
             "persisted_message_count": len(persisted_messages),
             "pending_message_count": len(pending),
             "tool_message_count": len(tool_messages),
-            "hot_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "hot"]),
-            "warm_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "warm"]),
-            "cold_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "cold"]),
+            "hot_tool_message_count": 0,
+            "warm_tool_message_count": 0,
+            "cold_tool_message_count": 0,
             "summary_message_count": len(summary_messages),
             "hot_message_count": hot_message_count,
             "cold_compacted_message_count": cold_compacted_message_count,
@@ -136,7 +137,12 @@ class ContextManager:
             "pre_compaction_system_tokens": initial_estimate.system_tokens,
             "pre_compaction_conversation_tokens": initial_estimate.conversation_tokens,
             "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
+            "context_window_tokens": context_window_tokens,
+            "effective_context_window_tokens": effective_context_window_tokens,
+            "auto_compact_token_limit": budget.resolved_auto_compact_token_limit(),
+            "context_usage_percent": context_usage_percent,
             "budget": budget.to_dict(),
+            **auto_compact_status,
             **plan_stats,
             **skill_stats,
         }
@@ -148,12 +154,13 @@ class ContextManager:
             "over_conversation_budget": final_estimate.conversation_tokens >= budget.conversation_budget_tokens,
             "over_tool_budget": final_estimate.tool_tokens >= budget.tool_budget_tokens,
             "over_system_budget": final_estimate.system_tokens >= budget.system_budget_tokens,
-            "compact_recommended": initial_estimate.conversation_tokens >= budget.conversation_budget_tokens,
+            "compact_recommended": final_estimate.estimated_input_tokens >= compact_threshold_tokens,
             "compact_required": initial_estimate.over_hard_limit,
+            "auto_compact_token_limit_reached": auto_compact_status["auto_compact_token_limit_reached"],
             "rolling_summary_applied": bool(summary_messages),
             "rolling_summary_generated": summary_generated,
             "hot_message_limit": self._hot_message_limit,
-            "tool_policy_applied": True,
+            "tool_policy_applied": False,
             **plan_decisions,
             **skill_decisions,
         }
@@ -165,9 +172,9 @@ class ContextManager:
                 "persisted_message_count": len(persisted_messages),
                 "pending_message_count": len(pending),
                 "tool_message_count": len(tool_messages),
-                "hot_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "hot"]),
-                "warm_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "warm"]),
-                "cold_tool_message_count": len([message for message in internal_tool_messages if message.get("_tool_temperature") == "cold"]),
+                "hot_tool_message_count": 0,
+                "warm_tool_message_count": 0,
+                "cold_tool_message_count": 0,
                 "summary_message_count": len(summary_messages),
                 "hot_message_count": hot_message_count,
                 "cold_compacted_message_count": cold_compacted_message_count,
@@ -182,6 +189,11 @@ class ContextManager:
                 "pre_compaction_conversation_tokens": initial_estimate.conversation_tokens,
                 "pre_compaction_tool_tokens": initial_estimate.tool_tokens,
                 "over_hard_limit": final_estimate.over_hard_limit,
+                "context_window_tokens": context_window_tokens,
+                "effective_context_window_tokens": effective_context_window_tokens,
+                "auto_compact_token_limit": budget.resolved_auto_compact_token_limit(),
+                "context_usage_percent": context_usage_percent,
+                **auto_compact_status,
                 "budget": budget.to_dict(),
                 "decisions": decisions,
                 **plan_stats,
@@ -190,12 +202,22 @@ class ContextManager:
         )
         return result
 
+    async def _get_auto_compact_window(self, session) -> dict:
+        get_window = getattr(session, "get_auto_compact_window", None)
+        if callable(get_window):
+            try:
+                window = await get_window()
+                if isinstance(window, dict):
+                    return dict(window)
+            except Exception:
+                return {}
+        return {}
+
     def reduce_hard_limit(self, factor: float = 0.8) -> int:
         """Reduce the hard token limit by a factor and return the new value."""
-        self._estimator.budget.hard_limit_tokens = int(
-            self._estimator.budget.hard_limit_tokens * factor
-        )
-        return self._estimator.budget.hard_limit_tokens
+        budget = self._estimator.budget
+        budget.hard_limit_tokens = int(budget.resolved_hard_limit_tokens() * factor)
+        return budget.resolved_hard_limit_tokens()
 
     def rescue_context(self, internal_messages: list[dict], final_messages: list[dict]) -> tuple[list[dict], list[dict]]:
         """Surgical Context Rescue: Drops the oldest cold/tool messages instead of blindly shrinking budgets."""

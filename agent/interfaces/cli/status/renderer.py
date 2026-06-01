@@ -16,6 +16,7 @@ from agent.domain.events import (
     ToolProgressEvent,
     ToolRequestedEvent,
     ToolResultEvent,
+    TokenStatsUpdatedEvent,
     TurnCancelledEvent,
     TurnCompletedEvent,
     TurnFailedEvent,
@@ -56,6 +57,8 @@ class CliStatusRenderer:
             self._handle_tool_progress(event)
         elif isinstance(event, ToolResultEvent):
             self._handle_tool_result(event)
+        elif isinstance(event, TokenStatsUpdatedEvent):
+            self._handle_token_stats(event)
         elif isinstance(event, TurnCompletedEvent):
             self._handle_turn_completed(event)
         elif isinstance(event, TurnFailedEvent):
@@ -164,6 +167,22 @@ class CliStatusRenderer:
     def _handle_turn_cancelled(self, event: TurnCancelledEvent) -> None:
         self._print_status(f"[Cancelled] Turn cancelled: {event.reason or 'unknown'}", style="yellow")
 
+    def _handle_token_stats(self, event: TokenStatsUpdatedEvent) -> None:
+        stats = event.stats if isinstance(event.stats, dict) else {}
+        input_tokens = int(stats.get("input_tokens") or 0)
+        effective_window = int(stats.get("effective_context_window_tokens") or 0)
+        cached = int(stats.get("cached_input_tokens") or 0)
+        output = int(stats.get("output_tokens") or 0)
+        context_pct = _format_percent(stats.get("context_usage_percent"))
+        cache_pct = _format_percent(stats.get("cache_hit_rate"))
+        limit_text = f" / {_format_count(effective_window)}" if effective_window > 0 else ""
+        self._print_status(
+            "Tokens: "
+            f"input {_format_count(input_tokens)}{limit_text} ({context_pct}), "
+            f"cached {_format_count(cached)} ({cache_pct}), "
+            f"output {_format_count(output)}"
+        )
+
     def _get_tool_state(self, tool_call_id: str, tool_name: str) -> ToolDisplayState:
         key = tool_call_id or f"tool:{tool_name or 'unknown'}"
         state = self._state.tools.get(key)
@@ -210,6 +229,12 @@ def _format_duration(duration_ms: int | None) -> str:
     if duration_ms < 1000:
         return f"{duration_ms}ms"
     return f"{duration_ms / 1000:.2f}s"
+
+
+def _format_percent(value: Any) -> str:
+    if not isinstance(value, int | float):
+        return "0.0%"
+    return f"{value * 100:.1f}%"
 
 
 def _progress_message(payload: dict[str, Any] | None) -> str:

@@ -17,6 +17,7 @@ from agent.domain.events import (
     ToolProgressEvent,
     ToolRequestedEvent,
     ToolResultEvent,
+    TokenStatsUpdatedEvent,
     TurnCompletedEvent,
 )
 from agent.interfaces.cli.status import CliStatusRenderer
@@ -92,6 +93,29 @@ def test_context_built_deduplicates_in_normal_mode() -> None:
         raise AssertionError(f"Expected compact token count, got: {text!r}")
 
 
+def test_token_stats_updated_output() -> None:
+    renderer, output = make_renderer()
+
+    renderer.handle(
+        TokenStatsUpdatedEvent(
+            stats={
+                "input_tokens": 121300,
+                "effective_context_window_tokens": 245480,
+                "context_usage_percent": 121300 / 245480,
+                "cached_input_tokens": 98700,
+                "cache_hit_rate": 98700 / 121300,
+                "output_tokens": 2100,
+            }
+        )
+    )
+
+    text = output.getvalue()
+    if "Tokens: input 121.3k / 245.5k" not in text:
+        raise AssertionError(f"Expected input token line, got: {text!r}")
+    if "cached 98.7k (81.4%)" not in text:
+        raise AssertionError(f"Expected cache hit line, got: {text!r}")
+
+
 def test_debug_tool_requested_shows_truncated_args() -> None:
     renderer, output = make_renderer(debug=True)
     args = '{"command":"' + ("x" * 600) + '"}'
@@ -143,6 +167,7 @@ def main() -> int:
     test_tool_lifecycle_failed_output()
     test_skill_activation_deduplicates_within_turn()
     test_context_built_deduplicates_in_normal_mode()
+    test_token_stats_updated_output()
     test_debug_tool_requested_shows_truncated_args()
     test_tool_progress_deduplicates_messages()
     test_turn_completed_summarizes_tool_counts()

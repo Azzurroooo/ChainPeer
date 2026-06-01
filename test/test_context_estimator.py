@@ -10,6 +10,48 @@ if str(PROJECT_ROOT) not in sys.path:
 from agent.application.services import ContextBudget, ContextEstimator
 
 
+def test_context_budget_codex_defaults() -> None:
+    budget = ContextBudget.default()
+
+    if budget.resolved_context_window_tokens() != 258400:
+        raise AssertionError(f"Unexpected context window: {budget.to_dict()}")
+    if budget.resolved_effective_context_window_tokens() != 245480:
+        raise AssertionError(f"Unexpected effective window: {budget.to_dict()}")
+    if budget.resolved_auto_compact_token_limit() != 232560:
+        raise AssertionError(f"Unexpected auto compact limit: {budget.to_dict()}")
+
+
+def test_context_budget_total_scope_status() -> None:
+    budget = ContextBudget(context_window_tokens=1000, effective_context_window_percent=95)
+
+    under = budget.auto_compact_token_status(899)
+    reached = budget.auto_compact_token_status(900)
+
+    if under["auto_compact_token_limit_reached"] is not False:
+        raise AssertionError(f"Expected under threshold, got: {under}")
+    if reached["auto_compact_token_limit_reached"] is not True:
+        raise AssertionError(f"Expected threshold reached, got: {reached}")
+
+
+def test_context_budget_body_after_prefix_status() -> None:
+    budget = ContextBudget(
+        context_window_tokens=2000,
+        auto_compact_token_limit=200,
+        auto_compact_token_limit_scope="body_after_prefix",
+    )
+
+    under = budget.auto_compact_token_status(1100, prefill_input_tokens=950)
+    reached = budget.auto_compact_token_status(1200, prefill_input_tokens=950)
+    full_window = budget.auto_compact_token_status(1900, prefill_input_tokens=None)
+
+    if under["auto_compact_token_limit_reached"] is not False:
+        raise AssertionError(f"Expected body scope under threshold, got: {under}")
+    if reached["auto_compact_token_limit_reached"] is not True:
+        raise AssertionError(f"Expected body scope reached, got: {reached}")
+    if full_window["auto_compact_token_limit_reached"] is not True:
+        raise AssertionError(f"Expected effective window reached, got: {full_window}")
+
+
 def test_context_estimator_counts_chars_and_tokens() -> None:
     estimator = ContextEstimator(ContextBudget(hard_limit_tokens=20))
     messages = [
@@ -51,6 +93,9 @@ def test_context_estimator_limit_flags() -> None:
 
 
 def main() -> int:
+    test_context_budget_codex_defaults()
+    test_context_budget_total_scope_status()
+    test_context_budget_body_after_prefix_status()
     test_context_estimator_counts_chars_and_tokens()
     test_context_estimator_limit_flags()
     print("ContextEstimator tests passed.")
