@@ -66,6 +66,8 @@ ChainPeer comes with a powerful CLI interface for managing sessions and debuggin
 | `python main.py --debug` | Run in debug mode. Displays raw tool inputs/outputs and detailed context stats without streaming. |
 | `python main.py --allow-unsafe-bash` | Allow the agent to execute potentially dangerous shell commands. |
 
+Inside the interactive CLI, run `/doctor` for a local setup check covering Python, Git, settings, API key state, model, context window, session storage, and shell detection.
+
 ---
 
 ## 🏗️ Architecture at a Glance

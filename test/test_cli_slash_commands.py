@@ -81,6 +81,7 @@ async def test_help_returns_command_list() -> None:
     result = await SlashCommandRouter().execute("/help", _context())
 
     assert "/status" in result.text
+    assert "/doctor" in result.text
     assert "/skill" in result.text
     assert result.should_exit is False
 
@@ -138,6 +139,35 @@ async def test_config_does_not_leak_api_key(monkeypatch) -> None:
     assert "baseUrl: https://example.com/v1" in result.text
     assert "model: test-model" in result.text
     assert "secret-value" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_doctor_reports_setup_without_leaking_api_key(monkeypatch, tmp_path) -> None:
+    class SessionWithRoot(FakeSession):
+        _session_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(Config, "OPENAI_API_KEY", "secret-value")
+    monkeypatch.setattr(Config, "OPENAI_API_BASE", "https://example.com/v1")
+    monkeypatch.setattr(Config, "DEFAULT_MODEL", "test-model")
+    monkeypatch.setattr(Config, "SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(Config, "SETTINGS_EXISTS", True)
+    monkeypatch.setattr(Config, "CONTEXT_WINDOW_TOKENS", 100000)
+    monkeypatch.setattr(Config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", 90)
+
+    result = await SlashCommandRouter().execute("/doctor", _context(session=SessionWithRoot()))
+
+    assert "Doctor:" in result.text
+    assert "API key: set" in result.text
+    assert "Model: test-model" in result.text
+    assert "Session store:" in result.text
+    assert "secret-value" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_doctor_rejects_extra_args() -> None:
+    result = await SlashCommandRouter().execute("/doctor now", _context())
+
+    assert result.text == "Usage: /doctor"
 
 
 @pytest.mark.asyncio

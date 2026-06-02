@@ -12,6 +12,7 @@ def default_handlers() -> dict[str, Callable]:
     return {
         "help": handle_help,
         "status": handle_status,
+        "doctor": handle_doctor,
         "skill": handle_skill,
         "plan": handle_plan,
         "compact": handle_compact,
@@ -29,6 +30,7 @@ async def handle_help(context: SlashCommandContext, args: list[str]) -> str:
             "Available commands:",
             "/help      Show commands",
             "/status    Show session status",
+            "/doctor    Run local setup diagnostics",
             "/skill     List skills",
             "/plan      Show active plan summary",
             "/compact   Compact current session context",
@@ -72,6 +74,14 @@ async def handle_status(context: SlashCommandContext, args: list[str]) -> str:
             ]
         )
     return "\n".join(lines)
+
+
+async def handle_doctor(context: SlashCommandContext, args: list[str]) -> str:
+    if args:
+        return "Usage: /doctor"
+    from .diagnostics import render_doctor_report
+
+    return render_doctor_report(context)
 
 
 async def handle_skill(context: SlashCommandContext, args: list[str]) -> str:
