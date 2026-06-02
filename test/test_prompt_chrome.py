@@ -50,7 +50,7 @@ def test_prompt_toolbar_includes_status_and_shortcuts(tmp_path) -> None:
     assert "Tab complete /commands" in text
     assert "Right accept hint" in text
     assert "Ctrl+L clear" in text
-    assert "Ctrl+C interrupt" in text
+    assert "Ctrl+C draft" in text
 
 
 def test_prompt_toolbar_handles_missing_session_values(tmp_path) -> None:

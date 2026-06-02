@@ -46,7 +46,7 @@ def prompt_toolbar(
             "Tab complete /commands",
             "Right accept hint",
             "Ctrl+L clear",
-            "Ctrl+C interrupt",
+            "Ctrl+C draft",
         ]
     )
     return "  |  ".join(items)

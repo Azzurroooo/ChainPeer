@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain.events import RuntimeEvent
@@ -46,6 +47,7 @@ class ChatCLI:
         self._git_status_provider = GitPromptStatusProvider()
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._current_cancel_source: CancellationTokenSource | None = None
+        self._last_input_draft_path: Path | None = None
         self._latest_usage: dict[str, object] | None = None
         self._slash_router = SlashCommandRouter()
         self._slash_completer = SlashCommandCompleter(self._slash_router.command_infos())
@@ -86,7 +88,7 @@ class ChatCLI:
             print("Chain Peer v0.1 (Debug Mode: True)")
         else:
             print("Chain Peer v0.1")
-        print("Type /help. Enter sends, Ctrl+J newline, Ctrl+L clear.")
+        print("Type /help. Enter sends, Ctrl+J newline, Ctrl+L clear, Ctrl+C drafts.")
         print("-" * 50)
 
     def _render_loaded_messages(self) -> None:
@@ -106,6 +108,7 @@ class ChatCLI:
             try:
                 user_input = self._read_user_input()
             except (KeyboardInterrupt, EOFError):
+                self._render_saved_draft_notice()
                 print("\n再见！👋")
                 break
 
@@ -187,6 +190,16 @@ class ChatCLI:
         def _(event):
             self._clear_prompt_screen()
 
+        @bindings.add("c-c")
+        def _(event):
+            self._save_input_draft(event.app.current_buffer.text)
+            event.app.exit(exception=KeyboardInterrupt)
+
+        @bindings.add("c-d")
+        def _(event):
+            self._save_input_draft(event.app.current_buffer.text)
+            event.app.exit(exception=EOFError)
+
         for sequence in (
             ("escape", "c-m"),
             ("escape", "c-j"),
@@ -201,6 +214,38 @@ class ChatCLI:
 
     def _clear_prompt_screen(self) -> None:
         self._console.clear()
+
+    def _save_input_draft(self, text: str) -> Path | None:
+        draft = str(text or "").strip()
+        if not draft:
+            return None
+        base = self._session_base_path()
+        if base is None:
+            return None
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            path = base / "input_draft.txt"
+            path.write_text(draft, encoding="utf-8")
+            self._last_input_draft_path = path
+            return path
+        except Exception:
+            return None
+
+    def _render_saved_draft_notice(self) -> None:
+        if self._last_input_draft_path is None:
+            return
+        self._console.print(f"Draft saved: {self._last_input_draft_path}", style="dim", highlight=False)
+        self._last_input_draft_path = None
+
+    def _session_base_path(self) -> Path | None:
+        paths = getattr(self._session, "_session_paths", None)
+        if isinstance(paths, dict) and paths.get("base"):
+            return Path(str(paths["base"]))
+        root = getattr(self._session, "_session_root", None)
+        session_id = getattr(self._session, "session_id", None)
+        if root and session_id:
+            return Path(str(root)) / str(session_id)
+        return None
 
     async def _run_turn_async(self, user_input: str) -> None:
         cancel_source = CancellationTokenSource()

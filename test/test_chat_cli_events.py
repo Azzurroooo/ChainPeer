@@ -53,6 +53,8 @@ def test_chat_cli_banner_mentions_core_shortcuts() -> None:
     text = output.getvalue()
     if "Type /help" not in text or "Ctrl+J newline" not in text or "Ctrl+L clear" not in text:
         raise AssertionError(f"Expected banner shortcut hints, got: {text!r}")
+    if "Ctrl+C drafts" not in text:
+        raise AssertionError(f"Expected banner shortcut hints, got: {text!r}")
 
 
 def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
@@ -222,6 +224,8 @@ def test_chat_cli_input_bindings_include_clear_shortcut() -> None:
 
     if ("c-l",) not in keys:
         raise AssertionError(f"Expected Ctrl+L key binding, got: {keys!r}")
+    if ("c-c",) not in keys or ("c-d",) not in keys:
+        raise AssertionError(f"Expected input abort draft bindings, got: {keys!r}")
 
 
 def test_chat_cli_clear_prompt_screen_clears_console() -> None:
@@ -233,6 +237,49 @@ def test_chat_cli_clear_prompt_screen_clears_console() -> None:
 
     if called != [True]:
         raise AssertionError(f"Expected console.clear to be called once, got: {called!r}")
+
+
+def test_chat_cli_saves_input_draft(tmp_path) -> None:
+    class FakeSession:
+        _session_paths = {"base": str(tmp_path / "session_1")}
+
+    cli = ChatCLI(runtime=None, session=FakeSession())
+    path = cli._save_input_draft("  long unfinished prompt  ")
+
+    if path is None or path.name != "input_draft.txt":
+        raise AssertionError(f"Expected draft path, got: {path!r}")
+    if path.read_text(encoding="utf-8") != "long unfinished prompt":
+        raise AssertionError(f"Expected trimmed draft content, got: {path.read_text(encoding='utf-8')!r}")
+    if cli._last_input_draft_path != path:
+        raise AssertionError(f"Expected latest draft path to be tracked, got: {cli._last_input_draft_path!r}")
+
+
+def test_chat_cli_skips_empty_input_draft(tmp_path) -> None:
+    class FakeSession:
+        _session_paths = {"base": str(tmp_path / "session_1")}
+
+    cli = ChatCLI(runtime=None, session=FakeSession())
+
+    if cli._save_input_draft("  \n") is not None:
+        raise AssertionError("Expected empty draft to be ignored")
+    if (tmp_path / "session_1" / "input_draft.txt").exists():
+        raise AssertionError("Did not expect empty draft file")
+
+
+def test_chat_cli_renders_saved_draft_notice(tmp_path) -> None:
+    cli = ChatCLI(runtime=None, session=None)
+    output = io.StringIO()
+    path = tmp_path / "input_draft.txt"
+    cli._console.file = output
+    cli._last_input_draft_path = path
+
+    cli._render_saved_draft_notice()
+
+    text = output.getvalue()
+    if "Draft saved:" not in text or "input_draft.txt" not in text:
+        raise AssertionError(f"Expected draft notice, got: {output.getvalue()!r}")
+    if cli._last_input_draft_path is not None:
+        raise AssertionError("Expected draft notice path to be cleared")
 
 
 def main() -> int:
