@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from agent.domain.events import TokenStatsUpdatedEvent, ToolResultEvent, TurnFailedEvent
 from agent.interfaces.cli.chat_cli import ChatCLI
+from agent.interfaces.cli.ui import GitPromptStatus
 
 
 def test_chat_cli_turn_failed_event_prints_error_field() -> None:
@@ -74,6 +75,7 @@ def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
     monkeypatch.setattr("agent.interfaces.cli.chat_cli.PromptSession", FakePromptSession)
 
     cli = ChatCLI(runtime=None, session=FakeSession(), debug=True)
+    cli._git_status_provider.current = lambda: GitPromptStatus(branch="main", dirty=True)
 
     if cli._read_user_input() != "hello":
         raise AssertionError("Expected prompt result to be returned")
@@ -91,6 +93,8 @@ def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
         raise AssertionError(f"Expected session in toolbar, got: {captured['toolbar']!r}")
     if "model model_a" not in captured["toolbar"] or "debug on" not in captured["toolbar"]:
         raise AssertionError(f"Expected model/debug in toolbar, got: {captured['toolbar']!r}")
+    if "git main*" not in captured["toolbar"]:
+        raise AssertionError(f"Expected git status in toolbar, got: {captured['toolbar']!r}")
     if captured["continuation"] != "  ... ":
         raise AssertionError(f"Expected multiline continuation, got: {captured['continuation']!r}")
 

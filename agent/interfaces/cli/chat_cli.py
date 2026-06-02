@@ -10,6 +10,7 @@ from agent.interfaces.cli.commands.completer import SlashCommandCompleter
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.interfaces.cli.status import CliStatusRenderer
 from agent.interfaces.cli.ui import (
+    GitPromptStatusProvider,
     print_rainbow_logo,
     prompt_continuation,
     prompt_message,
@@ -42,6 +43,7 @@ class ChatCLI:
         )
         self._prompt_session: PromptSession | None = None
         self._input_history = InMemoryHistory()
+        self._git_status_provider = GitPromptStatusProvider()
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._current_cancel_source: CancellationTokenSource | None = None
         self._latest_usage: dict[str, object] | None = None
@@ -154,6 +156,7 @@ class ChatCLI:
                     self._session,
                     debug=self._debug,
                     usage=self._latest_usage,
+                    git_status=self._git_status_provider.current(),
                 ),
             )
         return self._prompt_session.prompt(prompt_message()).strip()
