@@ -24,10 +24,16 @@ def test_prompt_continuation_marks_multiline_input() -> None:
 
 
 def test_prompt_toolbar_includes_status_and_shortcuts(tmp_path) -> None:
-    text = prompt_toolbar(FakeSession(), debug=True, cwd=tmp_path / "workspace")
+    text = prompt_toolbar(
+        FakeSession(),
+        debug=True,
+        cwd=tmp_path / "workspace",
+        usage={"context_usage_percent": 0.42, "cache_hit_rate": 0.812},
+    )
 
     assert "session 20260602...ef12" in text
     assert "model very-long-model-name-th..." in text
+    assert "ctx 42.0% cache 81.2%" in text
     assert "cwd workspace" in text
     assert "debug on" in text
     assert "Enter send" in text
@@ -43,11 +49,22 @@ def test_prompt_toolbar_handles_missing_session_values(tmp_path) -> None:
     assert "model unknown" in text
 
 
+def test_prompt_toolbar_falls_back_to_token_counts(tmp_path) -> None:
+    text = prompt_toolbar(
+        FakeSession(),
+        cwd=tmp_path,
+        usage={"input_tokens": 121300, "effective_context_window_tokens": 245480},
+    )
+
+    assert "ctx 121.3k/245.5k" in text
+
+
 def main() -> int:
     test_prompt_message_names_speaker()
     test_prompt_continuation_marks_multiline_input()
     test_prompt_toolbar_includes_status_and_shortcuts(Path.cwd())
     test_prompt_toolbar_handles_missing_session_values(Path.cwd())
+    test_prompt_toolbar_falls_back_to_token_counts(Path.cwd())
     print("Prompt chrome tests passed.")
     return 0
 

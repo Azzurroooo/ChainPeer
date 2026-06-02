@@ -41,6 +41,7 @@ class ChatCLI:
         self._prompt_session: PromptSession | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._current_cancel_source: CancellationTokenSource | None = None
+        self._latest_usage: dict[str, object] | None = None
         self._slash_router = SlashCommandRouter()
         self._slash_completer = SlashCommandCompleter(self._slash_router.command_infos())
 
@@ -63,6 +64,7 @@ class ChatCLI:
             if not loop.run_until_complete(_init_session()):
                 return
 
+            loop.run_until_complete(self._load_latest_usage_async())
             self._render_loaded_messages()
             self._loop()
         finally:
@@ -142,7 +144,11 @@ class ChatCLI:
                 completer=self._slash_completer,
                 complete_while_typing=True,
                 prompt_continuation=prompt_continuation,
-                bottom_toolbar=lambda: prompt_toolbar(self._session, debug=self._debug),
+                bottom_toolbar=lambda: prompt_toolbar(
+                    self._session,
+                    debug=self._debug,
+                    usage=self._latest_usage,
+                ),
             )
         return self._prompt_session.prompt(prompt_message()).strip()
 
@@ -195,6 +201,16 @@ class ChatCLI:
             render_markdown(result.text)
         return result.should_exit
 
+    async def _load_latest_usage_async(self) -> None:
+        get_usage = getattr(self._session, "get_latest_sampling_usage", None)
+        if not callable(get_usage):
+            return
+        try:
+            usage = await get_usage()
+        except Exception:
+            return
+        self._latest_usage = dict(usage) if isinstance(usage, dict) else None
+
     def _shutdown_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         if loop.is_closed():
             return
@@ -214,6 +230,7 @@ class ChatCLI:
         from agent.domain.events import (
             AssistantDeltaEvent,
             AssistantMessageCompletedEvent,
+            TokenStatsUpdatedEvent,
         )
         
         if isinstance(event, AssistantDeltaEvent):
@@ -221,6 +238,9 @@ class ChatCLI:
             self._streaming_renderer.append(event.text)
         elif isinstance(event, AssistantMessageCompletedEvent):
             self._streaming_renderer.finish_message()
+        elif isinstance(event, TokenStatsUpdatedEvent):
+            self._latest_usage = dict(event.stats) if isinstance(event.stats, dict) else None
+            self._status_renderer.handle(event)
         else:
             self._status_renderer.handle(event)
 

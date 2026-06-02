@@ -9,7 +9,7 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.domain.events import ToolResultEvent, TurnFailedEvent
+from agent.domain.events import TokenStatsUpdatedEvent, ToolResultEvent, TurnFailedEvent
 from agent.interfaces.cli.chat_cli import ChatCLI
 
 
@@ -76,6 +76,63 @@ def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
         raise AssertionError(f"Expected multiline continuation, got: {captured['continuation']!r}")
 
 
+def test_chat_cli_prompt_toolbar_uses_latest_usage(monkeypatch) -> None:
+    captured = {}
+
+    class FakeSession:
+        session_id = "session_1234567890"
+        model = "model_a"
+
+    class FakePromptSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def prompt(self, message):
+            captured["toolbar"] = captured["bottom_toolbar"]()
+            return "hello"
+
+    monkeypatch.setattr("agent.interfaces.cli.chat_cli.PromptSession", FakePromptSession)
+
+    cli = ChatCLI(runtime=None, session=FakeSession())
+    cli._latest_usage = {"context_usage_percent": 0.5, "cache_hit_rate": 0.25}
+    cli._read_user_input()
+
+    if "ctx 50.0% cache 25.0%" not in captured["toolbar"]:
+        raise AssertionError(f"Expected latest usage in toolbar, got: {captured['toolbar']!r}")
+
+
+async def _load_latest_usage(cli: ChatCLI) -> None:
+    await cli._load_latest_usage_async()
+
+
+def test_chat_cli_loads_latest_usage_from_session() -> None:
+    import asyncio
+
+    class FakeSession:
+        async def get_latest_sampling_usage(self):
+            return {"context_usage_percent": 0.3}
+
+    cli = ChatCLI(runtime=None, session=FakeSession())
+    asyncio.run(_load_latest_usage(cli))
+
+    if cli._latest_usage != {"context_usage_percent": 0.3}:
+        raise AssertionError(f"Expected persisted usage to be loaded, got: {cli._latest_usage!r}")
+
+
+def test_chat_cli_token_event_updates_latest_usage() -> None:
+    cli = ChatCLI(runtime=None, session=None)
+    output = io.StringIO()
+    cli._console.file = output
+    cli._status_renderer._console.file = output
+
+    cli._on_event(TokenStatsUpdatedEvent(stats={"context_usage_percent": 0.5}))
+
+    if cli._latest_usage != {"context_usage_percent": 0.5}:
+        raise AssertionError(f"Expected token usage state to update, got: {cli._latest_usage!r}")
+    if "Tokens:" not in output.getvalue():
+        raise AssertionError(f"Expected token status to still render, got: {output.getvalue()!r}")
+
+
 def test_chat_cli_loaded_messages_are_compact(monkeypatch) -> None:
     class FakeSession:
         session_id = "session_1234567890"
@@ -122,6 +179,8 @@ def test_chat_cli_loaded_messages_are_compact(monkeypatch) -> None:
 def main() -> int:
     test_chat_cli_turn_failed_event_prints_error_field()
     test_chat_cli_tool_result_failed_uses_failed_status()
+    test_chat_cli_loads_latest_usage_from_session()
+    test_chat_cli_token_event_updates_latest_usage()
     print("ChatCLI event tests passed.")
     return 0
 
