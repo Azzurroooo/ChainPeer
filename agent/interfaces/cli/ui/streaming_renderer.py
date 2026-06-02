@@ -68,7 +68,7 @@ class StreamingRenderer:
             return
 
         if line.strip().startswith("```"):
-            self._in_code_block = not self._in_code_block
+            self._render_code_fence(line, newline=newline)
             return
 
         if self._in_code_block:
@@ -133,6 +133,16 @@ class StreamingRenderer:
                 output.append(" | ", style="dim")
             output.append_text(self._render_inline(cell, base_style="bold cyan" if index == 0 else ""))
         self._print_console(output, newline=newline)
+
+    def _render_code_fence(self, line: str, *, newline: bool) -> None:
+        opening = not self._in_code_block
+        label = self._code_fence_label(line) if opening else ""
+        self._in_code_block = opening
+        text = Text(f"``` {label}".rstrip() if opening else "```", style="dim cyan")
+        self._print_console(text, newline=newline)
+
+    def _code_fence_label(self, line: str) -> str:
+        return line.strip()[3:].strip()[:32]
 
     def _is_table_line(self, line: str) -> bool:
         stripped = line.strip()

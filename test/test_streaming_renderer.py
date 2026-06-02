@@ -82,11 +82,25 @@ def test_markdown_message_boundary_uses_console_newline() -> None:
         raise AssertionError(f"Expected markdown message to end with one console newline, got: {console_buffer.getvalue()!r}")
 
 
+def test_code_block_renders_visible_fences() -> None:
+    stdout_buffer = io.StringIO()
+    console_buffer = io.StringIO()
+    renderer = StreamingRenderer(Console(file=console_buffer, force_terminal=False, color_system=None))
+
+    with redirect_stdout(stdout_buffer):
+        renderer.append("```python\nprint('ok')\n```\n")
+
+    text = console_buffer.getvalue()
+    if "``` python" not in text or "print('ok')" not in text or text.rstrip().endswith("```") is False:
+        raise AssertionError(f"Expected visible code fences and code content, got: {text!r}")
+
+
 def main() -> int:
     test_plain_text_without_newline_renders_immediately()
     test_markdown_without_newline_stays_buffered_until_flush()
     test_separate_assistant_plain_messages_end_with_newlines()
     test_markdown_message_boundary_uses_console_newline()
+    test_code_block_renders_visible_fences()
     print("Streaming renderer tests passed.")
     return 0
 
