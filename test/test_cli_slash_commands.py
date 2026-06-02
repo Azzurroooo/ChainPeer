@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.interfaces.cli.chat_cli import ChatCLI
+from agent.interfaces.cli.ui import GitPromptStatus
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.infrastructure.config import Config
 
@@ -252,6 +253,22 @@ async def test_status_shows_session_model_debug_and_message_count() -> None:
     assert "Model: model_a" in result.text
     assert "Debug: true" in result.text
     assert "Messages: 2" in result.text
+
+
+@pytest.mark.asyncio
+async def test_status_shows_git_branch(monkeypatch) -> None:
+    class FakeGitProvider:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def current(self):
+            return GitPromptStatus(branch="main", dirty=True)
+
+    monkeypatch.setattr("agent.interfaces.cli.ui.GitPromptStatusProvider", FakeGitProvider)
+
+    result = await SlashCommandRouter().execute("/status", _context())
+
+    assert "Git: main*" in result.text
 
 
 @pytest.mark.asyncio

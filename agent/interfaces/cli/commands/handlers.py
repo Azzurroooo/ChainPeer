@@ -71,6 +71,9 @@ async def handle_status(context: SlashCommandContext, args: list[str]) -> str:
         f"- Debug: {str(bool(context.debug)).lower()}",
         f"- Messages: {message_count}",
     ]
+    git_status = _git_status_line()
+    if git_status:
+        lines.append(git_status)
     latest_usage = await _latest_sampling_usage(session)
     if latest_usage:
         effective_window = int(latest_usage.get("effective_context_window_tokens") or 0)
@@ -292,6 +295,19 @@ def _find_command_info(command_infos: tuple[SlashCommandInfo, ...], name: str) -
         if info.name == name or name in info.aliases:
             return info
     return None
+
+
+def _git_status_line() -> str:
+    try:
+        from agent.interfaces.cli.ui import GitPromptStatusProvider
+
+        status = GitPromptStatusProvider(ttl_seconds=0).current()
+    except Exception:
+        return ""
+    if status is None:
+        return ""
+    marker = "*" if status.dirty else ""
+    return f"- Git: {status.branch}{marker}"
 
 
 def _value(value: object) -> str:
