@@ -117,6 +117,7 @@ async def test_help_returns_command_list() -> None:
     assert "/doctor" in result.text
     assert "/skill" in result.text
     assert "/clear" in result.text
+    assert "/draft" in result.text
     assert "alias: /quit" in result.text
     assert result.should_exit is False
 
@@ -171,6 +172,7 @@ def test_router_exposes_command_descriptions() -> None:
     assert descriptions["status"] == "Show session status"
     assert descriptions["model"] == "Show or change the active model"
     assert descriptions["clear"] == "Clear terminal output"
+    assert descriptions["draft"] == "Show saved input draft"
     assert usages["sessions"] == "/sessions [limit]"
 
 
@@ -448,6 +450,39 @@ async def test_clear_rejects_extra_args() -> None:
 
 
 @pytest.mark.asyncio
+async def test_draft_shows_saved_input_draft(tmp_path) -> None:
+    class DraftSession(FakeSession):
+        _session_paths = {"base": str(tmp_path / "session_1")}
+
+    base = tmp_path / "session_1"
+    base.mkdir()
+    (base / "input_draft.txt").write_text("continue this prompt", encoding="utf-8")
+
+    result = await SlashCommandRouter().execute("/draft", _context(session=DraftSession()))
+
+    assert "Saved input draft:" in result.text
+    assert "input_draft.txt" in result.text
+    assert "continue this prompt" in result.text
+
+
+@pytest.mark.asyncio
+async def test_draft_reports_missing_draft(tmp_path) -> None:
+    class DraftSession(FakeSession):
+        _session_paths = {"base": str(tmp_path / "session_1")}
+
+    result = await SlashCommandRouter().execute("/draft", _context(session=DraftSession()))
+
+    assert result.text == "No saved input draft."
+
+
+@pytest.mark.asyncio
+async def test_draft_rejects_extra_args() -> None:
+    result = await SlashCommandRouter().execute("/draft clear", _context())
+
+    assert result.text == "Usage: /draft"
+
+
+@pytest.mark.asyncio
 async def test_skill_lists_project_skill(tmp_path, monkeypatch) -> None:
     skill_dir = tmp_path / ".chainpeer" / "skills" / "demo"
     skill_dir.mkdir(parents=True)
@@ -529,6 +564,7 @@ def main() -> int:
     asyncio.run(test_compact_calls_session_compact_context())
     asyncio.run(test_clear_requests_screen_clear())
     asyncio.run(test_clear_rejects_extra_args())
+    asyncio.run(test_draft_rejects_extra_args())
     asyncio.run(test_exit_requests_cli_exit())
     asyncio.run(test_chat_cli_slash_command_does_not_call_runtime())
     asyncio.run(test_chat_cli_clear_command_clears_console_without_runtime())

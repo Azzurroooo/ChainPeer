@@ -19,6 +19,7 @@ COMMAND_INFOS = (
     SlashCommandInfo("compact", "Compact current session context", "/compact"),
     SlashCommandInfo("model", "Show or change the active model", "/model | /model set <model>"),
     SlashCommandInfo("clear", "Clear terminal output", "/clear"),
+    SlashCommandInfo("draft", "Show saved input draft", "/draft"),
     SlashCommandInfo("login", "Show login setup guidance", "/login"),
     SlashCommandInfo("config", "Show config guidance", "/config"),
     SlashCommandInfo("exit", "Exit CLI", "/exit", aliases=("quit",)),
@@ -40,6 +41,7 @@ def default_handlers() -> dict[str, Callable]:
         "compact": handle_compact,
         "model": handle_model,
         "clear": handle_clear,
+        "draft": handle_draft,
         "login": handle_login,
         "config": handle_config,
         "exit": handle_exit,
@@ -240,6 +242,21 @@ async def handle_clear(context: SlashCommandContext, args: list[str]) -> SlashCo
     return SlashCommandResult(clear_screen=True)
 
 
+async def handle_draft(context: SlashCommandContext, args: list[str]) -> str:
+    if args:
+        return "Usage: /draft"
+    path = _draft_path(context.session)
+    if path is None or not path.exists():
+        return "No saved input draft."
+    try:
+        draft = path.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        return f"Command failed: {exc}"
+    if not draft:
+        return "No saved input draft."
+    return f"Saved input draft: {path}\n\n{draft}"
+
+
 async def handle_login(context: SlashCommandContext, args: list[str]) -> str:
     return "Login/config setup is not implemented yet.\nCreate settings.json under your user .chainpeer directory for now."
 
@@ -308,6 +325,22 @@ def _git_status_line() -> str:
         return ""
     marker = "*" if status.dirty else ""
     return f"- Git: {status.branch}{marker}"
+
+
+def _draft_path(session) -> Path | None:
+    base = _session_base_path(session)
+    return base / "input_draft.txt" if base else None
+
+
+def _session_base_path(session) -> Path | None:
+    paths = getattr(session, "_session_paths", None)
+    if isinstance(paths, dict) and paths.get("base"):
+        return Path(str(paths["base"]))
+    root = getattr(session, "_session_root", None)
+    session_id = getattr(session, "session_id", None)
+    if root and session_id:
+        return Path(str(root)) / str(session_id)
+    return None
 
 
 def _value(value: object) -> str:
