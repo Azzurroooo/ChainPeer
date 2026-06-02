@@ -39,6 +39,9 @@ class FakeSession:
     async def get_latest_sampling_usage(self):
         return None
 
+    async def list_recent_sessions(self, limit=10):
+        return []
+
 
 class FakeRuntime:
     def __init__(self):
@@ -84,6 +87,69 @@ async def test_help_returns_command_list() -> None:
     assert "/doctor" in result.text
     assert "/skill" in result.text
     assert result.should_exit is False
+
+
+@pytest.mark.asyncio
+async def test_sessions_lists_recent_sessions_with_current_marker() -> None:
+    class SessionWithRecent(FakeSession):
+        session_id = "session_2"
+
+        def __init__(self):
+            self.requested_limit = None
+
+        async def list_recent_sessions(self, limit=10):
+            self.requested_limit = limit
+            return [
+                {
+                    "id": "session_2",
+                    "title": "Current task",
+                    "updated_at": "2026-06-02T01:02:03+00:00",
+                    "size": {"messages": 4, "tool_calls": 1},
+                    "preview": "latest answer",
+                },
+                {
+                    "id": "session_1",
+                    "title": "Older task",
+                    "updated_at": "2026-06-01T01:02:03+00:00",
+                    "size": {"messages": 2, "tool_calls": 0},
+                    "preview": "",
+                },
+            ]
+
+    session = SessionWithRecent()
+    result = await SlashCommandRouter().execute("/sessions 5", _context(session=session))
+
+    assert session.requested_limit == 5
+    assert "Recent sessions:" in result.text
+    assert "session_2 (current)" in result.text
+    assert "4 msg, 1 tool" in result.text
+    assert "latest answer" in result.text
+    assert "python main.py --session <id>" in result.text
+
+
+@pytest.mark.asyncio
+async def test_sessions_reports_no_recent_sessions() -> None:
+    result = await SlashCommandRouter().execute("/sessions", _context())
+
+    assert result.text == "No recent sessions."
+
+
+@pytest.mark.asyncio
+async def test_sessions_rejects_invalid_limit() -> None:
+    result = await SlashCommandRouter().execute("/sessions many", _context())
+
+    assert result.text == "Usage: /sessions [limit]"
+
+
+@pytest.mark.asyncio
+async def test_sessions_handles_unsupported_session_store() -> None:
+    class UnsupportedSession:
+        session_id = "session_1"
+        model = "model_a"
+
+    result = await SlashCommandRouter().execute("/sessions", _context(session=UnsupportedSession()))
+
+    assert result.text == "Sessions are not supported by this session store."
 
 
 @pytest.mark.asyncio
