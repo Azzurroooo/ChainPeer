@@ -115,6 +115,7 @@ async def test_help_returns_command_list() -> None:
     assert "Show session status" in result.text
     assert "/doctor" in result.text
     assert "/skill" in result.text
+    assert "/clear" in result.text
     assert "alias: /quit" in result.text
     assert result.should_exit is False
 
@@ -135,6 +136,7 @@ def test_router_exposes_command_descriptions() -> None:
     assert [info.name for info in infos] == sorted(descriptions)
     assert descriptions["status"] == "Show session status"
     assert descriptions["model"] == "Show or change the active model"
+    assert descriptions["clear"] == "Clear terminal output"
 
 
 @pytest.mark.asyncio
@@ -339,6 +341,23 @@ async def test_exit_requests_cli_exit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_clear_requests_screen_clear() -> None:
+    result = await SlashCommandRouter().execute("/clear", _context())
+
+    assert result.clear_screen is True
+    assert result.should_exit is False
+    assert result.text == ""
+
+
+@pytest.mark.asyncio
+async def test_clear_rejects_extra_args() -> None:
+    result = await SlashCommandRouter().execute("/clear now", _context())
+
+    assert result.clear_screen is False
+    assert result.text == "Usage: /clear"
+
+
+@pytest.mark.asyncio
 async def test_skill_lists_project_skill(tmp_path, monkeypatch) -> None:
     skill_dir = tmp_path / ".chainpeer" / "skills" / "demo"
     skill_dir.mkdir(parents=True)
@@ -379,6 +398,21 @@ async def test_chat_cli_slash_command_does_not_call_runtime() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_cli_clear_command_clears_console_without_runtime() -> None:
+    runtime = FakeRuntime()
+    cli = ChatCLI(runtime=runtime, session=FakeSession())
+    called = []
+
+    cli._console.clear = lambda: called.append(True)
+
+    should_exit = await cli._run_slash_command_async("/clear")
+
+    assert should_exit is False
+    assert runtime.called is False
+    assert called == [True]
+
+
+@pytest.mark.asyncio
 async def test_chat_cli_normal_turn_still_calls_runtime() -> None:
     runtime = FakeRuntime()
     cli = ChatCLI(runtime=runtime, session=FakeSession())
@@ -397,8 +431,11 @@ def main() -> int:
     asyncio.run(test_status_shows_latest_sampling_usage())
     asyncio.run(test_model_rejects_invalid_set_args())
     asyncio.run(test_compact_calls_session_compact_context())
+    asyncio.run(test_clear_requests_screen_clear())
+    asyncio.run(test_clear_rejects_extra_args())
     asyncio.run(test_exit_requests_cli_exit())
     asyncio.run(test_chat_cli_slash_command_does_not_call_runtime())
+    asyncio.run(test_chat_cli_clear_command_clears_console_without_runtime())
     asyncio.run(test_chat_cli_normal_turn_still_calls_runtime())
     print("CLI slash command tests passed.")
     return 0

@@ -197,6 +197,8 @@ class ChatCLI:
             user_input,
             SlashCommandContext(runtime=self._runtime, session=self._session, debug=self._debug),
         )
+        if result.clear_screen:
+            self._console.clear()
         if result.text:
             render_markdown(result.text)
         return result.should_exit

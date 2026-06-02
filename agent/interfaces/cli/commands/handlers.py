@@ -18,6 +18,7 @@ COMMAND_INFOS = (
     SlashCommandInfo("plan", "Show active plan summary"),
     SlashCommandInfo("compact", "Compact current session context"),
     SlashCommandInfo("model", "Show or change the active model"),
+    SlashCommandInfo("clear", "Clear terminal output"),
     SlashCommandInfo("login", "Show login setup guidance"),
     SlashCommandInfo("config", "Show config guidance"),
     SlashCommandInfo("exit", "Exit CLI", aliases=("quit",)),
@@ -38,6 +39,7 @@ def default_handlers() -> dict[str, Callable]:
         "plan": handle_plan,
         "compact": handle_compact,
         "model": handle_model,
+        "clear": handle_clear,
         "login": handle_login,
         "config": handle_config,
         "exit": handle_exit,
@@ -219,6 +221,12 @@ async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
     else:
         lines.append("- active session: unchanged; start a new session to use this model")
     return "\n".join(lines)
+
+
+async def handle_clear(context: SlashCommandContext, args: list[str]) -> SlashCommandResult:
+    if args:
+        return SlashCommandResult("Usage: /clear")
+    return SlashCommandResult(clear_screen=True)
 
 
 async def handle_login(context: SlashCommandContext, args: list[str]) -> str:

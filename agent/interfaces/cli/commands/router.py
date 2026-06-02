@@ -19,6 +19,7 @@ class SlashCommandContext:
 class SlashCommandResult:
     text: str = ""
     should_exit: bool = False
+    clear_screen: bool = False
 
 
 @dataclass(frozen=True, slots=True)
