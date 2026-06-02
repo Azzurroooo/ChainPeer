@@ -285,6 +285,23 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
 
                 set_active_session_context(str(self._session_root), str(self._session_id))
 
+    async def update_model(self, model: str) -> None:
+        clean = str(model or "").strip()
+        if not clean:
+            raise ValueError("Model name is required.")
+
+        async with self._write_lock:
+            def _persist():
+                self._model = clean
+                if not self._session_meta or not self._session_paths:
+                    return
+                self._session_meta["model"] = clean
+                self._session_meta["updated_at"] = self.now_iso()
+                self._files.write_json(self._session_paths["meta"], self._session_meta)
+                self._update_index()
+
+            await asyncio.to_thread(_persist)
+
     async def persist_message(
         self,
         role: str,

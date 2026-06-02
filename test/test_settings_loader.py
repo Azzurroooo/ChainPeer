@@ -11,6 +11,7 @@ from agent.infrastructure.config.settings_loader import (
     DEFAULT_MODEL,
     ensure_user_settings_template,
     load_settings,
+    save_settings_patch,
 )
 
 
@@ -97,3 +98,37 @@ def test_ensure_user_settings_template_skips_custom_settings_path(tmp_path, monk
 
     assert ensure_user_settings_template() is None
     assert not (tmp_path / ".chainpeer").exists()
+
+
+def test_save_settings_patch_preserves_existing_values(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "model": "old-model",
+                "apiKey": "secret-key",
+                "baseUrl": "https://example.com/v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings = save_settings_patch({"model": "new-model"}, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert settings.model == "new-model"
+    assert data["model"] == "new-model"
+    assert data["apiKey"] == "secret-key"
+    assert data["baseUrl"] == "https://example.com/v1"
+
+
+def test_save_settings_patch_creates_missing_settings_file(tmp_path):
+    path = tmp_path / "nested" / "settings.json"
+
+    settings = save_settings_patch({"model": "new-model"}, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert settings.settings_exists is True
+    assert settings.model == "new-model"
+    assert data["model"] == "new-model"
+    assert "apiKey" in data

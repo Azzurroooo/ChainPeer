@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import os
 import sys
 from contextlib import redirect_stdout
@@ -15,6 +16,28 @@ if str(PROJECT_ROOT) not in sys.path:
 from agent.interfaces.cli.chat_cli import ChatCLI
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.infrastructure.config import Config
+
+
+@pytest.fixture(autouse=True)
+def restore_config_state():
+    attrs = {
+        "SETTINGS": Config.SETTINGS,
+        "SETTINGS_PATH": Config.SETTINGS_PATH,
+        "SETTINGS_EXISTS": Config.SETTINGS_EXISTS,
+        "OPENAI_API_KEY": Config.OPENAI_API_KEY,
+        "OPENAI_API_BASE": Config.OPENAI_API_BASE,
+        "OPENAI_USER_AGENT": Config.OPENAI_USER_AGENT,
+        "DEFAULT_MODEL": Config.DEFAULT_MODEL,
+        "MODEL_REASONING_EFFORT": Config.MODEL_REASONING_EFFORT,
+        "CONTEXT_WINDOW_TOKENS": Config.CONTEXT_WINDOW_TOKENS,
+        "EFFECTIVE_CONTEXT_WINDOW_PERCENT": Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+        "AUTO_COMPACT_TOKEN_LIMIT": Config.AUTO_COMPACT_TOKEN_LIMIT,
+        "AUTO_COMPACT_TOKEN_LIMIT_SCOPE": Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
+        "AUTO_COMPACT_ENABLED": Config.AUTO_COMPACT_ENABLED,
+    }
+    yield
+    for key, value in attrs.items():
+        setattr(Config, key, value)
 
 
 class FakeSession:
@@ -47,6 +70,7 @@ class FakeRuntime:
     def __init__(self):
         self.called = False
         self.compact_called = False
+        self.model = None
 
     def run_turn(self, query=None, cancellation_token=None):
         self.called = True
@@ -62,6 +86,10 @@ class FakeRuntime:
                 "tool_call_ids": [],
             },
         }
+
+    async def set_model(self, model):
+        self.model = model
+        return {"runtime": True, "session": False}
 
 
 class EmptyStream:
@@ -237,10 +265,36 @@ async def test_doctor_rejects_extra_args() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_set_is_placeholder() -> None:
-    result = await SlashCommandRouter().execute("/model set model_b", _context())
+async def test_model_set_updates_settings_and_active_runtime(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"model": "model_a", "apiKey": "secret-value"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+    Config.reload()
+    runtime = FakeRuntime()
+    context = SlashCommandContext(runtime=runtime, session=FakeSession(), debug=True)
 
-    assert "not implemented" in result.text
+    result = await SlashCommandRouter().execute("/model set model_b", context)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert "Model updated." in result.text
+    assert "previous default: model_a" in result.text
+    assert "new default: model_b" in result.text
+    assert "active session: updated" in result.text
+    assert data["model"] == "model_b"
+    assert data["apiKey"] == "secret-value"
+    assert Config.DEFAULT_MODEL == "model_b"
+    assert runtime.model == "model_b"
+    assert "secret-value" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_model_rejects_invalid_set_args() -> None:
+    result = await SlashCommandRouter().execute("/model set", _context())
+
+    assert result.text == "Usage: /model or /model set <model>"
 
 
 @pytest.mark.asyncio
@@ -319,7 +373,7 @@ def main() -> int:
     asyncio.run(test_unknown_command_returns_friendly_error())
     asyncio.run(test_status_shows_session_model_debug_and_message_count())
     asyncio.run(test_status_shows_latest_sampling_usage())
-    asyncio.run(test_model_set_is_placeholder())
+    asyncio.run(test_model_rejects_invalid_set_args())
     asyncio.run(test_compact_calls_session_compact_context())
     asyncio.run(test_exit_requests_cli_exit())
     asyncio.run(test_chat_cli_slash_command_does_not_call_runtime())

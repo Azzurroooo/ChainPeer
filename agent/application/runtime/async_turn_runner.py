@@ -54,6 +54,13 @@ class AsyncTurnRunner:
         if hasattr(self._chat_client, "on_retry"):
             self._chat_client.on_retry = callback
 
+    def set_model(self, model: str) -> bool:
+        set_model = getattr(self._chat_client, "set_model", None)
+        if not callable(set_model):
+            return False
+        set_model(model)
+        return True
+
     async def run_turn(
         self,
         session: AsyncSessionStore,

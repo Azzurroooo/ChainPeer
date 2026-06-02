@@ -27,6 +27,10 @@ class AsyncSessionStore(Protocol):
         """Initialize or load the session state."""
         ...
 
+    async def update_model(self, model: str) -> None:
+        """Update the model recorded for the active session."""
+        ...
+
     async def persist_message(
         self,
         role: str,

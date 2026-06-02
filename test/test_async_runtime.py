@@ -227,6 +227,37 @@ async def test_async_runtime_facade_manual_compact_uses_runner():
 
 
 @pytest.mark.asyncio
+async def test_async_runtime_facade_set_model_updates_runner_and_session():
+    class FakeSession:
+        def __init__(self):
+            self.model = "old-model"
+
+        async def initialize(self):
+            return None
+
+        async def update_model(self, model):
+            self.model = model
+
+    class FakeRunner:
+        def __init__(self):
+            self.model = "old-model"
+
+        def set_model(self, model):
+            self.model = model
+            return True
+
+    session = FakeSession()
+    runner = FakeRunner()
+    facade = AsyncRuntimeFacade(turn_runner=runner, session_store=session)
+
+    result = await facade.set_model("new-model")
+
+    assert result == {"runtime": True, "session": True}
+    assert runner.model == "new-model"
+    assert session.model == "new-model"
+
+
+@pytest.mark.asyncio
 async def test_async_turn_runner_emits_tool_requested_before_tool_execution():
     mock_client = AsyncMock()
 
@@ -454,6 +485,7 @@ def main() -> int:
     asyncio.run(test_async_turn_runner_stream_cancelled_error_is_cancelled_event())
     asyncio.run(test_async_runtime_facade_emits_turn_started_first())
     asyncio.run(test_async_runtime_facade_manual_compact_uses_runner())
+    asyncio.run(test_async_runtime_facade_set_model_updates_runner_and_session())
     asyncio.run(test_async_turn_runner_emits_tool_requested_before_tool_execution())
     asyncio.run(test_async_turn_runner_emits_and_persists_sampling_usage())
     asyncio.run(test_async_turn_runner_auto_compacts_before_sampling())

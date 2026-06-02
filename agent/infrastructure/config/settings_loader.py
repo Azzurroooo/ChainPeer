@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+import uuid
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -96,6 +97,16 @@ def ensure_user_settings_template() -> Path | None:
     return settings_path
 
 
+def save_settings_patch(patch: dict[str, Any], path: str | Path | None = None) -> AppSettings:
+    if not isinstance(patch, dict):
+        raise ValueError("Settings patch must be a JSON object")
+    settings_path = Path(path).expanduser() if path else default_settings_path()
+    data = _read_json_object(settings_path) if settings_path.exists() else dict(DEFAULT_SETTINGS_TEMPLATE)
+    data.update(patch)
+    _write_json_object(settings_path, data)
+    return load_settings(settings_path)
+
+
 def _read_json_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -104,6 +115,17 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Invalid settings.json: {path} must contain a JSON object")
     return value
+
+
+def _write_json_object(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def _string(data: dict[str, Any], key: str) -> str:

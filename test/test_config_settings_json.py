@@ -99,3 +99,34 @@ def test_config_get_async_client_uses_loaded_settings(tmp_path, monkeypatch):
     assert kwargs["api_key"] == "settings-key"
     assert kwargs["base_url"] == "https://example.com/v1"
     assert kwargs["default_headers"] == {"User-Agent": "codex_cli_rs/0.0.0"}
+
+
+def test_config_set_model_updates_settings_json(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"model": "old-model", "apiKey": "settings-key"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+    Config.reload()
+
+    settings = Config.set_model("new-model")
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert settings.model == "new-model"
+    assert Config.DEFAULT_MODEL == "new-model"
+    assert data["model"] == "new-model"
+    assert data["apiKey"] == "settings-key"
+
+
+def test_config_set_model_rejects_empty_model(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"model": "old-model"}), encoding="utf-8")
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+    Config.reload()
+
+    with pytest.raises(ValueError, match="Model name"):
+        Config.set_model(" ")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["model"] == "old-model"

@@ -1,7 +1,7 @@
 """配置模块"""
 from openai import OpenAI, AsyncOpenAI
 
-from .settings_loader import AppSettings, ensure_user_settings_template, load_settings
+from .settings_loader import AppSettings, ensure_user_settings_template, load_settings, save_settings_patch
 
 
 _SETTINGS = load_settings()
@@ -51,6 +51,14 @@ class Config:
         cls.AUTO_COMPACT_TOKEN_LIMIT_SCOPE = settings.auto_compact_token_limit_scope
         cls.AUTO_COMPACT_ENABLED = settings.auto_compact_enabled
         return settings
+
+    @classmethod
+    def set_model(cls, model: str) -> AppSettings:
+        clean = str(model or "").strip()
+        if not clean:
+            raise ValueError("Model name is required.")
+        save_settings_patch({"model": clean})
+        return cls.reload()
 
     @classmethod
     def get_client(cls) -> OpenAI:

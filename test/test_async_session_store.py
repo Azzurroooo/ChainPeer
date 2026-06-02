@@ -236,6 +236,19 @@ async def test_sampling_usage_and_auto_compact_window_meta(temp_session_dir):
     assert next_window["prefill_input_tokens"] is None
 
 
+@pytest.mark.asyncio
+async def test_update_model_persists_session_meta(temp_session_dir):
+    store = AsyncJsonlSessionStore(session_dir=temp_session_dir, model="old-model", system_prompt="sys")
+    await store.initialize()
+
+    await store.update_model("new-model")
+
+    session_base = Path(temp_session_dir) / store.session_id
+    meta = json.loads((session_base / "meta.json").read_text(encoding="utf-8"))
+    assert store.model == "new-model"
+    assert meta["model"] == "new-model"
+
+
 def main() -> int:
     async def _run_all():
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,6 +265,8 @@ def main() -> int:
             await test_manual_compact_appends_boundary_without_rewriting_messages(tmp)
         with tempfile.TemporaryDirectory() as tmp:
             await test_sampling_usage_and_auto_compact_window_meta(tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            await test_update_model_persists_session_meta(tmp)
 
     asyncio.run(_run_all())
     print("AsyncJsonlSessionStore tests passed.")

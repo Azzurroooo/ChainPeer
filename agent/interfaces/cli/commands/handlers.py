@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Callable
 
@@ -181,10 +182,39 @@ async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
 
 
 async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
-    if args and args[0].lower() == "set":
-        return "Model switching is not implemented yet."
-    model = _value(getattr(context.session, "model", None))
-    return f"Model: {model}\nModel switching will be added in config/model management."
+    from agent.infrastructure.config import Config
+
+    if not args:
+        active = _value(getattr(context.session, "model", None))
+        configured = _value(Config.DEFAULT_MODEL)
+        if active == configured:
+            return f"Model: {active}"
+        return f"Model:\n- active: {active}\n- default: {configured}"
+
+    if len(args) != 2 or args[0].lower() != "set":
+        return "Usage: /model or /model set <model>"
+
+    model = _normalize_model_name(args[1])
+    if model is None:
+        return "Usage: /model set <model>"
+
+    previous = _value(Config.DEFAULT_MODEL)
+    try:
+        Config.set_model(model)
+        active_updated = await _set_active_model(context, model)
+    except Exception as exc:
+        return f"Command failed: {exc}"
+
+    lines = [
+        "Model updated.",
+        f"- previous default: {previous}",
+        f"- new default: {Config.DEFAULT_MODEL}",
+    ]
+    if active_updated:
+        lines.append("- active session: updated")
+    else:
+        lines.append("- active session: unchanged; start a new session to use this model")
+    return "\n".join(lines)
 
 
 async def handle_login(context: SlashCommandContext, args: list[str]) -> str:
@@ -216,6 +246,36 @@ async def handle_exit(context: SlashCommandContext, args: list[str]) -> SlashCom
 def _value(value: object) -> str:
     text = str(value or "").strip()
     return text or "unknown"
+
+
+async def _set_active_model(context: SlashCommandContext, model: str) -> bool:
+    set_model = getattr(context.runtime, "set_model", None)
+    if callable(set_model):
+        result = set_model(model)
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, dict):
+            return bool(result.get("runtime") or result.get("session"))
+        if isinstance(result, bool):
+            return result
+        return True
+
+    update_model = getattr(context.session, "update_model", None)
+    if callable(update_model):
+        result = update_model(model)
+        if inspect.isawaitable(result):
+            await result
+        return True
+    return False
+
+
+def _normalize_model_name(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text or any(character.isspace() for character in text):
+        return None
+    if len(text) > 128:
+        return None
+    return text
 
 
 def _parse_limit(args: list[str], *, default: int, maximum: int) -> int | None:

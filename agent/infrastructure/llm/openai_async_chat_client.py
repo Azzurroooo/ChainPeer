@@ -27,6 +27,17 @@ class AsyncOpenAIChatClient(AsyncChatClient):
         self._reasoning_effort_disabled = False
         self.on_retry = None  # Callback function: def on_retry(attempt: int, exception: Exception)
 
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def set_model(self, model: str) -> None:
+        clean = str(model or "").strip()
+        if not clean:
+            raise ValueError("Model name is required.")
+        self._model = clean
+        self._reasoning_effort_disabled = False
+
     def _before_sleep_log(self, retry_state: RetryCallState):
         if self.on_retry and retry_state.outcome and retry_state.outcome.failed:
             self.on_retry(retry_state.attempt_number, retry_state.outcome.exception())

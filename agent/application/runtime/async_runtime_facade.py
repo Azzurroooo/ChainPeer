@@ -34,6 +34,18 @@ class AsyncRuntimeFacade:
         """Set a callback invoked on LLM API retries: (attempt: int, exception: Exception) -> None."""
         self._turn_runner.set_retry_callback(callback)
 
+    async def set_model(self, model: str) -> dict[str, bool]:
+        """Switch the active chat model and persist the session metadata when supported."""
+        await self.initialize()
+        set_model = getattr(self._turn_runner, "set_model", None)
+        runtime_updated = bool(set_model(model)) if callable(set_model) else False
+        session_updated = False
+        update_model = getattr(self._session_store, "update_model", None)
+        if callable(update_model):
+            await update_model(model)
+            session_updated = True
+        return {"runtime": runtime_updated, "session": session_updated}
+
     async def compact_context(self, reason: str = "manual") -> dict:
         """Manually compact the current session through the turn runner."""
         await self.initialize()
