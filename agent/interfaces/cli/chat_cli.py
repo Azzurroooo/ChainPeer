@@ -8,7 +8,14 @@ from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain.events import RuntimeEvent
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.interfaces.cli.status import CliStatusRenderer
-from agent.interfaces.cli.ui import print_rainbow_logo, render_markdown, StreamingRenderer
+from agent.interfaces.cli.ui import (
+    print_rainbow_logo,
+    prompt_continuation,
+    prompt_message,
+    prompt_toolbar,
+    render_markdown,
+    StreamingRenderer,
+)
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
@@ -66,10 +73,10 @@ class ChatCLI:
     def _render_banner(self) -> None:
         print_rainbow_logo()
         if self._debug:
-            print("Chain Peer v0.1 (Debug Mode: True) 输入 'quit' 退出")
+            print("Chain Peer v0.1 (Debug Mode: True)")
         else:
             print("Chain Peer v0.1")
-            print("Welcome back!")
+        print("Type /help for commands. Enter sends, Ctrl+J adds a newline.")
         print("-" * 50)
 
     def _render_loaded_messages(self) -> None:
@@ -131,8 +138,13 @@ class ChatCLI:
 
     def _read_user_input(self) -> str:
         if self._prompt_session is None:
-            self._prompt_session = PromptSession(key_bindings=self._build_input_key_bindings(), multiline=True)
-        return self._prompt_session.prompt("\n> ").strip()
+            self._prompt_session = PromptSession(
+                key_bindings=self._build_input_key_bindings(),
+                multiline=True,
+                prompt_continuation=prompt_continuation,
+                bottom_toolbar=lambda: prompt_toolbar(self._session, debug=self._debug),
+            )
+        return self._prompt_session.prompt(prompt_message()).strip()
 
     def _build_input_key_bindings(self) -> KeyBindings:
         bindings = KeyBindings()

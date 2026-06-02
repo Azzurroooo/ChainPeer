@@ -39,6 +39,39 @@ def test_chat_cli_tool_result_failed_uses_failed_status() -> None:
         raise AssertionError(f"Expected CLI to render failed tool status, got: {text!r}")
 
 
+def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
+    captured = {}
+
+    class FakeSession:
+        session_id = "session_1234567890"
+        model = "model_a"
+
+    class FakePromptSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def prompt(self, message):
+            captured["message"] = message
+            captured["toolbar"] = captured["bottom_toolbar"]()
+            captured["continuation"] = captured["prompt_continuation"](0, 2, False)
+            return "hello"
+
+    monkeypatch.setattr("agent.interfaces.cli.chat_cli.PromptSession", FakePromptSession)
+
+    cli = ChatCLI(runtime=None, session=FakeSession(), debug=True)
+
+    if cli._read_user_input() != "hello":
+        raise AssertionError("Expected prompt result to be returned")
+    if captured["message"] != "\nYou > ":
+        raise AssertionError(f"Expected speaker prompt, got: {captured['message']!r}")
+    if "session session_...7890" not in captured["toolbar"]:
+        raise AssertionError(f"Expected session in toolbar, got: {captured['toolbar']!r}")
+    if "model model_a" not in captured["toolbar"] or "debug on" not in captured["toolbar"]:
+        raise AssertionError(f"Expected model/debug in toolbar, got: {captured['toolbar']!r}")
+    if captured["continuation"] != "  ... ":
+        raise AssertionError(f"Expected multiline continuation, got: {captured['continuation']!r}")
+
+
 def main() -> int:
     test_chat_cli_turn_failed_event_prints_error_field()
     test_chat_cli_tool_result_failed_uses_failed_status()
