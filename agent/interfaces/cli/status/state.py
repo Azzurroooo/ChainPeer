@@ -16,6 +16,7 @@ class ToolDisplayState:
     duration_ms: int = 0
     error_type: str = ""
     last_progress: str = ""
+    request_rendered: bool = False
 
 
 @dataclass(slots=True)

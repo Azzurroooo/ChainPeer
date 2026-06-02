@@ -43,10 +43,39 @@ def test_tool_lifecycle_completed_output() -> None:
     )
 
     text = output.getvalue()
-    if "Tool: bash started" not in text:
+    if "Running bash" not in text:
         raise AssertionError(f"Expected started line, got: {text!r}")
     if "Tool: bash completed in 1.25s" not in text:
         raise AssertionError(f"Expected completed line, got: {text!r}")
+
+
+def test_tool_requested_shows_bash_command_and_deduplicates_start() -> None:
+    renderer, output = make_renderer()
+
+    renderer.handle(ToolRequestedEvent(tool_call_id="call_1", tool_name="bash", args_preview='{"command":"pytest -q"}'))
+    renderer.handle(ToolCallStartedEvent(tool_call_id="call_1", tool_name="bash"))
+
+    text = output.getvalue()
+    if "Running bash: pytest -q" not in text:
+        raise AssertionError(f"Expected command summary, got: {text!r}")
+    if text.count("Running bash") != 1:
+        raise AssertionError(f"Expected requested/started dedupe, got: {text!r}")
+
+
+def test_tool_requested_shows_file_path_summary() -> None:
+    renderer, output = make_renderer()
+
+    renderer.handle(
+        ToolRequestedEvent(
+            tool_call_id="call_1",
+            tool_name="read_file",
+            args_preview='{"file_path":"agent/interfaces/cli/chat_cli.py"}',
+        )
+    )
+
+    text = output.getvalue()
+    if "Running read_file: agent/interfaces/cli/chat_cli.py" not in text:
+        raise AssertionError(f"Expected file path summary, got: {text!r}")
 
 
 def test_tool_lifecycle_failed_output() -> None:
@@ -170,6 +199,8 @@ def test_plain_turn_completed_without_tools_is_quiet() -> None:
 
 def main() -> int:
     test_tool_lifecycle_completed_output()
+    test_tool_requested_shows_bash_command_and_deduplicates_start()
+    test_tool_requested_shows_file_path_summary()
     test_tool_lifecycle_failed_output()
     test_skill_activation_deduplicates_within_turn()
     test_context_built_is_quiet_in_normal_mode()

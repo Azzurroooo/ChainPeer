@@ -21,6 +21,7 @@ from agent.domain.events import (
     TurnStartedEvent,
 )
 
+from .activity import tool_activity_summary
 from .state import ToolDisplayState, TurnDisplayState
 
 
@@ -93,6 +94,9 @@ class CliStatusRenderer:
             self._print_debug(
                 f"tool requested: {state.name} id={state.tool_call_id or 'unknown'}{suffix}"
             )
+            return
+        self._print_status(f"Running {tool_activity_summary(state.name, state.args_preview)}")
+        state.request_rendered = True
 
     def _handle_tool_started(self, event: ToolCallStartedEvent) -> None:
         state = self._get_tool_state(event.tool_call_id, event.tool_name)
@@ -100,7 +104,10 @@ class CliStatusRenderer:
         if self._debug:
             self._print_debug(f"tool started: {state.name} id={state.tool_call_id or 'unknown'}")
             return
-        self._print_status(f"Tool: {state.name} started")
+        if state.request_rendered:
+            return
+        self._print_status(f"Running {state.name}")
+        state.request_rendered = True
 
     def _handle_tool_progress(self, event: ToolProgressEvent) -> None:
         message = _progress_message(event.payload)
