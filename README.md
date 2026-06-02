@@ -64,6 +64,7 @@ ChainPeer comes with a powerful CLI interface for managing sessions and debuggin
 | `python main.py -c` | **Resume** the latest session from your local `.jsonl` storage. |
 | `python main.py --session <ID>` | Resume a specific session by its ID. |
 | `python main.py --debug` | Run in debug mode. Displays raw tool inputs/outputs and detailed context stats without streaming. |
+| `python main.py --doctor` | Run setup diagnostics without requiring a valid API key. |
 | `python main.py --allow-unsafe-bash` | Allow the agent to execute potentially dangerous shell commands. |
 
 Inside the interactive CLI, run `/doctor` for a local setup check covering Python, Git, settings, API key state, model, context window, session storage, and shell detection. Run `/sessions` to list recent local sessions before resuming one with `python main.py --session <id>`. Use `/model set <model>` to switch the default model and the active session model.

@@ -2,6 +2,7 @@ from agent.version import __version__
 import argparse
 import os
 import sys
+from types import SimpleNamespace
 
 
 def main() -> int:
@@ -12,7 +13,20 @@ def main() -> int:
     parser.add_argument("--session", type=str, default=None, help="Session ID to load")
     parser.add_argument("-c", "--resume-latest", action="store_true", help="Resume the latest session if available")
     parser.add_argument("--session-dir", type=str, default=None, help="Session storage directory")
+    parser.add_argument("--doctor", action="store_true", help="Run local setup diagnostics and exit")
     args = parser.parse_args()
+
+    if args.doctor:
+        from agent.interfaces.cli.commands.diagnostics import build_doctor_report
+
+        context = SimpleNamespace(
+            runtime=None,
+            session=SimpleNamespace(_session_dir=args.session_dir),
+            debug=args.debug,
+        )
+        report = build_doctor_report(context)
+        print(report.text)
+        return 1 if report.failures else 0
 
     from agent.basic_agent import BasicAgent
     from agent.infrastructure.config import Config

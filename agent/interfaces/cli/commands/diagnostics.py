@@ -20,7 +20,24 @@ class DoctorCheck:
     detail: str
 
 
+@dataclass(frozen=True, slots=True)
+class DoctorReport:
+    text: str
+    failures: int
+    warnings: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigStatus:
+    config: object | None
+    error: str = ""
+
+
 def render_doctor_report(context: SlashCommandContext) -> str:
+    return build_doctor_report(context).text
+
+
+def build_doctor_report(context: SlashCommandContext) -> DoctorReport:
     checks = _build_checks(context)
     failures = sum(1 for check in checks if check.status == "fail")
     warnings = sum(1 for check in checks if check.status == "warn")
@@ -31,24 +48,33 @@ def render_doctor_report(context: SlashCommandContext) -> str:
     if next_steps:
         lines.append("Next steps:")
         lines.extend(f"- {step}" for step in next_steps)
-    return "\n".join(lines)
+    return DoctorReport(text="\n".join(lines), failures=failures, warnings=warnings)
 
 
 def _build_checks(context: SlashCommandContext) -> list[DoctorCheck]:
-    from agent.infrastructure.config import Config
+    config_status = _load_config_status()
 
     checks = [
         _python_check(),
         _working_directory_check(),
         _git_check(),
-        _settings_check(Config),
-        _api_key_check(Config),
-        _model_check(Config),
-        _context_window_check(Config),
+        _settings_check(config_status),
+        _api_key_check(config_status),
+        _model_check(config_status),
+        _context_window_check(config_status),
         _session_store_check(context),
         _shell_check(),
     ]
     return checks
+
+
+def _load_config_status() -> ConfigStatus:
+    try:
+        from agent.infrastructure.config import Config
+
+        return ConfigStatus(Config)
+    except Exception as exc:
+        return ConfigStatus(None, str(exc))
 
 
 def _python_check() -> DoctorCheck:
@@ -77,27 +103,39 @@ def _git_check() -> DoctorCheck:
     return DoctorCheck("ok", "Git", f"{branch or 'detached HEAD'} ({suffix})")
 
 
-def _settings_check(config) -> DoctorCheck:
+def _settings_check(status: ConfigStatus) -> DoctorCheck:
+    if status.error:
+        return DoctorCheck("fail", "Settings", f"{_settings_path_guess()} (invalid: {status.error})")
+    config = status.config
     path = str(getattr(config, "SETTINGS_PATH", "") or "unknown")
     state = "found" if bool(getattr(config, "SETTINGS_EXISTS", False)) else "missing"
-    status = "ok" if state == "found" else "warn"
-    return DoctorCheck(status, "Settings", f"{path} ({state})")
+    severity = "ok" if state == "found" else "warn"
+    return DoctorCheck(severity, "Settings", f"{path} ({state})")
 
 
-def _api_key_check(config) -> DoctorCheck:
+def _api_key_check(status: ConfigStatus) -> DoctorCheck:
+    config = status.config
+    if not config:
+        return DoctorCheck("warn", "API key", "not checked because settings are invalid")
     if getattr(config, "OPENAI_API_KEY", ""):
         return DoctorCheck("ok", "API key", "set")
     return DoctorCheck("fail", "API key", "unset")
 
 
-def _model_check(config) -> DoctorCheck:
+def _model_check(status: ConfigStatus) -> DoctorCheck:
+    config = status.config
+    if not config:
+        return DoctorCheck("warn", "Model", "not checked because settings are invalid")
     model = str(getattr(config, "DEFAULT_MODEL", "") or "").strip()
     if model:
         return DoctorCheck("ok", "Model", model)
     return DoctorCheck("fail", "Model", "unset")
 
 
-def _context_window_check(config) -> DoctorCheck:
+def _context_window_check(status: ConfigStatus) -> DoctorCheck:
+    config = status.config
+    if not config:
+        return DoctorCheck("warn", "Context window", "not checked because settings are invalid")
     window = _safe_int(getattr(config, "CONTEXT_WINDOW_TOKENS", None))
     percent = _safe_int(getattr(config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", None))
     if window <= 0:
@@ -123,6 +161,15 @@ def _shell_check() -> DoctorCheck:
     if shell:
         return DoctorCheck("ok", "Shell", _shorten(str(shell)))
     return DoctorCheck("warn", "Shell", "not detected")
+
+
+def _settings_path_guess() -> str:
+    try:
+        from agent.infrastructure.config.settings_loader import default_settings_path
+
+        return str(default_settings_path())
+    except Exception:
+        return "settings.json"
 
 
 def _session_root(session) -> Path | None:
@@ -169,7 +216,10 @@ def _next_steps(checks: list[DoctorCheck]) -> list[str]:
     names = {check.name: check for check in checks if check.status in {"fail", "warn"}}
     if "API key" in names:
         steps.append("Set apiKey in settings.json or export OPENAI_API_KEY.")
-    if "Settings" in names:
+    settings_check = names.get("Settings")
+    if settings_check and "invalid:" in settings_check.detail:
+        steps.append("Fix settings.json syntax or replace it with the default template.")
+    elif settings_check:
         steps.append("Run the CLI once to create the default settings template.")
     if "Session store" in names:
         steps.append("Choose a writable --session-dir or fix permissions for the session directory.")
