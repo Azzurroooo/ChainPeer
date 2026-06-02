@@ -72,6 +72,49 @@ def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
         raise AssertionError(f"Expected multiline continuation, got: {captured['continuation']!r}")
 
 
+def test_chat_cli_loaded_messages_are_compact(monkeypatch) -> None:
+    class FakeSession:
+        session_id = "session_1234567890"
+
+        async def get_messages_slice(self):
+            messages = [{"role": "system", "content": "sys"}]
+            messages.extend(
+                {"role": "user", "content": f"old question {index} that should stay hidden"}
+                for index in range(5)
+            )
+            messages.extend(
+                [
+                    {"role": "user", "content": "latest question"},
+                    {"role": "assistant", "content": "latest answer"},
+                ]
+            )
+            return messages
+
+    class FakeLoop:
+        def run_until_complete(self, awaitable):
+            import asyncio
+
+            return asyncio.run(awaitable)
+
+    output = io.StringIO()
+    cli = ChatCLI(runtime=None, session=FakeSession())
+    cli._event_loop = FakeLoop()
+    cli._console.file = output
+
+    with redirect_stdout(output):
+        cli._render_loaded_messages()
+
+    text = output.getvalue()
+    if "Resumed session session_1234567890" not in text:
+        raise AssertionError(f"Expected compact resume header, got: {text!r}")
+    if "latest question" not in text or "latest answer" not in text:
+        raise AssertionError(f"Expected latest messages, got: {text!r}")
+    if "old question 0" in text:
+        raise AssertionError(f"Expected oldest messages to stay hidden, got: {text!r}")
+    if "\nuser:\n" in text or "[历史会话]" in text:
+        raise AssertionError(f"Expected old full transcript rendering to be gone, got: {text!r}")
+
+
 def main() -> int:
     test_chat_cli_turn_failed_event_prints_error_field()
     test_chat_cli_tool_result_failed_uses_failed_status()

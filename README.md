@@ -67,7 +67,7 @@ ChainPeer comes with a powerful CLI interface for managing sessions and debuggin
 | `python main.py --doctor` | Run setup diagnostics without requiring a valid API key. |
 | `python main.py --allow-unsafe-bash` | Allow the agent to execute potentially dangerous shell commands. |
 
-Inside the interactive CLI, the input toolbar shows the active session, model, cwd, and key hints. Run `/doctor` for a local setup check covering Python, Git, settings, API key state, model, context window, session storage, and shell detection. Run `/sessions` to list recent local sessions before resuming one with `python main.py --session <id>`. Use `/model set <model>` to switch the default model and the active session model.
+Inside the interactive CLI, the input toolbar shows the active session, model, cwd, and key hints. Resumed sessions show a compact recent-message preview while keeping the full context loaded. Run `/doctor` for a local setup check covering Python, Git, settings, API key state, model, context window, session storage, and shell detection. Run `/sessions` to list recent local sessions before resuming one with `python main.py --session <id>`. Use `/model set <model>` to switch the default model and the active session model.
 
 ---
 

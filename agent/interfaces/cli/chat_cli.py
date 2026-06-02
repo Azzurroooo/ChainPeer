@@ -14,6 +14,7 @@ from agent.interfaces.cli.ui import (
     prompt_message,
     prompt_toolbar,
     render_markdown,
+    render_resume_preview,
     StreamingRenderer,
 )
 from prompt_toolkit import PromptSession
@@ -81,16 +82,11 @@ class ChatCLI:
 
     def _render_loaded_messages(self) -> None:
         messages = self._event_loop.run_until_complete(self._session.get_messages_slice())
-        if len(messages) <= 1:
+        preview = render_resume_preview(messages, session_id=getattr(self._session, "session_id", None))
+        if not preview:
             return
-            
-        print("\n[历史会话]")
-        for message in messages:
-            role = message.get("role")
-            content = message.get("content", "")
-            if role in ("user", "assistant") and content:
-                print(f"\n{role}:")
-                render_markdown(content)
+        print()
+        self._console.print(preview, style="dim", highlight=False, markup=False)
 
     def _loop(self) -> None:
         if hasattr(self._runtime, "set_retry_callback"):
