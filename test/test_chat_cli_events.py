@@ -4,6 +4,9 @@ import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import InMemoryHistory
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
@@ -68,6 +71,10 @@ def test_chat_cli_prompt_uses_status_toolbar(monkeypatch) -> None:
         raise AssertionError("Expected slash command completer")
     if captured.get("complete_while_typing") is not True:
         raise AssertionError("Expected completion while typing")
+    if not isinstance(captured.get("history"), InMemoryHistory):
+        raise AssertionError("Expected in-memory prompt history")
+    if not isinstance(captured.get("auto_suggest"), AutoSuggestFromHistory):
+        raise AssertionError("Expected history-based auto suggestions")
     if "session session_...7890" not in captured["toolbar"]:
         raise AssertionError(f"Expected session in toolbar, got: {captured['toolbar']!r}")
     if "model model_a" not in captured["toolbar"] or "debug on" not in captured["toolbar"]:
@@ -176,11 +183,29 @@ def test_chat_cli_loaded_messages_are_compact(monkeypatch) -> None:
         raise AssertionError(f"Expected old full transcript rendering to be gone, got: {text!r}")
 
 
+def test_chat_cli_seeds_input_history_from_user_messages() -> None:
+    cli = ChatCLI(runtime=None, session=None)
+    cli._seed_input_history(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "first question"},
+            {"role": "user", "content": "second question"},
+        ]
+    )
+
+    history = list(cli._input_history.get_strings())
+    if history != ["first question", "second question"]:
+        raise AssertionError(f"Expected distinct user inputs in history, got: {history!r}")
+
+
 def main() -> int:
     test_chat_cli_turn_failed_event_prints_error_field()
     test_chat_cli_tool_result_failed_uses_failed_status()
     test_chat_cli_loads_latest_usage_from_session()
     test_chat_cli_token_event_updates_latest_usage()
+    test_chat_cli_seeds_input_history_from_user_messages()
     print("ChatCLI event tests passed.")
     return 0
 

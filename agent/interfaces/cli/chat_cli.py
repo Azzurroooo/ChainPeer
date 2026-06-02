@@ -19,6 +19,8 @@ from agent.interfaces.cli.ui import (
     StreamingRenderer,
 )
 from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 
@@ -39,6 +41,7 @@ class ChatCLI:
             before_print=self._flush_assistant_for_status,
         )
         self._prompt_session: PromptSession | None = None
+        self._input_history = InMemoryHistory()
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._current_cancel_source: CancellationTokenSource | None = None
         self._latest_usage: dict[str, object] | None = None
@@ -86,6 +89,7 @@ class ChatCLI:
 
     def _render_loaded_messages(self) -> None:
         messages = self._event_loop.run_until_complete(self._session.get_messages_slice())
+        self._seed_input_history(messages)
         preview = render_resume_preview(messages, session_id=getattr(self._session, "session_id", None))
         if not preview:
             return
@@ -143,6 +147,8 @@ class ChatCLI:
                 multiline=True,
                 completer=self._slash_completer,
                 complete_while_typing=True,
+                history=self._input_history,
+                auto_suggest=AutoSuggestFromHistory(),
                 prompt_continuation=prompt_continuation,
                 bottom_toolbar=lambda: prompt_toolbar(
                     self._session,
@@ -151,6 +157,17 @@ class ChatCLI:
                 ),
             )
         return self._prompt_session.prompt(prompt_message()).strip()
+
+    def _seed_input_history(self, messages: list[dict]) -> None:
+        seen = set()
+        for message in messages[-40:]:
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = str(message.get("content") or "").strip()
+            if not content or content in seen:
+                continue
+            self._input_history.append_string(content)
+            seen.add(content)
 
     def _build_input_key_bindings(self) -> KeyBindings:
         bindings = KeyBindings()
