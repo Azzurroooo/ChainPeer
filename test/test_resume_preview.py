@@ -7,7 +7,7 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.interfaces.cli.ui.resume_preview import render_resume_preview
+from agent.interfaces.cli.ui.resume_preview import render_resume_preview, resume_visible_messages
 
 
 def test_resume_preview_shows_last_messages_and_hides_older_content() -> None:
@@ -38,10 +38,28 @@ def test_resume_preview_returns_empty_for_no_visible_messages() -> None:
     assert render_resume_preview([{"role": "system", "content": "sys"}]) == ""
 
 
+def test_resume_visible_messages_filters_displayable_history() -> None:
+    visible = resume_visible_messages(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "tool", "content": "tool output"},
+            {"role": "user", "content": "  "},
+        ]
+    )
+
+    assert visible == [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer"},
+    ]
+
+
 def main() -> int:
     test_resume_preview_shows_last_messages_and_hides_older_content()
     test_resume_preview_compacts_whitespace_and_truncates_content()
     test_resume_preview_returns_empty_for_no_visible_messages()
+    test_resume_visible_messages_filters_displayable_history()
     print("Resume preview tests passed.")
     return 0
 

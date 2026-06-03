@@ -53,7 +53,7 @@ def test_chat_cli_banner_mentions_core_shortcuts() -> None:
     text = output.getvalue()
     if "Type /help" not in text or "Ctrl+J newline" not in text or "Ctrl+L clear" not in text:
         raise AssertionError(f"Expected banner shortcut hints, got: {text!r}")
-    if "Ctrl+C drafts" not in text:
+    if "Ctrl+O history" not in text or "Ctrl+C drafts" not in text:
         raise AssertionError(f"Expected banner shortcut hints, got: {text!r}")
 
 
@@ -204,6 +204,94 @@ def test_chat_cli_loaded_messages_are_compact(monkeypatch) -> None:
         raise AssertionError(f"Expected old full transcript rendering to be gone, got: {text!r}")
 
 
+def test_chat_cli_expands_recent_resume_messages_in_chronological_order() -> None:
+    long_previous_message = "previous question " + ("x" * 240)
+
+    class FakeSession:
+        session_id = "session_1234567890"
+
+        async def get_messages_slice(self):
+            return [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "oldest question"},
+                {"role": "user", "content": long_previous_message},
+                {"role": "assistant", "content": "latest answer"},
+            ]
+
+    class FakeLoop:
+        def run_until_complete(self, awaitable):
+            import asyncio
+
+            return asyncio.run(awaitable)
+
+    cli = ChatCLI(runtime=None, session=FakeSession())
+    cli._event_loop = FakeLoop()
+
+    preview_output = io.StringIO()
+    cli._console.file = preview_output
+    with redirect_stdout(preview_output):
+        cli._render_loaded_messages()
+
+    preview_text = preview_output.getvalue()
+    if "3 visible message(s), showing last 3" not in preview_text:
+        raise AssertionError(f"Expected compact preview for all visible messages, got: {preview_text!r}")
+    if "older message(s) are hidden" in preview_text:
+        raise AssertionError(f"Did not expect hidden-message notice, got: {preview_text!r}")
+
+    first_output = io.StringIO()
+    cli._console.file = first_output
+    cli._render_next_resume_message()
+    first_text = first_output.getvalue()
+    if "Expanded resume history: showing 1 most recent message(s)." not in first_text:
+        raise AssertionError(f"Expected one expanded message, got: {first_text!r}")
+    if "History 3/3 - assistant" not in first_text or "latest answer" not in first_text:
+        raise AssertionError(f"Expected latest previewed message to render first, got: {first_text!r}")
+    first_expanded = first_text.split("Expanded resume history", 1)[1]
+    if "previous question" in first_expanded:
+        raise AssertionError(f"Did not expect older message in first expanded block, got: {first_text!r}")
+
+    second_output = io.StringIO()
+    cli._console.file = second_output
+    cli._render_next_resume_message()
+    second_text = second_output.getvalue()
+    if "Expanded resume history: showing 2 most recent message(s)." not in second_text:
+        raise AssertionError(f"Expected two expanded messages, got: {second_text!r}")
+    second_expanded = second_text.split("Expanded resume history", 1)[1]
+    previous_at = second_expanded.find("History 2/3 - user")
+    latest_at = second_expanded.find("History 3/3 - assistant")
+    if previous_at < 0 or latest_at < 0 or previous_at > latest_at:
+        raise AssertionError(f"Expected older expanded message above newer message, got: {second_text!r}")
+    if second_expanded.count("x") != 240:
+        raise AssertionError(f"Expected full previous message content to render, got: {second_text!r}")
+    if "..." in second_expanded:
+        raise AssertionError(f"Did not expect expanded messages to be truncated, got: {second_text!r}")
+
+    third_output = io.StringIO()
+    cli._console.file = third_output
+    cli._render_next_resume_message()
+    third_text = third_output.getvalue()
+    if "History 1/3 - user" not in third_text or "oldest question" not in third_text:
+        raise AssertionError(f"Expected third expansion to include oldest message, got: {third_text!r}")
+
+    exhausted_output = io.StringIO()
+    cli._console.file = exhausted_output
+    cli._render_next_resume_message()
+    if "All resume history messages are already shown." not in exhausted_output.getvalue():
+        raise AssertionError(f"Expected exhausted history notice, got: {exhausted_output.getvalue()!r}")
+
+
+def test_chat_cli_resume_history_notice_without_visible_messages() -> None:
+    cli = ChatCLI(runtime=None, session=None)
+    cli._prepare_resume_history([{"role": "system", "content": "sys"}])
+    output = io.StringIO()
+    cli._console.file = output
+
+    cli._render_next_resume_message()
+
+    if "No resume history messages to show." not in output.getvalue():
+        raise AssertionError(f"Expected no-history notice, got: {output.getvalue()!r}")
+
+
 def test_chat_cli_seeds_input_history_from_user_messages() -> None:
     cli = ChatCLI(runtime=None, session=None)
     cli._seed_input_history(
@@ -225,8 +313,8 @@ def test_chat_cli_input_bindings_include_clear_shortcut() -> None:
     cli = ChatCLI(runtime=None, session=None)
     keys = {tuple(binding.keys) for binding in cli._build_input_key_bindings().bindings}
 
-    if ("c-l",) not in keys:
-        raise AssertionError(f"Expected Ctrl+L key binding, got: {keys!r}")
+    if ("c-l",) not in keys or ("c-o",) not in keys:
+        raise AssertionError(f"Expected Ctrl+L/Ctrl+O key bindings, got: {keys!r}")
     if ("c-c",) not in keys or ("c-d",) not in keys:
         raise AssertionError(f"Expected input abort draft bindings, got: {keys!r}")
 
@@ -315,6 +403,8 @@ def main() -> int:
     test_chat_cli_banner_mentions_core_shortcuts()
     test_chat_cli_loads_latest_usage_from_session()
     test_chat_cli_token_event_updates_latest_usage()
+    test_chat_cli_expands_recent_resume_messages_in_chronological_order()
+    test_chat_cli_resume_history_notice_without_visible_messages()
     test_chat_cli_seeds_input_history_from_user_messages()
     test_chat_cli_input_bindings_include_clear_shortcut()
     test_chat_cli_clear_prompt_screen_clears_console()

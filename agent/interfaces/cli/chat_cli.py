@@ -7,20 +7,24 @@ from pathlib import Path
 
 from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain.events import RuntimeEvent
+from agent.version import __version__
 from agent.interfaces.cli.commands.completer import SlashCommandCompleter
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
 from agent.interfaces.cli.status import CliStatusRenderer
 from agent.interfaces.cli.ui import (
     GitPromptStatusProvider,
-    print_rainbow_logo,
+    markdown_renderable,
+    print_startup_header,
     prompt_continuation,
     prompt_message,
     prompt_toolbar,
     render_markdown,
     render_resume_preview,
+    resume_visible_messages,
     StreamingRenderer,
 )
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -50,6 +54,9 @@ class ChatCLI:
         self._last_input_draft_path: Path | None = None
         self._pending_input_prefill = ""
         self._latest_usage: dict[str, object] | None = None
+        self._resume_visible_messages: list[dict[str, str]] = []
+        self._resume_expanded_count = 0
+        self._resume_session_id: str | None = None
         self._slash_router = SlashCommandRouter()
         self._slash_completer = SlashCommandCompleter(self._slash_router.command_infos())
 
@@ -84,22 +91,79 @@ class ChatCLI:
                 self._event_loop = None
 
     def _render_banner(self) -> None:
-        print_rainbow_logo()
-        if self._debug:
-            print("Chain Peer v0.1 (Debug Mode: True)")
-        else:
-            print("Chain Peer v0.1")
-        print("Type /help. Enter sends, Ctrl+J newline, Ctrl+L clear, Ctrl+C drafts.")
-        print("-" * 50)
+        print_startup_header(
+            version=__version__,
+            debug=self._debug,
+            model=getattr(self._session, "model", None),
+            cwd=Path.cwd(),
+            git_status=self._git_status_provider.current(),
+        )
 
     def _render_loaded_messages(self) -> None:
         messages = self._event_loop.run_until_complete(self._session.get_messages_slice())
         self._seed_input_history(messages)
-        preview = render_resume_preview(messages, session_id=getattr(self._session, "session_id", None))
+        self._prepare_resume_history(messages, session_id=getattr(self._session, "session_id", None))
+        preview = self._resume_preview_text()
         if not preview:
             return
-        print()
+        self._console.print()
         self._console.print(preview, style="dim", highlight=False, markup=False)
+
+    def _prepare_resume_history(self, messages: list[dict], *, session_id: str | None = None) -> None:
+        self._resume_visible_messages = resume_visible_messages(messages)
+        self._resume_expanded_count = 0
+        self._resume_session_id = session_id
+
+    def _resume_preview_text(self) -> str:
+        return render_resume_preview(self._resume_visible_messages, session_id=self._resume_session_id)
+
+    def _render_next_resume_message(self) -> None:
+        if not self._resume_visible_messages:
+            self._console.print("\nNo resume history messages to show.", style="dim", highlight=False)
+            return
+
+        if self._resume_expanded_count >= len(self._resume_visible_messages):
+            self._console.print("\nAll resume history messages are already shown.", style="dim", highlight=False)
+            return
+
+        self._resume_expanded_count += 1
+        self._redraw_resume_history()
+
+    def _redraw_resume_history(self) -> None:
+        self._console.clear()
+        preview = self._resume_preview_text()
+        if preview:
+            self._console.print(preview, style="dim", highlight=False, markup=False)
+
+        expanded = self._resume_visible_messages[-self._resume_expanded_count :]
+        if not expanded:
+            return
+
+        total = len(self._resume_visible_messages)
+        first_position = total - len(expanded) + 1
+        self._console.print()
+        self._console.print(
+            f"Expanded resume history: showing {len(expanded)} most recent message(s).",
+            style="bold cyan",
+            highlight=False,
+        )
+        for offset, message in enumerate(expanded):
+            self._render_resume_history_message(message, position=first_position + offset, total=total)
+
+    def _render_resume_history_message(self, message: dict[str, str], *, position: int, total: int) -> None:
+        role = message["role"]
+        content = message["content"]
+
+        self._console.print()
+        self._console.print(
+            f"History {position}/{total} - {role}",
+            style="bold cyan",
+            highlight=False,
+        )
+        if role == "assistant":
+            self._console.print(markdown_renderable(content))
+        else:
+            self._console.print(content, markup=False, highlight=False)
 
     def _loop(self) -> None:
         if hasattr(self._runtime, "set_retry_callback"):
@@ -192,6 +256,10 @@ class ChatCLI:
         @bindings.add("c-l")
         def _(event):
             self._clear_prompt_screen()
+
+        @bindings.add("c-o")
+        def _(event):
+            run_in_terminal(self._render_next_resume_message)
 
         @bindings.add("c-c")
         def _(event):

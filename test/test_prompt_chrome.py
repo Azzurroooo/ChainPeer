@@ -47,6 +47,7 @@ def test_prompt_toolbar_includes_status_and_shortcuts(tmp_path) -> None:
     assert "debug on" in text
     assert "Enter send" in text
     assert "Ctrl+J newline" in text
+    assert "Ctrl+O history" in text
     assert "Tab complete /commands" in text
     assert "Right accept hint" in text
     assert "Ctrl+L clear" in text

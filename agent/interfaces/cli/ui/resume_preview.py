@@ -7,6 +7,7 @@ import re
 
 DEFAULT_RESUME_PREVIEW_LIMIT = 6
 DEFAULT_RESUME_PREVIEW_CHARS = 180
+RESUME_VISIBLE_ROLES = {"user", "assistant"}
 
 
 def render_resume_preview(
@@ -16,13 +17,7 @@ def render_resume_preview(
     limit: int = DEFAULT_RESUME_PREVIEW_LIMIT,
     preview_chars: int = DEFAULT_RESUME_PREVIEW_CHARS,
 ) -> str:
-    visible = [
-        (str(message.get("role") or ""), str(message.get("content") or ""))
-        for message in messages
-        if isinstance(message, dict)
-        and message.get("role") in {"user", "assistant"}
-        and str(message.get("content") or "").strip()
-    ]
+    visible = resume_visible_messages(messages)
     if not visible:
         return ""
 
@@ -36,10 +31,24 @@ def render_resume_preview(
     ]
     if hidden:
         lines.append(f"Full context is still loaded; {hidden} older message(s) are hidden from the terminal.")
-    for role, content in shown:
-        lines.append(f"- {role}: {_preview(content, preview_chars)}")
+    for message in shown:
+        lines.append(f"- {message['role']}: {_preview(message['content'], preview_chars)}")
     lines.append("Use /status for details, /sessions to switch, or continue typing below.")
     return "\n".join(lines)
+
+
+def resume_visible_messages(messages: list[dict]) -> list[dict[str, str]]:
+    """Return displayable conversation messages from persisted history."""
+    visible: list[dict[str, str]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "")
+        content = str(message.get("content") or "")
+        if role not in RESUME_VISIBLE_ROLES or not content.strip():
+            continue
+        visible.append({"role": role, "content": content})
+    return visible
 
 
 def _preview(content: str, limit: int) -> str:

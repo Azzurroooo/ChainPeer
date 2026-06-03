@@ -43,6 +43,7 @@ def prompt_toolbar(
         [
             "Enter send",
             "Ctrl+J newline",
+            "Ctrl+O history",
             "Tab complete /commands",
             "Right accept hint",
             "Ctrl+L clear",
