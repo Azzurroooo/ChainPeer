@@ -120,17 +120,20 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
         },
     },
     "bash": {
-        "description": "执行 Shell 命令。支持 cd 保持目录状态。设置 run_in_background=true 可启动后台进程（如 npm start、uvicorn），用 bash_output 查看输出。",
+        "description": "执行 Shell 命令。支持 cd 保持目录状态。run_in_background=false 时前台运行直到完成或超时；run_in_background=true 时先等待 wait_ms，短任务直接返回结果，仍在运行才返回 bg_id 供 bash_output 后续等待。",
         "param_descriptions": {
             "command": "要执行的命令",
-            "run_in_background": "以后台模式运行（不等待完成，适合启动服务器等长期命令）。默认 False。",
+            "run_in_background": "允许命令在等待窗口后挂起为后台任务。默认 False。",
+            "wait_ms": "仅在 run_in_background=true 时生效：后台启动后先等待新输出或完成的毫秒数，默认 10000，范围 1000-60000。前台执行会忽略此参数。",
         },
     },
     "bash_output": {
-        "description": "读取后台进程的输出，或终止它。用于查看 bash(run_in_background=true) 启动的后台进程。",
+        "description": "等待并读取后台进程的增量输出，或终止它。默认等待 wait_ms 直到有新 stdout/stderr、进程完成或超时；no_new_output=true 表示没有新信息，不应立即重复调用。",
         "param_descriptions": {
             "bg_id": "后台进程 ID（bash 返回的 bg_id）",
             "kill": "设为 true 可终止该进程。默认 False（仅读取输出）。",
+            "wait_ms": "等待新输出或完成的最长毫秒数，默认 5000，范围 1000-60000。连续无输出时应使用返回的 suggested_next_wait_ms 或继续其他独立任务。",
+            "max_output_chars": "单次返回 stdout/stderr 增量的最大字符数，默认 20000，最大 40000。",
         },
     },
     "kill_shell": {"description": "重置 Shell 会话状态"},

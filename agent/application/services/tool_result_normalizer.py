@@ -70,8 +70,38 @@ class ToolResultNormalizer:
         parsed = self._parse_json(payload)
         if isinstance(parsed, str):
             return parsed
+        parsed = self._compress_empty_bash_output_poll(parsed)
         canonical = self._canonicalize(parsed)
         return json.dumps(canonical, ensure_ascii=False, separators=(",", ": "))
+
+    def _compress_empty_bash_output_poll(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if value.get("ok") is not True or value.get("tool") != "bash_output":
+            return value
+        data = value.get("data")
+        if not isinstance(data, dict):
+            return value
+        if data.get("status") != "running" or data.get("no_new_output") is not True:
+            return value
+        if data.get("stdout") or data.get("stderr"):
+            return value
+        compact_data = {
+            "bg_id": data.get("bg_id"),
+            "status": data.get("status"),
+            "no_new_output": True,
+            "empty_observation_count": data.get("empty_observation_count", 0),
+            "suggested_next_wait_ms": data.get("suggested_next_wait_ms"),
+        }
+        if "wait_ms" in data:
+            compact_data["wait_ms"] = data.get("wait_ms")
+        if "elapsed_ms" in data:
+            compact_data["elapsed_ms"] = data.get("elapsed_ms")
+        return {
+            "ok": True,
+            "tool": "bash_output",
+            "data": compact_data,
+        }
 
     def _parse_json(self, payload: Any) -> Any:
         if not isinstance(payload, str):

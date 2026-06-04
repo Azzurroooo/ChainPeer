@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -26,6 +27,35 @@ class FakeToolExecutor:
     async def execute_async(self, name: str, args: dict, raw_args: str | None = None):
         self.received_args = dict(args)
         return ToolExecutionResult(status="ok", result_str="done")
+
+
+class FakeEmptyBashOutputExecutor:
+    def __init__(self):
+        self.calls = 0
+        self.output_by_call: dict[int, str] = {}
+
+    def is_async_tool(self, name: str) -> bool:
+        return True
+
+    async def execute_async(self, name: str, args: dict, raw_args: str | None = None):
+        self.calls += 1
+        stdout = self.output_by_call.get(self.calls, "")
+        result = {
+            "ok": True,
+            "tool": "bash_output",
+            "data": {
+                "bg_id": args["bg_id"],
+                "status": "running",
+                "stdout": stdout,
+                "stderr": "",
+                "exit_code": -1,
+                "delta": True,
+                "no_new_output": stdout == "",
+                "empty_observation_count": self.calls,
+                "suggested_next_wait_ms": 15000,
+            },
+        }
+        return ToolExecutionResult(status="ok", result_str=json.dumps(result))
 
 
 class FakeSession:
@@ -134,12 +164,72 @@ async def test_successful_tool_does_not_require_job_service() -> None:
         raise AssertionError(f"Expected artifact_ref None, got: {kwargs}")
 
 
+@pytest.mark.asyncio
+async def test_async_tool_processor_limits_repeated_empty_bash_output() -> None:
+    executor = FakeEmptyBashOutputExecutor()
+    processor = AsyncToolCallProcessor(tool_executor=executor)
+    session = FakeSession()
+    calls = [
+        ParsedToolCall(call_id=f"call_{idx}", name="bash_output", raw_args='{"bg_id":"bg_123"}')
+        for idx in range(4)
+    ]
+
+    events = [
+        event
+        async for event in processor.execute(
+            session=session,
+            tool_calls=calls,
+            turn_id="turn_empty_guard",
+        )
+    ]
+
+    result_events = [event for event in events if isinstance(event, ToolResultEvent)]
+    if executor.calls != 3:
+        raise AssertionError(f"Expected the 4th poll to be blocked before execution, got calls={executor.calls}")
+    if len(result_events) != 4:
+        raise AssertionError(f"Expected four result events, got: {events}")
+    blocked = json.loads(result_events[-1].result)
+    if blocked.get("ok") is not False or blocked.get("error_type") != "RepeatedEmptyPoll":
+        raise AssertionError(f"Expected RepeatedEmptyPoll error, got: {blocked}")
+    if result_events[-1].status != "failed":
+        raise AssertionError(f"Expected failed result event for blocked poll, got: {result_events[-1]}")
+
+
+@pytest.mark.asyncio
+async def test_async_tool_processor_resets_empty_bash_output_count_on_real_output() -> None:
+    executor = FakeEmptyBashOutputExecutor()
+    executor.output_by_call[3] = "ready"
+    processor = AsyncToolCallProcessor(tool_executor=executor)
+    session = FakeSession()
+    calls = [
+        ParsedToolCall(call_id=f"call_{idx}", name="bash_output", raw_args='{"bg_id":"bg_reset"}')
+        for idx in range(6)
+    ]
+
+    events = [
+        event
+        async for event in processor.execute(
+            session=session,
+            tool_calls=calls,
+            turn_id="turn_empty_reset",
+        )
+    ]
+
+    result_events = [event for event in events if isinstance(event, ToolResultEvent)]
+    if executor.calls != 6:
+        raise AssertionError(f"Expected all polls to execute after real output reset, got calls={executor.calls}")
+    if any(event.status == "failed" for event in result_events):
+        raise AssertionError(f"Did not expect guard failure after count reset, got: {result_events}")
+
+
 def main() -> int:
     import asyncio
 
     asyncio.run(test_bash_cancellation_token_is_not_persisted_in_tool_args())
     asyncio.run(test_invalid_tool_args_emit_failed_result_without_started_event())
     asyncio.run(test_successful_tool_does_not_require_job_service())
+    asyncio.run(test_async_tool_processor_limits_repeated_empty_bash_output())
+    asyncio.run(test_async_tool_processor_resets_empty_bash_output_count_on_real_output())
     print("AsyncToolCallProcessor tests passed.")
     return 0
 
