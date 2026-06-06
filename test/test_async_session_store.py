@@ -495,6 +495,27 @@ async def test_resume_repairs_stale_meta_counts(temp_session_dir):
 
 
 @pytest.mark.asyncio
+async def test_resume_repairs_invalid_meta_counts(temp_session_dir):
+    store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
+    await store.initialize()
+    await store.persist_message("user", "hello")
+
+    session_base = Path(temp_session_dir) / store.session_id
+    meta_path = session_base / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["message_count"] = "bad"
+    meta["tool_call_count"] = "also bad"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    resumed = AsyncJsonlSessionStore(session_dir=temp_session_dir, session_id=store.session_id)
+    await resumed.initialize()
+
+    repaired = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert repaired["message_count"] == 2
+    assert repaired["tool_call_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_resume_normalizes_auto_compact_window_meta(temp_session_dir):
     store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
     await store.initialize()
@@ -548,6 +569,8 @@ def main() -> int:
             await test_update_model_persists_session_meta(tmp)
         with tempfile.TemporaryDirectory() as tmp:
             await test_resume_repairs_stale_meta_counts(tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            await test_resume_repairs_invalid_meta_counts(tmp)
         with tempfile.TemporaryDirectory() as tmp:
             await test_resume_normalizes_auto_compact_window_meta(tmp)
         with tempfile.TemporaryDirectory() as tmp:

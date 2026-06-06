@@ -63,10 +63,22 @@ def new_session_meta(
 
 def sync_session_counts(meta: dict[str, Any], *, message_count: int, tool_call_count: int) -> bool:
     changed = False
-    if int(meta.get("message_count") or 0) != message_count:
+    if _count_needs_repair(meta.get("message_count"), message_count):
         meta["message_count"] = message_count
         changed = True
-    if int(meta.get("tool_call_count") or 0) != tool_call_count:
+    if _count_needs_repair(meta.get("tool_call_count"), tool_call_count):
         meta["tool_call_count"] = tool_call_count
         changed = True
     return changed
+
+
+def _count_needs_repair(value: Any, expected: int) -> bool:
+    return _non_negative_int(value) != expected or value != expected
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)
