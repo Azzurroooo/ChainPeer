@@ -73,23 +73,6 @@ def parse_skill_markdown(text: str, path: str, fallback_name: str, source: str) 
     )
 
 
-def render_skill_index(skills: list[Skill], max_description_chars: int = 180) -> str:
-    """Render a compact list of available skills for model context."""
-    lines = ["Available skills:"]
-    for skill in sorted(skills, key=lambda item: item.name.lower()):
-        description = _truncate(" ".join(skill.description.split()), max_description_chars)
-        lines.append(f"- {skill.name}: {description}")
-    lines.extend(
-        [
-            "",
-            "Activation rules:",
-            "- Use a skill only when the user explicitly names it with $skill-name.",
-            "- Only follow active skill instructions when they are provided below.",
-        ]
-    )
-    return "\n".join(lines)
-
-
 def render_active_skill_instructions(matches: list[SkillMatch], max_body_chars: int = 6000) -> str:
     """Render selected skill bodies with a total character budget."""
     lines = ["Active skill instructions:"]

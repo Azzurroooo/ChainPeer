@@ -21,7 +21,7 @@ from .events import (
     TurnCancelledEvent,
 )
 from .jobs import JobStatus, JobRecord, ToolExecutionResult, JobHandle
-from .skills import Skill, SkillMatch, parse_skill_markdown, render_active_skill_instructions, render_skill_index
+from .skills import Skill, SkillMatch, parse_skill_markdown, render_active_skill_instructions
 
 __all__ = [
     "ParsedToolCall",
@@ -53,5 +53,4 @@ __all__ = [
     "SkillMatch",
     "parse_skill_markdown",
     "render_active_skill_instructions",
-    "render_skill_index",
 ]

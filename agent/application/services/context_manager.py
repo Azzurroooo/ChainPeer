@@ -28,7 +28,6 @@ class ContextManager:
         skill_repository=None,
         skill_selector=None,
         plan_context_provider=None,
-        skill_index_char_limit: int = 0,
         active_skill_char_limit: int = 12000,
     ):
         self._estimator = estimator or ContextEstimator()
