@@ -651,6 +651,62 @@ async def test_async_turn_runner_usage_persistence_failure_does_not_fail_turn():
 
 
 @pytest.mark.asyncio
+async def test_async_turn_runner_usage_tolerates_bad_context_stats():
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock()
+
+    usage = SimpleNamespace(prompt_tokens=12, completion_tokens=3, total_tokens=15)
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = AsyncMock(return_value=("Done", [], usage))
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(
+        return_value=MagicMock(
+            messages=[],
+            stats={"context_window_tokens": "bad", "effective_context_window_tokens": 0},
+            decisions={},
+        )
+    )
+    mock_context.select_active_skills_for_turn = None
+
+    class FakeSession:
+        session_id = "session_1"
+
+        def __init__(self):
+            self.usages = []
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+        async def persist_message(self, *args, **kwargs):
+            return None
+
+        async def persist_sampling_usage(self, usage):
+            self.usages.append(dict(usage))
+
+        async def update_auto_compact_window_from_usage(self, usage):
+            return None
+
+    session = FakeSession()
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [event async for event in runner.run_turn(session)]
+
+    token_event = next(event for event in events if isinstance(event, TokenStatsUpdatedEvent))
+    assert token_event.stats["input_tokens"] == 12
+    assert token_event.stats["effective_context_window_tokens"] == 245480
+    assert session.usages[-1]["context_window_tokens"] == 258400
+    assert any(isinstance(event, AssistantMessageCompletedEvent) for event in events)
+    assert not any(isinstance(event, TurnFailedEvent) for event in events)
+
+
+@pytest.mark.asyncio
 async def test_async_turn_runner_auto_compacts_before_sampling():
     class FakeChatClient:
         def __init__(self):
@@ -749,6 +805,7 @@ def main() -> int:
     asyncio.run(test_async_turn_runner_fails_after_tool_persist_failure())
     asyncio.run(test_async_turn_runner_emits_and_persists_sampling_usage())
     asyncio.run(test_async_turn_runner_usage_persistence_failure_does_not_fail_turn())
+    asyncio.run(test_async_turn_runner_usage_tolerates_bad_context_stats())
     asyncio.run(test_async_turn_runner_auto_compacts_before_sampling())
     print("Async runtime tests passed.")
     return 0

@@ -94,6 +94,17 @@ def _normalize_usage(usage: Any, context_stats: dict[str, Any]) -> dict[str, Any
     return normalize_sampling_usage(
         usage,
         sampling_kind="assistant",
-        context_window_tokens=int(context_stats.get("context_window_tokens") or 258400),
-        effective_context_window_tokens=int(context_stats.get("effective_context_window_tokens") or 245480),
+        context_window_tokens=_positive_int_or_default(context_stats.get("context_window_tokens"), 258400),
+        effective_context_window_tokens=_positive_int_or_default(
+            context_stats.get("effective_context_window_tokens"),
+            245480,
+        ),
     )
+
+
+def _positive_int_or_default(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
