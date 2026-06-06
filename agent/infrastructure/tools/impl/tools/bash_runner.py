@@ -403,18 +403,6 @@ class BashRunner:
         self._bg[bg_id] = bg
         return bg
 
-    async def run_background(self, command: str, state: ShellState, session_id: str = "default") -> ToolExecutionResult:
-        """Spawn a process and return immediately with a bg_id."""
-        try:
-            bg = await self._spawn_background(command, state, session_id)
-            return ToolExecutionResult(status="ok", result_str=self._running_bash_result(bg, 0, 0))
-        except Exception as e:
-            return ToolExecutionResult(
-                status="error",
-                error_msg=str(e),
-                error_type=type(e).__name__,
-            )
-
     async def run_background_with_initial_wait(
         self,
         command: str,
@@ -464,20 +452,6 @@ class BashRunner:
                 error_msg=str(e),
                 error_type=type(e).__name__,
             )
-
-    def _running_bash_result(self, bg: _BgProc, wait_ms: int, elapsed_ms: int) -> str:
-        payload = {
-            "bg_id": bg.bg_id,
-            "status": "running",
-            "message": f"Background process started: {bg.command[:200]}",
-            "cwd": bg.cwd,
-            "shell_backend": bg.shell_backend,
-            "shell_executable": bg.shell_executable,
-            "wait_ms": wait_ms,
-            "elapsed_ms": elapsed_ms,
-            "suggested_next_wait_ms": self._suggested_next_wait_ms(bg.empty_observation_count),
-        }
-        return tool_ok("bash", payload)
 
     async def _wait_for_update_or_exit(self, bg: _BgProc, wait_ms: int) -> None:
         if bg.exit_code is not None:
@@ -542,23 +516,6 @@ class BashRunner:
             result_str=tool_ok("bash_output", payload),
             exit_code=bg.exit_code if bg.exit_code is not None else -1,
         )
-
-    def read_background(self, bg_id: str) -> ToolExecutionResult:
-        """Read current accumulated output from a background process."""
-        bg = self._bg.get(bg_id)
-        if not bg:
-            return ToolExecutionResult(status="error", error_msg=f"No background process: {bg_id}", error_type="NotFound")
-        stdout, stderr, truncated = self._delta_output(bg, self._clamp_output_chars(20000))
-        payload = self._background_payload(
-            bg,
-            stdout=stdout,
-            stderr=stderr,
-            wait_ms=0,
-            elapsed_ms=0,
-            truncated=truncated,
-            no_new_output=not stdout and not stderr and bg.exit_code is None,
-        )
-        return ToolExecutionResult(status="ok", result_str=tool_ok("bash_output", payload))
 
     def kill_background(self, bg_id: str) -> ToolExecutionResult:
         """Kill a background process and remove it from the registry."""
