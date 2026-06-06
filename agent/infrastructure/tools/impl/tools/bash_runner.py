@@ -293,8 +293,6 @@ class BashRunner:
             )
 
             if not done:
-                for p in pending:
-                    p.cancel()
                 try:
                     process.kill()
                 except ProcessLookupError:
@@ -302,8 +300,6 @@ class BashRunner:
                 timeout_msg = f"\n\n[PROCESS TERMINATED: Command timed out after {self.timeout} seconds.]"
                 await process.wait()
             elif cancel_task and cancel_task in done:
-                for p in pending:
-                    p.cancel()
                 try:
                     process.kill()
                 except ProcessLookupError:
@@ -311,10 +307,9 @@ class BashRunner:
                 timeout_msg = f"\n\n[PROCESS TERMINATED: Command cancelled: {cancellation_token.reason}]"
                 await process.wait()
             else:
-                if cancel_task:
-                    cancel_task.cancel()
                 await wait_task
-                await asyncio.gather(t_out, t_err)
+            await asyncio.gather(t_out, t_err, return_exceptions=True)
+            await self._settle_tasks(tasks_to_wait)
 
             stdout_final = self._build_output(stdout_head, stdout_tail, stdout_len[0])
             stderr_final = self._build_output(stderr_head, stderr_tail, stderr_len[0])
@@ -341,6 +336,12 @@ class BashRunner:
                 error_msg=str(e),
                 error_type=type(e).__name__,
             )
+
+    async def _settle_tasks(self, tasks: list[asyncio.Task]) -> None:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Background execution
