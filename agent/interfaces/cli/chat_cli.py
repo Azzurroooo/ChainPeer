@@ -30,6 +30,8 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 
+_TURN_CANCEL_GRACE_SECONDS = 1.0
+
 
 class ChatCLI:
     """Interactive CLI that delegates core behavior to application runtime."""
@@ -198,12 +200,10 @@ class ChatCLI:
             )
 
             try:
-                self._event_loop.run_until_complete(self._run_turn_async(user_input))
+                self._run_turn_blocking(user_input)
                 self._streaming_renderer.flush()
                 print()
             except KeyboardInterrupt:
-                if self._current_cancel_source:
-                    self._current_cancel_source.cancel("User interrupted")
                 self._streaming_renderer.flush()
                 print("\n[User Interrupted: Session state preserved. You can resume later.]")
             except Exception as exc:
@@ -327,10 +327,40 @@ class ChatCLI:
                 self._on_event(event)
         finally:
             self._current_cancel_source = None
+            cancel_source.dispose()
             if not getattr(event_stream, "ag_running", False):
                 aclose = getattr(event_stream, "aclose", None)
                 if callable(aclose):
                     await aclose()
+
+    def _run_turn_blocking(self, user_input: str) -> None:
+        if self._event_loop is None:
+            raise RuntimeError("Event loop is not initialized.")
+        task = self._event_loop.create_task(self._run_turn_async(user_input))
+        try:
+            self._event_loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            self._cancel_current_turn("User interrupted")
+            self._settle_interrupted_turn(task)
+            raise
+
+    def _cancel_current_turn(self, reason: str) -> None:
+        source = self._current_cancel_source
+        if source and not source.token.is_cancelled:
+            source.cancel(reason)
+
+    def _settle_interrupted_turn(self, task: asyncio.Task) -> None:
+        if self._event_loop is None or self._event_loop.is_closed() or task.done():
+            return
+        try:
+            self._event_loop.run_until_complete(
+                asyncio.wait_for(asyncio.shield(task), timeout=_TURN_CANCEL_GRACE_SECONDS)
+            )
+        except TimeoutError:
+            task.cancel()
+            self._event_loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
+        except (asyncio.CancelledError, Exception):
+            pass
 
     def _is_slash_command(self, text: str) -> bool:
         return text.lstrip().startswith("/")

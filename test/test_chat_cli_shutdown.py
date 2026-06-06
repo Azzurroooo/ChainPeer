@@ -8,8 +8,6 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import pytest
-
 from agent.interfaces.cli.chat_cli import ChatCLI
 
 
@@ -27,6 +25,24 @@ class ClosableEventStream:
         self.closed = True
 
 
+class InterruptibleEventStream:
+    def __init__(self, token):
+        self._token = token
+        self.started = asyncio.Event()
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        self.started.set()
+        await self._token.wait()
+        raise StopAsyncIteration
+
+    async def aclose(self):
+        self.closed = True
+
+
 class FakeRuntime:
     def __init__(self):
         self.stream = ClosableEventStream()
@@ -37,12 +53,46 @@ class FakeRuntime:
         return self.stream
 
 
+class InterruptibleRuntime:
+    def __init__(self):
+        self.stream = None
+        self.received_token = None
+
+    def run_turn(self, query=None, cancellation_token=None):
+        self.received_token = cancellation_token
+        self.stream = InterruptibleEventStream(cancellation_token)
+        return self.stream
+
+
 class FakeSession:
     pass
 
 
-@pytest.mark.asyncio
-async def test_run_turn_async_closes_event_stream_and_passes_token() -> None:
+class InterruptingLoop:
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        self.task = None
+        self._interrupted = False
+
+    def create_task(self, awaitable):
+        self.task = self.loop.create_task(awaitable)
+        return self.task
+
+    def run_until_complete(self, awaitable):
+        if not self._interrupted and self.task is not None:
+            self._interrupted = True
+            self.loop.run_until_complete(asyncio.sleep(0))
+            raise KeyboardInterrupt
+        return self.loop.run_until_complete(awaitable)
+
+    def is_closed(self):
+        return self.loop.is_closed()
+
+    def close(self):
+        self.loop.close()
+
+
+async def _run_turn_async_closes_event_stream_and_passes_token() -> None:
     runtime = FakeRuntime()
     cli = ChatCLI(runtime=runtime, session=FakeSession())
 
@@ -52,6 +102,10 @@ async def test_run_turn_async_closes_event_stream_and_passes_token() -> None:
         raise AssertionError("Expected runtime event stream to be closed")
     if runtime.received_token is None:
         raise AssertionError("Expected cancellation token to be passed to runtime")
+
+
+def test_run_turn_async_closes_event_stream_and_passes_token() -> None:
+    asyncio.run(_run_turn_async_closes_event_stream_and_passes_token())
 
 
 def test_shutdown_loop_cancels_pending_tasks() -> None:
@@ -74,9 +128,35 @@ def test_shutdown_loop_cancels_pending_tasks() -> None:
         raise AssertionError("Expected shutdown helper to close the event loop")
 
 
+def test_run_turn_blocking_cancels_and_closes_stream_on_interrupt() -> None:
+    runtime = InterruptibleRuntime()
+    cli = ChatCLI(runtime=runtime, session=FakeSession())
+    loop = InterruptingLoop()
+    cli._event_loop = loop
+
+    try:
+        try:
+            cli._run_turn_blocking("hello")
+        except KeyboardInterrupt:
+            pass
+        else:
+            raise AssertionError("Expected interrupt to propagate after cleanup")
+
+        if runtime.received_token is None or not runtime.received_token.is_cancelled:
+            raise AssertionError("Expected active turn cancellation token to be cancelled")
+        if runtime.stream is None or runtime.stream.closed is not True:
+            raise AssertionError("Expected interrupted runtime stream to be closed")
+        if loop.task is None or not loop.task.done():
+            raise AssertionError("Expected interrupted turn task to settle")
+    finally:
+        if not loop.is_closed():
+            loop.close()
+
+
 def main() -> int:
-    asyncio.run(test_run_turn_async_closes_event_stream_and_passes_token())
+    test_run_turn_async_closes_event_stream_and_passes_token()
     test_shutdown_loop_cancels_pending_tasks()
+    test_run_turn_blocking_cancels_and_closes_stream_on_interrupt()
     print("ChatCLI shutdown tests passed.")
     return 0
 
