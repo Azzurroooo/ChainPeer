@@ -168,6 +168,43 @@ async def test_async_turn_runner_stream_cancelled_error_is_cancelled_event():
 
 
 @pytest.mark.asyncio
+async def test_async_turn_runner_cancelled_error_prefers_token_reason():
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock()
+
+    source = CancellationTokenSource()
+
+    mock_parser = MagicMock()
+
+    async def mock_consume(*args, **kwargs):
+        source.cancel("User interrupted")
+        raise asyncio.CancelledError()
+
+    mock_parser.consume_async_stream = mock_consume
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(return_value=MagicMock(messages=[], stats={}, decisions={}))
+    mock_context.select_active_skills_for_turn = None
+
+    mock_session = MagicMock()
+    mock_session.now_iso.return_value = "2026-05-08T00:00:00Z"
+
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [event async for event in runner.run_turn(mock_session, cancellation_token=source.token)]
+
+    assert isinstance(events[-1], TurnCancelledEvent)
+    assert events[-1].reason == "User interrupted"
+    assert not any(isinstance(event, TurnFailedEvent) for event in events)
+
+
+@pytest.mark.asyncio
 async def test_async_runtime_facade_emits_turn_started_first():
     class FakeSession:
         session_id = "session_1"
@@ -650,6 +687,7 @@ def main() -> int:
     asyncio.run(test_async_turn_runner_stream())
     asyncio.run(test_async_turn_runner_cancellation())
     asyncio.run(test_async_turn_runner_stream_cancelled_error_is_cancelled_event())
+    asyncio.run(test_async_turn_runner_cancelled_error_prefers_token_reason())
     asyncio.run(test_async_runtime_facade_emits_turn_started_first())
     asyncio.run(test_async_runtime_facade_initializes_session_once_for_concurrent_turns())
     asyncio.run(test_async_runtime_facade_manual_compact_uses_runner())

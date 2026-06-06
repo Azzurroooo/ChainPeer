@@ -78,10 +78,7 @@ class AsyncTurnRunner:
             context_length_recovery_count = 0
             while True:
                 if cancellation_token and cancellation_token.is_cancelled:
-                    yield TurnCancelledEvent(
-                        **event_meta(session, turn_id),
-                        reason=cancellation_token.reason,
-                    )
+                    yield self._cancelled_event(session, turn_id, cancellation_token)
                     return
 
                 if turn_active_skill_matches is None:
@@ -138,21 +135,12 @@ class AsyncTurnRunner:
                     )
                 
                 try:
-                    # We always use stream=True for the async runner to provide real-time events
                     stream_response = self._chat_client.stream(
                         messages=context_messages,
                         tools=self._tool_schemas,
                         cancellation_token=cancellation_token
                     )
 
-                    # We can't directly yield from inside a callback easily without an async generator queue.
-                    # Let's collect them directly in an async generator wrapper or just use the parser logic.
-                    # Since we want to yield events *as* they arrive, we'll write a small adapter for the stream parser.
-                    # To keep it clean, we'll iterate through the stream, manually emitting DeltaEvents,
-                    # but delegating the chunk merging to the stream_parser's unified logic.
-                    
-                    # Queue-based bridge: producer consumes the async stream, consumer yields events.
-                    # Sentinel (None) is guaranteed via put_nowait in finally to survive CancelledError.
                     event_queue = asyncio.Queue()
 
                     async def _consume():
@@ -165,7 +153,6 @@ class AsyncTurnRunner:
                                     )
                                 )
 
-                            # Make sure we AWAIT consume_async_stream, not just return the coroutine!
                             parsed = await self._stream_parser.consume_async_stream(
                                 stream_response,
                                 _on_content_async,
@@ -291,7 +278,7 @@ class AsyncTurnRunner:
             )
             
         except asyncio.CancelledError as e:
-            yield TurnCancelledEvent(**event_meta(session, turn_id), reason=str(e))
+            yield self._cancelled_event(session, turn_id, cancellation_token, fallback=str(e))
         except Exception as e:
             yield TurnFailedEvent(
                 **event_meta(session, turn_id),
@@ -370,6 +357,17 @@ class AsyncTurnRunner:
             await operation(*args)
         except Exception:
             pass
+
+    def _cancelled_event(
+        self,
+        session: AsyncSessionStore,
+        turn_id: str,
+        cancellation_token: CancellationToken | None,
+        *,
+        fallback: str = "",
+    ) -> TurnCancelledEvent:
+        reason = cancellation_token.reason if cancellation_token and cancellation_token.reason else fallback
+        return TurnCancelledEvent(**event_meta(session, turn_id), reason=reason)
 
     async def _resolve_turn_active_skills(self, session: AsyncSessionStore) -> list:
         selector = getattr(self._context_manager, "select_active_skills_for_turn", None)
