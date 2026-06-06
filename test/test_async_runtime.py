@@ -147,6 +147,58 @@ async def test_async_turn_runner_yields_delta_before_stream_completes():
     await asyncio.wait_for(task, timeout=1)
     assert any(isinstance(event, AssistantMessageCompletedEvent) for event in events)
 
+
+@pytest.mark.asyncio
+async def test_async_turn_runner_cancels_stream_consumer_when_closed_early():
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock()
+
+    delta_sent = asyncio.Event()
+    consumer_cancelled = asyncio.Event()
+    keep_streaming = asyncio.Event()
+
+    async def mock_consume(*args, **kwargs):
+        on_content_async = args[1]
+        await on_content_async("partial")
+        delta_sent.set()
+        try:
+            await keep_streaming.wait()
+        except asyncio.CancelledError:
+            consumer_cancelled.set()
+            raise
+        return "partial done", []
+
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = mock_consume
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(return_value=MagicMock(messages=[], stats={}, decisions={}))
+    mock_context.select_active_skills_for_turn = None
+
+    mock_session = MagicMock()
+    mock_session.now_iso.return_value = "2026-05-08T00:00:00Z"
+    mock_session.persist_message = AsyncMock()
+
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    stream = runner.run_turn(mock_session)
+    event = await asyncio.wait_for(stream.__anext__(), timeout=1)
+    assert isinstance(event, ContextBuiltEvent)
+    event = await asyncio.wait_for(stream.__anext__(), timeout=1)
+    assert isinstance(event, AssistantDeltaEvent)
+    assert event.text == "partial"
+    assert delta_sent.is_set()
+
+    await stream.aclose()
+
+    await asyncio.wait_for(consumer_cancelled.wait(), timeout=1)
+
 @pytest.mark.asyncio
 async def test_async_turn_runner_cancellation():
     mock_client = AsyncMock()
@@ -794,6 +846,7 @@ async def test_async_turn_runner_auto_compacts_before_sampling():
 def main() -> int:
     asyncio.run(test_async_turn_runner_stream())
     asyncio.run(test_async_turn_runner_yields_delta_before_stream_completes())
+    asyncio.run(test_async_turn_runner_cancels_stream_consumer_when_closed_early())
     asyncio.run(test_async_turn_runner_cancellation())
     asyncio.run(test_async_turn_runner_stream_cancelled_error_is_cancelled_event())
     asyncio.run(test_async_turn_runner_cancelled_error_prefers_token_reason())
