@@ -40,7 +40,6 @@ class ChatCLI:
         self._runtime = runtime
         self._session = session
         self._debug = debug
-        self._assistant_buffer: list[str] = []
         self._console = Console()
         self._streaming_renderer = StreamingRenderer(self._console)
         self._status_renderer = CliStatusRenderer(
@@ -191,7 +190,6 @@ class ChatCLI:
                 continue
 
             print("\nAgent:")
-            self._assistant_buffer = []
             self._streaming_renderer = StreamingRenderer(self._console)
             self._status_renderer = CliStatusRenderer(
                 self._console,
@@ -411,7 +409,6 @@ class ChatCLI:
         )
         
         if isinstance(event, AssistantDeltaEvent):
-            self._assistant_buffer.append(event.text)
             self._streaming_renderer.append(event.text)
         elif isinstance(event, AssistantMessageCompletedEvent):
             self._streaming_renderer.finish_message()
@@ -423,6 +420,3 @@ class ChatCLI:
 
     def _on_retry(self, attempt: int, exception: Exception) -> None:
         self._streaming_renderer.show_retry(attempt, exception)
-
-    def _on_debug(self, message: str) -> None:
-        print(f"\n[Debug] {message}")
