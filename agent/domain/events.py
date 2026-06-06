@@ -137,35 +137,8 @@ class ToolResultEvent(RuntimeEvent):
 
 
 @dataclass(slots=True)
-class RetryScheduledEvent(RuntimeEvent):
-    """Fired when an API retry has been scheduled."""
-    type: Literal["retry_scheduled"] = "retry_scheduled"
-    attempt: int = 0
-    error: str = ""
-    delay_seconds: float = 0.0
-
-
-@dataclass(slots=True)
-class ToolApprovalRequiredEvent(RuntimeEvent):
-    """Reserved for future tool approval flows."""
-    type: Literal["tool_approval_required"] = "tool_approval_required"
-    tool_call_id: str = ""
-    tool_name: str = ""
-    reason: str = ""
-
-
-@dataclass(slots=True)
-class ToolDeniedEvent(RuntimeEvent):
-    """Reserved for future denied tool executions."""
-    type: Literal["tool_denied"] = "tool_denied"
-    tool_call_id: str = ""
-    tool_name: str = ""
-    reason: str = ""
-
-
-@dataclass(slots=True)
 class TokenStatsUpdatedEvent(RuntimeEvent):
-    """Reserved for future provider token usage updates."""
+    """Fired when provider token usage is available."""
     type: Literal["token_stats_updated"] = "token_stats_updated"
     stats: dict[str, Any] = field(default_factory=dict)
 

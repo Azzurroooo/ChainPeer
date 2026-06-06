@@ -14,11 +14,8 @@ from agent.domain.events import (
     RuntimeEvent,
     AssistantDeltaEvent,
     ContextBuiltEvent,
-    RetryScheduledEvent,
     SkillActivatedEvent,
     TokenStatsUpdatedEvent,
-    ToolApprovalRequiredEvent,
-    ToolDeniedEvent,
     ToolRequestedEvent,
     ToolProgressEvent,
     ToolResultEvent,
@@ -72,9 +69,6 @@ class TestRuntimeEvents(unittest.TestCase):
             TurnStartedEvent(session_id="session_1", turn_id="turn_1", user_message_chars=5),
             ToolRequestedEvent(tool_call_id="call_1", tool_name="bash", args_preview='{"command":"date"}'),
             ToolResultEvent(tool_call_id="call_1", tool_name="bash", status="failed", error_type="Boom"),
-            RetryScheduledEvent(attempt=2, error="temporary"),
-            ToolApprovalRequiredEvent(tool_call_id="call_1", tool_name="bash", reason="dangerous"),
-            ToolDeniedEvent(tool_call_id="call_1", tool_name="bash", reason="user denied"),
             TokenStatsUpdatedEvent(stats={"input_tokens": 10}),
         ]
 
