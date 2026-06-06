@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,10 +60,41 @@ async def test_compaction_service_falls_back_when_llm_compact_fails() -> None:
     assert session.records[-1]["source"]["message_start_index"] == 0
 
 
+@pytest.mark.asyncio
+async def test_compaction_service_keeps_llm_handoff_when_usage_persist_fails() -> None:
+    class UsageFailingSession(FakeSession):
+        async def persist_sampling_usage(self, usage):
+            raise RuntimeError("usage store unavailable")
+
+    class SuccessfulClient:
+        async def create(self, *args, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="LLM compact handoff"))],
+                usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20, total_tokens=120),
+            )
+
+    session = UsageFailingSession()
+    record = await CompactionService().compact_async(
+        session=session,
+        context_messages=await session.load_messages(),
+        chat_client=SuccessfulClient(),
+        reason="manual",
+        phase="manual",
+        context_stats={"context_window_tokens": 1000, "effective_context_window_tokens": 900},
+    )
+
+    assert record["strategy"] == "llm_inline"
+    assert record["handoff_message"]["content"] == "LLM compact handoff"
+    assert record["usage"]["input_tokens"] == 100
+    assert record["usage_persist_error"]["type"] == "RuntimeError"
+    assert "fallback_error" not in record
+
+
 def main() -> int:
     import asyncio
 
     asyncio.run(test_compaction_service_falls_back_when_llm_compact_fails())
+    asyncio.run(test_compaction_service_keeps_llm_handoff_when_usage_persist_fails())
     print("CompactionService tests passed.")
     return 0
 

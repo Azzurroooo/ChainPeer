@@ -57,9 +57,9 @@ class CompactionService:
             usage = self._sampling_usage(response, context_stats)
             if usage:
                 record["usage"] = usage
-                persist_usage = getattr(session, "persist_sampling_usage", None)
-                if callable(persist_usage):
-                    await persist_usage(usage)
+                usage_error = await self._try_persist_sampling_usage(session, usage)
+                if usage_error:
+                    record["usage_persist_error"] = usage_error
         except Exception as exc:
             record["strategy"] = "deterministic_fallback"
             record["fallback_error"] = {
@@ -198,6 +198,16 @@ class CompactionService:
             context_window_tokens=context_window,
             effective_context_window_tokens=effective_window,
         )
+
+    async def _try_persist_sampling_usage(self, session, usage: dict[str, Any]) -> dict[str, str] | None:
+        persist_usage = getattr(session, "persist_sampling_usage", None)
+        if not callable(persist_usage):
+            return None
+        try:
+            await persist_usage(usage)
+        except Exception as exc:
+            return {"type": type(exc).__name__, "message": str(exc)}
+        return None
 
     def _limit_prompt_payload(self, payload: str) -> str:
         if len(payload) <= self.max_compact_prompt_chars:
