@@ -360,10 +360,16 @@ class AsyncTurnRunner:
     async def _persist_sampling_usage(self, session: AsyncSessionStore, usage: dict) -> None:
         persist_usage = getattr(session, "persist_sampling_usage", None)
         if callable(persist_usage):
-            await persist_usage(usage)
+            await self._best_effort(persist_usage, usage)
         update_window = getattr(session, "update_auto_compact_window_from_usage", None)
         if callable(update_window):
-            await update_window(usage)
+            await self._best_effort(update_window, usage)
+
+    async def _best_effort(self, operation, *args) -> None:
+        try:
+            await operation(*args)
+        except Exception:
+            pass
 
     async def _resolve_turn_active_skills(self, session: AsyncSessionStore) -> list:
         selector = getattr(self._context_manager, "select_active_skills_for_turn", None)

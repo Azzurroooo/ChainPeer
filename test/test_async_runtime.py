@@ -432,6 +432,61 @@ async def test_async_turn_runner_emits_and_persists_sampling_usage():
 
 
 @pytest.mark.asyncio
+async def test_async_turn_runner_usage_persistence_failure_does_not_fail_turn():
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock()
+
+    usage = SimpleNamespace(prompt_tokens=12, completion_tokens=3, total_tokens=15)
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = AsyncMock(return_value=("Done", [], usage))
+
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(
+        return_value=MagicMock(
+            messages=[],
+            stats={"context_window_tokens": 1000, "effective_context_window_tokens": 900},
+            decisions={},
+        )
+    )
+    mock_context.select_active_skills_for_turn = None
+
+    class FakeSession:
+        session_id = "session_1"
+
+        def __init__(self):
+            self.messages = []
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+        async def persist_message(self, *args, **kwargs):
+            self.messages.append((args, kwargs))
+
+        async def persist_sampling_usage(self, usage):
+            raise OSError("meta write failed")
+
+        async def update_auto_compact_window_from_usage(self, usage):
+            raise OSError("window write failed")
+
+    session = FakeSession()
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [event async for event in runner.run_turn(session)]
+
+    assert any(isinstance(event, TokenStatsUpdatedEvent) for event in events)
+    assert any(isinstance(event, AssistantMessageCompletedEvent) for event in events)
+    assert isinstance(events[-1], TurnCompletedEvent)
+    assert not any(isinstance(event, TurnFailedEvent) for event in events)
+    assert session.messages == [(("assistant", "Done"), {})]
+
+
+@pytest.mark.asyncio
 async def test_async_turn_runner_auto_compacts_before_sampling():
     class FakeChatClient:
         def __init__(self):
@@ -526,6 +581,7 @@ def main() -> int:
     asyncio.run(test_async_runtime_facade_set_model_updates_runner_and_session())
     asyncio.run(test_async_turn_runner_emits_tool_requested_before_tool_execution())
     asyncio.run(test_async_turn_runner_emits_and_persists_sampling_usage())
+    asyncio.run(test_async_turn_runner_usage_persistence_failure_does_not_fail_turn())
     asyncio.run(test_async_turn_runner_auto_compacts_before_sampling())
     print("Async runtime tests passed.")
     return 0
