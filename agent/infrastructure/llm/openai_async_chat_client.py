@@ -86,21 +86,10 @@ class AsyncOpenAIChatClient(AsyncChatClient):
                 
             # For non-streaming create, we await it.
             # To be fully responsive to cancellation mid-flight, we wrap it in a task.
-            task = asyncio.create_task(self._create_with_optional_reasoning_effort(kwargs))
-            
-            if cancellation_token:
-                cancel_task = asyncio.create_task(cancellation_token.wait())
-                done, pending = await asyncio.wait(
-                    [task, cancel_task],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
-                if cancel_task in done:
-                    task.cancel()
-                    raise asyncio.CancelledError(cancellation_token.reason)
-                cancel_task.cancel()
-                return task.result()
-            else:
-                return await task
+            return await self._await_with_cancellation(
+                self._create_with_optional_reasoning_effort(kwargs),
+                cancellation_token,
+            )
 
         return await _do_create()
 
@@ -130,21 +119,10 @@ class AsyncOpenAIChatClient(AsyncChatClient):
                 kwargs["tool_choice"] = "auto"
             self._add_prompt_cache_key(kwargs)
                 
-            task = asyncio.create_task(self._create_with_optional_reasoning_effort(kwargs))
-            
-            if cancellation_token:
-                cancel_task = asyncio.create_task(cancellation_token.wait())
-                done, pending = await asyncio.wait(
-                    [task, cancel_task],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
-                if cancel_task in done:
-                    task.cancel()
-                    raise asyncio.CancelledError(cancellation_token.reason)
-                cancel_task.cancel()
-                return task.result()
-            else:
-                return await task
+            return await self._await_with_cancellation(
+                self._create_with_optional_reasoning_effort(kwargs),
+                cancellation_token,
+            )
 
         stream_response = await _do_connect()
         
@@ -164,6 +142,27 @@ class AsyncOpenAIChatClient(AsyncChatClient):
         result = close()
         if asyncio.iscoroutine(result):
             await result
+
+    async def _await_with_cancellation(self, awaitable: Any, cancellation_token: CancellationToken | None) -> Any:
+        task = asyncio.create_task(awaitable)
+        if not cancellation_token:
+            return await task
+
+        cancel_task = asyncio.create_task(cancellation_token.wait())
+        try:
+            done, _ = await asyncio.wait(
+                [task, cancel_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if cancel_task in done:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise asyncio.CancelledError(cancellation_token.reason)
+            return task.result()
+        finally:
+            if not cancel_task.done():
+                cancel_task.cancel()
+            await asyncio.gather(cancel_task, return_exceptions=True)
 
     async def _create_with_optional_reasoning_effort(self, kwargs: dict[str, Any]) -> Any:
         payload = dict(kwargs)

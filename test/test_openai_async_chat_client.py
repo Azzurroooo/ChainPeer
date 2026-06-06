@@ -44,6 +44,34 @@ async def test_openai_async_client_cancellation():
 
 
 @pytest.mark.asyncio
+async def test_openai_async_client_cancellation_waits_for_api_task_cleanup():
+    mock_openai = MagicMock()
+    cleanup_finished = asyncio.Event()
+
+    async def slow_create(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleanup_finished.set()
+
+    mock_openai.chat.completions.create = AsyncMock(side_effect=slow_create)
+    client = AsyncOpenAIChatClient(mock_openai, "test-model")
+    source = CancellationTokenSource()
+
+    async def cancel_later():
+        await asyncio.sleep(0)
+        source.cancel("User interrupted")
+
+    asyncio.create_task(cancel_later())
+
+    with pytest.raises(asyncio.CancelledError):
+        await client.create([{"role": "user", "content": "hi"}], cancellation_token=source.token)
+
+    assert cleanup_finished.is_set()
+
+
+@pytest.mark.asyncio
 async def test_openai_async_client_close_stream_prefers_aclose():
     class FakeStream:
         def __init__(self):
