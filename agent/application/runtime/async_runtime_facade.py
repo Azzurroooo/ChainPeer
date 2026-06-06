@@ -6,7 +6,6 @@ import asyncio
 import uuid
 from typing import AsyncIterator
 
-from agent.application.ports.async_chat_client import AsyncChatClient
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.application.runtime.async_turn_runner import AsyncTurnRunner
 from agent.application.runtime.cancellation import CancellationToken
@@ -89,21 +88,3 @@ class AsyncRuntimeFacade:
             turn_id=turn_id,
         ):
             yield event
-
-    def run_query_sync(self, query: str, session_id: str | None = None) -> str:
-        """
-        Synchronous compatibility layer for running a query.
-        Returns the final assistant response string.
-        """
-        async def _run():
-            from agent.domain.events import AssistantDeltaEvent
-            final_text = ""
-            try:
-                async for event in self.run_turn(session_id=session_id, query=query):
-                    if isinstance(event, AssistantDeltaEvent):
-                        final_text += event.text
-            except Exception as e:
-                return f"Error: {str(e)}"
-            return final_text
-
-        return asyncio.run(_run())

@@ -28,7 +28,7 @@ def main() -> int:
         print(report.text)
         return 1 if report.failures else 0
 
-    from agent.basic_agent import BasicAgent
+    from agent.bootstrap import build_basic_agent_dependencies
     from agent.infrastructure.config import Config
 
     try:
@@ -41,13 +41,13 @@ def main() -> int:
 
     if args.allow_unsafe_bash:
         os.environ["AGENT_ALLOW_UNSAFE_BASH"] = "1"
-    agent = BasicAgent(
+    dependencies = build_basic_agent_dependencies(
         debug=args.debug,
         session_dir=args.session_dir,
         session_id=args.session,
         resume_latest=args.resume_latest,
     )
-    agent.chat()
+    dependencies["cli"].start()
     return 0
 
 
