@@ -107,7 +107,3 @@ class AsyncSessionStore(Protocol):
     async def update_auto_compact_window_from_usage(self, usage: dict[str, Any]) -> None:
         """Seed the auto compact window baseline from provider usage."""
         ...
-
-    async def start_next_auto_compact_window(self) -> None:
-        """Advance to a fresh auto compact window after compacting."""
-        ...

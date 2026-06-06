@@ -410,7 +410,7 @@ async def test_sampling_usage_and_auto_compact_window_meta(temp_session_dir):
     assert window["prefill_input_tokens"] == 100
     assert window["prefill_source"] == "server"
 
-    await store.start_next_auto_compact_window()
+    await store.persist_compaction({"handoff_message": {"role": "assistant", "content": "handoff"}})
     next_window = await store.get_auto_compact_window()
 
     assert next_window["ordinal"] == 2

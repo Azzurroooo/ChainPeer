@@ -599,21 +599,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
 
             await asyncio.to_thread(_persist)
 
-    async def start_next_auto_compact_window(self) -> None:
-        async with self._write_lock:
-            def _persist():
-                if not self._session_meta or not self._session_paths:
-                    return
-                window = self._auto_compact_window_sync()
-                self._session_meta["auto_compact_window"] = {
-                    "ordinal": int(window.get("ordinal") or 1) + 1,
-                    "prefill_input_tokens": None,
-                    "prefill_source": None,
-                }
-                self._persist_meta_sync()
-
-            await asyncio.to_thread(_persist)
-
     async def persist_compaction(self, compaction: dict[str, Any]) -> dict[str, Any]:
         async with self._write_lock:
             def _persist():
