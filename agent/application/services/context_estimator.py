@@ -41,14 +41,18 @@ class ContextBudget:
 
     def resolved_compact_threshold_tokens(self) -> int:
         if self.compact_threshold_tokens is not None:
-            return int(self.compact_threshold_tokens)
+            return self._positive_int_or_default(self.compact_threshold_tokens, self.resolved_auto_compact_token_limit())
         return self.resolved_auto_compact_token_limit()
 
     def resolved_context_window_tokens(self) -> int:
-        return max(1, int(self.context_window_tokens or DEFAULT_CONTEXT_WINDOW_TOKENS))
+        return self._positive_int_or_default(self.context_window_tokens, DEFAULT_CONTEXT_WINDOW_TOKENS)
 
     def resolved_effective_context_window_percent(self) -> int:
-        return max(1, min(100, int(self.effective_context_window_percent or DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT)))
+        percent = self._positive_int_or_default(
+            self.effective_context_window_percent,
+            DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+        )
+        return min(100, percent)
 
     def resolved_effective_context_window_tokens(self) -> int:
         return max(1, self.resolved_context_window_tokens() * self.resolved_effective_context_window_percent() // 100)
@@ -57,7 +61,8 @@ class ContextBudget:
         context_limit = self.resolved_context_window_tokens() * 9 // 10
         if self.auto_compact_token_limit is None:
             return max(1, context_limit)
-        return max(1, min(int(self.auto_compact_token_limit), context_limit))
+        limit = self._positive_int_or_default(self.auto_compact_token_limit, context_limit)
+        return max(1, min(limit, context_limit))
 
     def resolved_auto_compact_token_limit_scope(self) -> str:
         scope = str(self.auto_compact_token_limit_scope or "total").strip().lower()
@@ -67,23 +72,23 @@ class ContextBudget:
 
     def resolved_hard_limit_tokens(self) -> int:
         if self.hard_limit_tokens is not None:
-            return max(1, int(self.hard_limit_tokens))
+            return self._positive_int_or_default(self.hard_limit_tokens, self.resolved_effective_context_window_tokens())
         return self.resolved_effective_context_window_tokens()
 
     def auto_compact_scope_tokens(self, estimated_input_tokens: int, prefill_input_tokens: int | None = None) -> int:
-        tokens = max(0, int(estimated_input_tokens))
+        tokens = self._non_negative_int(estimated_input_tokens, 0)
         if self.resolved_auto_compact_token_limit_scope() != "body_after_prefix":
             return tokens
         if prefill_input_tokens is None:
             return 0
-        return max(0, tokens - max(0, int(prefill_input_tokens)))
+        return max(0, tokens - self._non_negative_int(prefill_input_tokens, 0))
 
     def auto_compact_token_status(
         self,
         estimated_input_tokens: int,
         prefill_input_tokens: int | None = None,
     ) -> dict:
-        input_tokens = max(0, int(estimated_input_tokens))
+        input_tokens = self._non_negative_int(estimated_input_tokens, 0)
         scope_tokens = self.auto_compact_scope_tokens(input_tokens, prefill_input_tokens)
         scope_limit = self.resolved_auto_compact_token_limit()
         effective_limit = self.resolved_effective_context_window_tokens()
@@ -101,6 +106,22 @@ class ContextBudget:
             "effective_context_window_reached": effective_limit_reached,
             "auto_compact_token_limit_reached": token_limit_reached,
         }
+
+    def _positive_int_or_default(self, value, default: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return max(1, int(default))
+        if parsed <= 0:
+            return max(1, int(default))
+        return parsed
+
+    def _non_negative_int(self, value, default: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = int(default)
+        return max(0, parsed)
 
 
 @dataclass(slots=True)

@@ -52,6 +52,31 @@ def test_context_budget_body_after_prefix_status() -> None:
         raise AssertionError(f"Expected effective window reached, got: {full_window}")
 
 
+def test_context_budget_tolerates_invalid_numeric_config() -> None:
+    budget = ContextBudget(
+        hard_limit_tokens="bad",
+        compact_threshold_tokens="also bad",
+        context_window_tokens="invalid",
+        effective_context_window_percent=0,
+        auto_compact_token_limit="nope",
+    )
+
+    if budget.resolved_context_window_tokens() != 258400:
+        raise AssertionError(f"Expected default context window, got: {budget.to_dict()}")
+    if budget.resolved_effective_context_window_percent() != 95:
+        raise AssertionError(f"Expected default effective percent, got: {budget.to_dict()}")
+    if budget.resolved_auto_compact_token_limit() != 232560:
+        raise AssertionError(f"Expected default auto compact limit, got: {budget.to_dict()}")
+    if budget.resolved_compact_threshold_tokens() != 232560:
+        raise AssertionError(f"Expected fallback compact threshold, got: {budget.to_dict()}")
+    if budget.resolved_hard_limit_tokens() != 245480:
+        raise AssertionError(f"Expected fallback hard limit, got: {budget.to_dict()}")
+
+    status = budget.auto_compact_token_status("bad", prefill_input_tokens="bad")
+    if status["auto_compact_scope_tokens"] != 0:
+        raise AssertionError(f"Expected invalid estimated tokens to resolve to zero, got: {status}")
+
+
 def test_context_estimator_counts_chars_and_tokens() -> None:
     estimator = ContextEstimator(ContextBudget(hard_limit_tokens=20))
     messages = [
@@ -96,6 +121,7 @@ def main() -> int:
     test_context_budget_codex_defaults()
     test_context_budget_total_scope_status()
     test_context_budget_body_after_prefix_status()
+    test_context_budget_tolerates_invalid_numeric_config()
     test_context_estimator_counts_chars_and_tokens()
     test_context_estimator_limit_flags()
     print("ContextEstimator tests passed.")
