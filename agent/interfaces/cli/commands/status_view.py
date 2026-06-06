@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent.interfaces.cli.formatting import display_value
+
 from .router import SlashCommandContext
 
 
@@ -11,8 +13,8 @@ async def render_status(context: SlashCommandContext) -> str:
     lines = [
         "```text",
         "Status:",
-        f"Session: {_value(getattr(session, 'session_id', None))}",
-        f"Model: {_value(getattr(session, 'model', None))}",
+        f"Session: {display_value(getattr(session, 'session_id', None))}",
+        f"Model: {display_value(getattr(session, 'model', None))}",
         f"Debug: {str(bool(context.debug)).lower()}",
         f"Messages: {message_count}",
     ]
@@ -87,8 +89,3 @@ def _format_percent(value: object) -> str:
     if not isinstance(value, int | float):
         return "0.0%"
     return f"{value * 100:.1f}%"
-
-
-def _value(value: object) -> str:
-    text = str(value or "").strip()
-    return text or "unknown"

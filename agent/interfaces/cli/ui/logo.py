@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from agent.interfaces.cli.formatting import clip_text, display_value
 from agent.interfaces.cli.ui.prompt_chrome import GitPromptStatus
 from agent.version import __version__
 
@@ -119,30 +120,19 @@ def _context_line(
 ) -> Text:
     line = Text()
     line.append("model ", style="dim")
-    line.append(_clip(_value(model), 24), style="white")
+    line.append(clip_text(display_value(model), 24), style="white")
     line.append("  |  workspace ", style="dim")
-    line.append(_clip(_workspace_name(cwd), 28), style="white")
+    line.append(clip_text(_workspace_name(cwd), 28), style="white")
     if git_status and git_status.branch:
         marker = "*" if git_status.dirty else ""
         line.append("  |  git ", style="dim")
-        line.append(_clip(f"{git_status.branch}{marker}", 22), style="white")
+        line.append(clip_text(f"{git_status.branch}{marker}", 22), style="white")
     return line
 
 
 def _workspace_name(cwd: str | Path | None = None) -> str:
     path = Path(cwd or Path.cwd())
     return path.name or str(path)
-
-
-def _clip(value: str, limit: int) -> str:
-    if len(value) <= limit:
-        return value
-    return f"{value[: max(0, limit - 3)]}..."
-
-
-def _value(value: object) -> str:
-    text = str(value or "").strip()
-    return text or "unknown"
 
 
 if __name__ == "__main__":

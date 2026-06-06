@@ -20,6 +20,7 @@ from agent.domain.events import (
     TurnFailedEvent,
     TurnStartedEvent,
 )
+from agent.interfaces.cli.formatting import clip_text, escaped_newlines
 
 from .activity import tool_activity_summary
 from .state import ToolDisplayState, TurnDisplayState
@@ -89,7 +90,7 @@ class CliStatusRenderer:
         state.status = "requested"
         state.args_preview = event.args_preview or ""
         if self._debug:
-            args = _truncate(state.args_preview, 400)
+            args = clip_text(escaped_newlines(state.args_preview), 400, strip=False)
             suffix = f" args={args}" if args else ""
             self._print_debug(
                 f"tool requested: {state.name} id={state.tool_call_id or 'unknown'}{suffix}"
@@ -120,10 +121,10 @@ class CliStatusRenderer:
         if self._debug:
             self._print_debug(
                 f"tool progress: {state.name} id={state.tool_call_id or 'unknown'} "
-                f"{_truncate(message, 300)}"
+                f"{clip_text(escaped_newlines(message), 300, strip=False)}"
             )
             return
-        self._print_status(f"Tool: {state.name} {_truncate(message, 120)}")
+        self._print_status(f"Tool: {state.name} {clip_text(escaped_newlines(message), 120, strip=False)}")
 
     def _handle_tool_result(self, event: ToolResultEvent) -> None:
         state = self._get_tool_state(event.tool_call_id, event.tool_name)
@@ -226,10 +227,3 @@ def _progress_message(payload: dict[str, Any] | None) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
-
-
-def _truncate(value: str, max_len: int) -> str:
-    text = str(value or "").replace("\n", "\\n")
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3] + "..."

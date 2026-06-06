@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent.interfaces.cli.formatting import clip_text, display_value
+
 _GIT_CACHE_TTL_SECONDS = 2.0
 
 
@@ -28,7 +30,7 @@ def prompt_toolbar(
 ) -> str:
     items = [
         f"session {_short_session_id(getattr(session, 'session_id', None))}",
-        f"model {_clip(_value(getattr(session, 'model', None)), 26)}",
+        f"model {clip_text(display_value(getattr(session, 'model', None)), 26)}",
     ]
     usage_text = _usage_summary(usage)
     if usage_text:
@@ -36,7 +38,7 @@ def prompt_toolbar(
     git_text = _git_summary(git_status)
     if git_text:
         items.append(git_text)
-    items.append(f"cwd {_clip(_cwd_name(cwd), 28)}")
+    items.append(f"cwd {clip_text(_cwd_name(cwd), 28)}")
     if debug:
         items.append("debug on")
     items.extend(
@@ -101,7 +103,7 @@ def _run_git(args: list[str], cwd: str) -> str:
 
 
 def _short_session_id(value: object) -> str:
-    text = _value(value)
+    text = display_value(value)
     if text == "unknown" or len(text) <= 14:
         return text
     return f"{text[:8]}...{text[-4:]}"
@@ -111,18 +113,6 @@ def _cwd_name(cwd: str | Path | None) -> str:
     path = Path(cwd) if cwd else Path.cwd()
     name = path.name or str(path)
     return name or "unknown"
-
-
-def _value(value: object) -> str:
-    text = str(value or "").strip()
-    return text or "unknown"
-
-
-def _clip(value: str, limit: int) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return f"{text[: max(0, limit - 3)]}..."
 
 
 def _usage_summary(usage: dict[str, object] | None) -> str:
@@ -151,7 +141,7 @@ def _git_summary(status: GitPromptStatus | None) -> str:
     if status is None or not status.branch:
         return ""
     marker = "*" if status.dirty else ""
-    return f"git {_clip(status.branch, 22)}{marker}"
+    return f"git {clip_text(status.branch, 22)}{marker}"
 
 
 def _format_percent(value: object) -> str:

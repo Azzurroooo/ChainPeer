@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import sys
 
+from agent.interfaces.cli.formatting import safe_int, tail_clip_text
+
 from .router import SlashCommandContext
 
 
@@ -136,8 +138,8 @@ def _context_window_check(status: ConfigStatus) -> DoctorCheck:
     config = status.config
     if not config:
         return DoctorCheck("warn", "Context window", "not checked because settings are invalid")
-    window = _safe_int(getattr(config, "CONTEXT_WINDOW_TOKENS", None))
-    percent = _safe_int(getattr(config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", None))
+    window = safe_int(getattr(config, "CONTEXT_WINDOW_TOKENS", None))
+    percent = safe_int(getattr(config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", None))
     if window <= 0:
         return DoctorCheck("warn", "Context window", "unset")
     if percent <= 0 or percent > 100:
@@ -159,7 +161,7 @@ def _session_store_check(context: SlashCommandContext) -> DoctorCheck:
 def _shell_check() -> DoctorCheck:
     shell = os.environ.get("SHELL") or os.environ.get("ComSpec") or os.environ.get("PSModulePath")
     if shell:
-        return DoctorCheck("ok", "Shell", _shorten(str(shell)))
+        return DoctorCheck("ok", "Shell", tail_clip_text(shell, 90))
     return DoctorCheck("warn", "Shell", "not detected")
 
 
@@ -226,17 +228,3 @@ def _next_steps(checks: list[DoctorCheck]) -> list[str]:
     if "Python" in names:
         steps.append("Install Python 3.12 or newer.")
     return steps
-
-
-def _safe_int(value: object) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _shorten(value: str, limit: int = 90) -> str:
-    text = value.strip()
-    if len(text) <= limit:
-        return text
-    return f"...{text[-limit + 3:]}"

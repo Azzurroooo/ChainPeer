@@ -6,6 +6,8 @@ import inspect
 from pathlib import Path
 from typing import Callable
 
+from agent.interfaces.cli.formatting import clip_text, display_value, nonnegative_int, single_line
+
 from .help_view import render_command_help, render_help
 from .router import SlashCommandContext, SlashCommandInfo, SlashCommandResult
 from .status_view import render_status
@@ -91,12 +93,12 @@ async def handle_sessions(context: SlashCommandContext, args: list[str]) -> str:
     for item in sessions[:limit]:
         if not isinstance(item, dict):
             continue
-        session_id = _value(item.get("id"))
+        session_id = display_value(item.get("id"))
         marker = " (current)" if current_id and session_id == current_id else ""
-        updated = _value(item.get("updated_at"))
-        title = _truncate(_value(item.get("title")), 40)
+        updated = display_value(item.get("updated_at"))
+        title = clip_text(display_value(item.get("title")), 40)
         size = _format_session_size(item.get("size"))
-        preview = _truncate(str(item.get("preview") or "").replace("\n", " ").strip(), 56)
+        preview = clip_text(single_line(item.get("preview")), 56)
         suffix = f" | {preview}" if preview else ""
         lines.append(f"- {session_id}{marker} | {updated} | {title} | {size}{suffix}")
     lines.append("Resume with: python main.py --session <id>")
@@ -157,7 +159,7 @@ async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
     return "\n".join(
         [
             "Compact complete.",
-            f"- id: {_value(record.get('id') if isinstance(record, dict) else None)}",
+            f"- id: {display_value(record.get('id') if isinstance(record, dict) else None)}",
             f"- source: messages[{start}:{end}]",
             f"- tool calls: {tool_count}",
         ]
@@ -168,8 +170,8 @@ async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
     from agent.infrastructure.config import Config
 
     if not args:
-        active = _value(getattr(context.session, "model", None))
-        configured = _value(Config.DEFAULT_MODEL)
+        active = display_value(getattr(context.session, "model", None))
+        configured = display_value(Config.DEFAULT_MODEL)
         if active == configured:
             return f"Model: {active}"
         return f"Model:\n- active: {active}\n- default: {configured}"
@@ -181,7 +183,7 @@ async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
     if model is None:
         return "Usage: /model set <model>"
 
-    previous = _value(Config.DEFAULT_MODEL)
+    previous = display_value(Config.DEFAULT_MODEL)
     try:
         Config.set_model(model)
         active_updated = await _set_active_model(context, model)
@@ -287,11 +289,6 @@ def _session_base_path(session) -> Path | None:
     return None
 
 
-def _value(value: object) -> str:
-    text = str(value or "").strip()
-    return text or "unknown"
-
-
 async def _set_active_model(context: SlashCommandContext, model: str) -> bool:
     set_model = getattr(context.runtime, "set_model", None)
     if callable(set_model):
@@ -339,20 +336,6 @@ def _parse_limit(args: list[str], *, default: int, maximum: int) -> int | None:
 def _format_session_size(value: object) -> str:
     if not isinstance(value, dict):
         return "unknown"
-    messages = _safe_count(value.get("messages"))
-    tools = _safe_count(value.get("tool_calls"))
+    messages = nonnegative_int(value.get("messages"))
+    tools = nonnegative_int(value.get("tool_calls"))
     return f"{messages} msg, {tools} tool"
-
-
-def _safe_count(value: object) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _truncate(value: str, limit: int) -> str:
-    text = value.strip()
-    if len(text) <= limit:
-        return text
-    return f"{text[: max(0, limit - 3)]}..."
