@@ -300,6 +300,27 @@ async def test_status_shows_latest_sampling_usage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_status_tolerates_invalid_sampling_usage() -> None:
+    class UsageSession(FakeSession):
+        async def get_latest_sampling_usage(self):
+            return {
+                "input_tokens": "bad",
+                "effective_context_window_tokens": object(),
+                "context_usage_percent": "bad",
+                "cached_input_tokens": -5,
+                "cache_hit_rate": None,
+                "output_tokens": None,
+            }
+
+    result = await SlashCommandRouter().execute("/status", _context(session=UsageSession()))
+
+    assert "Last sampling:" in result.text
+    assert "input: 0 (0.0%)" in result.text
+    assert "cached: 0 (0.0%)" in result.text
+    assert "output: 0" in result.text
+
+
+@pytest.mark.asyncio
 async def test_status_does_not_show_recent_tools() -> None:
     class ToolSession(FakeSession):
         def __init__(self):

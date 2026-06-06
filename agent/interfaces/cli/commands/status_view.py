@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.interfaces.cli.formatting import display_value
+from agent.interfaces.cli.formatting import display_value, nonnegative_int
 
 from .router import SlashCommandContext
 
@@ -23,10 +23,10 @@ async def render_status(context: SlashCommandContext) -> str:
         lines.append(git_status)
     latest_usage = await _latest_sampling_usage(session)
     if latest_usage:
-        effective_window = int(latest_usage.get("effective_context_window_tokens") or 0)
-        input_tokens = int(latest_usage.get("input_tokens") or 0)
-        cached_tokens = int(latest_usage.get("cached_input_tokens") or 0)
-        output_tokens = int(latest_usage.get("output_tokens") or 0)
+        effective_window = nonnegative_int(latest_usage.get("effective_context_window_tokens"))
+        input_tokens = nonnegative_int(latest_usage.get("input_tokens"))
+        cached_tokens = nonnegative_int(latest_usage.get("cached_input_tokens"))
+        output_tokens = nonnegative_int(latest_usage.get("output_tokens"))
         limit = f" / {_format_count(effective_window)}" if effective_window > 0 else ""
         lines.extend(
             [
