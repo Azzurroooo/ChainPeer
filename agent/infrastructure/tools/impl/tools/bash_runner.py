@@ -369,6 +369,7 @@ class BashRunner:
         )
 
         async def _drain():
+            tasks: list[asyncio.Task] = []
             try:
                 t_out = asyncio.create_task(
                     self._read_stream(
@@ -388,10 +389,12 @@ class BashRunner:
                         bg.updated_event,
                     )
                 )
+                tasks.extend([t_out, t_err])
                 await process.wait()
                 await asyncio.gather(t_out, t_err)
                 bg.exit_code = process.returncode
             finally:
+                await self._settle_tasks(tasks)
                 bg.updated_event.set()
 
         bg._tasks.append(asyncio.create_task(_drain()))

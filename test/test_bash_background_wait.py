@@ -193,3 +193,39 @@ async def test_bash_output_reports_not_found() -> None:
     assert payload.get("ok") is False
     assert payload.get("tool") == "bash_output"
     assert payload.get("error_type") == "NotFound"
+
+
+@pytest.mark.asyncio
+async def test_bash_output_kill_settles_background_tasks() -> None:
+    sid = session_id("kill_settles")
+    bg = await start_background(sid, "import time; time.sleep(10)", wait_ms=1000)
+
+    data = assert_ok(await bash_output(bg["bg_id"], kill=True))
+    pending = [
+        task for task in asyncio.all_tasks()
+        if task is not asyncio.current_task() and not task.done()
+    ]
+
+    assert data.get("status") == "killed"
+    assert pending == []
+    cleanup_session(sid)
+
+
+def main() -> int:
+    async def _run_all():
+        await test_bash_background_initial_wait_returns_completed_result()
+        await test_bash_foreground_ignores_wait_ms()
+        await test_bash_output_wait_returns_when_new_output_arrives()
+        await test_bash_output_wait_no_new_output()
+        await test_bash_output_returns_delta_only()
+        await test_bash_output_reports_done_and_exit_code()
+        await test_bash_output_reports_not_found()
+        await test_bash_output_kill_settles_background_tasks()
+
+    asyncio.run(_run_all())
+    print("Bash background wait tests passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
