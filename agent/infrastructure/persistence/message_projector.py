@@ -1,0 +1,166 @@
+"""Project persisted session records into model messages."""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def project_messages(
+    messages: list[dict[str, Any]],
+    tool_records: list[dict[str, Any]],
+    compactions: list[dict[str, Any]],
+    system_prompt: str,
+) -> list[dict[str, Any]]:
+    projected_messages = apply_latest_compact_boundary(messages, compactions)
+    tool_map = {
+        str(item["id"]): item
+        for item in tool_records
+        if isinstance(item, dict) and item.get("id")
+    }
+
+    built_messages: list[dict[str, Any]] = []
+    emitted_tool_call_ids: set[str] = set()
+    for message in projected_messages:
+        if not isinstance(message, dict) or is_compact_boundary_message(message):
+            continue
+        role = message.get("role")
+        if role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            built_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": _build_tool_content(tool_map.get(str(tool_call_id))),
+                }
+            )
+            if tool_call_id:
+                emitted_tool_call_ids.add(str(tool_call_id))
+            continue
+        if role == "assistant" and _has_tool_calls_meta(message):
+            tool_calls = _build_assistant_tool_calls(message["meta"]["tool_calls"], tool_map)
+            built_messages.append({"role": "assistant", "tool_calls": tool_calls})
+            built_messages.extend(_missing_tool_messages(tool_calls, tool_map, emitted_tool_call_ids))
+            if message.get("content"):
+                built_messages.append({"role": "assistant", "content": message.get("content")})
+            continue
+        if role in {"system", "user", "assistant"}:
+            built_messages.append({"role": role, "content": message.get("content", "")})
+
+    if not built_messages:
+        return [{"role": "system", "content": system_prompt}]
+    return built_messages
+
+
+def latest_compaction(
+    messages: list[dict[str, Any]],
+    compactions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    matched = latest_compact_pair(messages, compactions)
+    return matched[1] if matched else None
+
+
+def latest_compact_pair(
+    messages: list[dict[str, Any]],
+    compactions: list[dict[str, Any]],
+) -> tuple[int, dict[str, Any]] | None:
+    by_id = {
+        str(record.get("id")): record
+        for record in compactions
+        if isinstance(record, dict) and record.get("id")
+    }
+    if not by_id:
+        return None
+    for index in range(len(messages) - 1, -1, -1):
+        if not is_compact_boundary_message(messages[index]):
+            continue
+        meta = messages[index].get("meta")
+        compact_id = meta.get("compact_id") if isinstance(meta, dict) else None
+        record = by_id.get(str(compact_id)) if compact_id else None
+        if record is not None:
+            return index, dict(record)
+    return None
+
+
+def apply_latest_compact_boundary(
+    messages: list[dict[str, Any]],
+    compactions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    matched = latest_compact_pair(messages, compactions)
+    if matched is None:
+        return [dict(message) for message in messages]
+    boundary_index, compaction = matched
+
+    projected = [
+        dict(message)
+        for message in messages[:boundary_index]
+        if message.get("role") == "system"
+    ]
+    handoff = (compaction or {}).get("handoff_message")
+    if isinstance(handoff, dict):
+        role = handoff.get("role")
+        content = handoff.get("content")
+        if role in {"user", "assistant", "system"} and isinstance(content, str):
+            projected.append({"role": role, "content": content})
+    projected.extend(
+        dict(message)
+        for message in messages[boundary_index + 1 :]
+        if not is_compact_boundary_message(message)
+    )
+    return projected
+
+
+def is_compact_boundary_message(message: dict[str, Any]) -> bool:
+    meta = message.get("meta")
+    return isinstance(meta, dict) and meta.get("kind") == "compact_boundary"
+
+
+def _has_tool_calls_meta(message: dict[str, Any]) -> bool:
+    meta = message.get("meta")
+    return isinstance(meta, dict) and bool(meta.get("tool_calls"))
+
+
+def _build_assistant_tool_calls(
+    tool_calls_meta: list[dict[str, Any]],
+    tool_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tool_calls: list[dict[str, Any]] = []
+    for tc_meta in tool_calls_meta:
+        tc_id = str(tc_meta.get("id") or "")
+        tc_name = tc_meta.get("name") or ""
+        if not tc_id:
+            raise ValueError("Invalid tool call message: missing tool call id.")
+        tc_record = tool_map.get(tc_id)
+        if not isinstance(tc_record, dict):
+            raise ValueError(f"Invalid tool call message: missing tool record for {tc_id}.")
+        raw_args = tc_record.get("raw_args") or ""
+        if not raw_args:
+            raise ValueError(f"Invalid tool call record: missing raw_args for {tc_id}.")
+        tool_calls.append(
+            {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
+        )
+    return tool_calls
+
+
+def _missing_tool_messages(
+    tool_calls: list[dict[str, Any]],
+    tool_map: dict[str, dict[str, Any]],
+    emitted_tool_call_ids: set[str],
+) -> list[dict[str, str]]:
+    missing: list[dict[str, str]] = []
+    for tool_call in tool_calls:
+        tool_call_id = str(tool_call.get("id") or "")
+        if not tool_call_id or tool_call_id in emitted_tool_call_ids:
+            continue
+        content = _build_tool_content(tool_map.get(tool_call_id))
+        missing.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
+        emitted_tool_call_ids.add(tool_call_id)
+    return missing
+
+
+def _build_tool_content(tool_record: dict | None) -> str:
+    if not tool_record:
+        raise ValueError("Unsupported legacy tool record: missing tool call record.")
+    model_content = tool_record.get("model_content")
+    if isinstance(model_content, str) and model_content:
+        return model_content
+    raise ValueError("Unsupported legacy tool record: missing model_content.")

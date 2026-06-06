@@ -15,6 +15,7 @@ from agent.infrastructure.persistence.message_repository import MessageRepositor
 from agent.infrastructure.persistence.tool_call_repository import ToolCallRepository
 from agent.infrastructure.persistence.compaction_repository import CompactionRepository
 from agent.infrastructure.persistence.session_index_repository import SessionIndexRepository
+from agent.infrastructure.persistence.message_projector import latest_compaction, project_messages
 from agent.application.services.compaction_service import CompactionService
 from agent.domain import looks_like_tool_payload
 
@@ -373,76 +374,13 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             return self._msg_repo.load_messages() if self._msg_repo else []
         return await asyncio.to_thread(_load)
 
-    def _build_tool_content(self, tool_record: dict | None) -> str:
-        if not tool_record:
-            raise ValueError("Unsupported legacy tool record: missing tool call record.")
-        model_content = tool_record.get("model_content")
-        if isinstance(model_content, str) and model_content:
-            return model_content
-        raise ValueError("Unsupported legacy tool record: missing model_content.")
-
-    def _is_compact_boundary_message(self, message: dict[str, Any]) -> bool:
-        meta = message.get("meta")
-        return isinstance(meta, dict) and meta.get("kind") == "compact_boundary"
-
     def _latest_compaction_sync(self) -> dict[str, Any] | None:
         if not self._compaction_repo or not self._msg_repo:
             return None
-        matched = self._latest_compact_pair(
+        return latest_compaction(
             self._msg_repo.load_messages(),
             self._compaction_repo.load_compactions(),
         )
-        return matched[1] if matched else None
-
-    def _latest_compact_pair(
-        self,
-        messages: list[dict[str, Any]],
-        compactions: list[dict[str, Any]],
-    ) -> tuple[int, dict[str, Any]] | None:
-        by_id = {
-            str(record.get("id")): record
-            for record in compactions
-            if isinstance(record, dict) and record.get("id")
-        }
-        if not by_id:
-            return None
-        for index in range(len(messages) - 1, -1, -1):
-            if not self._is_compact_boundary_message(messages[index]):
-                continue
-            meta = messages[index].get("meta")
-            compact_id = meta.get("compact_id") if isinstance(meta, dict) else None
-            record = by_id.get(str(compact_id)) if compact_id else None
-            if record is not None:
-                return index, dict(record)
-        return None
-
-    def _apply_latest_compact_boundary(
-        self,
-        messages: list[dict[str, Any]],
-        compactions: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        matched = self._latest_compact_pair(messages, compactions)
-        if matched is None:
-            return [dict(message) for message in messages]
-        boundary_index, compaction = matched
-
-        projected = [
-            dict(message)
-            for message in messages[:boundary_index]
-            if message.get("role") == "system"
-        ]
-        handoff = (compaction or {}).get("handoff_message")
-        if isinstance(handoff, dict):
-            role = handoff.get("role")
-            content = handoff.get("content")
-            if role in {"user", "assistant", "system"} and isinstance(content, str):
-                projected.append({"role": role, "content": content})
-        projected.extend(
-            dict(message)
-            for message in messages[boundary_index + 1 :]
-            if not self._is_compact_boundary_message(message)
-        )
-        return projected
 
     async def get_messages_slice(
         self,
@@ -454,40 +392,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             messages = self._msg_repo.load_messages() if self._msg_repo else []
             tool_records = self._tool_repo.load_tool_calls() if self._tool_repo else []
             compactions = self._compaction_repo.load_compactions() if self._compaction_repo else []
-            messages = self._apply_latest_compact_boundary(messages, compactions)
-
-            tool_map = {}
-            for item in tool_records:
-                if isinstance(item, dict) and item.get("id"):
-                    tool_map[str(item["id"])] = item
-                    
-            built_messages = []
-            emitted_tool_call_ids = set()
-            for msg in messages:
-                if not isinstance(msg, dict):
-                    continue
-                if self._is_compact_boundary_message(msg):
-                    continue
-                role = msg.get("role")
-                if role == "tool":
-                    tool_call_id = msg.get("tool_call_id")
-                    content = self._build_tool_content(tool_map.get(str(tool_call_id)))
-                    built_messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
-                    if tool_call_id:
-                        emitted_tool_call_ids.add(str(tool_call_id))
-                    continue
-                if role == "assistant" and isinstance(msg.get("meta"), dict) and msg["meta"].get("tool_calls"):
-                    tool_msgs = self._build_assistant_tool_calls(msg["meta"]["tool_calls"], tool_map)
-                    built_messages.append({"role": "assistant", "tool_calls": tool_msgs})
-                    for tool_msg in self._missing_tool_messages(tool_msgs, tool_map, emitted_tool_call_ids):
-                        built_messages.append(tool_msg)
-                    if msg.get("content"):
-                        built_messages.append({"role": "assistant", "content": msg.get("content")})
-                    continue
-                if role in {"system", "user", "assistant"}:
-                    built_messages.append({"role": role, "content": msg.get("content", "")})
-            if not built_messages:
-                built_messages = [{"role": "system", "content": self._system_prompt}]
+            built_messages = project_messages(messages, tool_records, compactions, self._system_prompt)
                 
             if roles:
                 allowed_roles = set(roles)
@@ -495,44 +400,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             return [dict(message) for message in built_messages[slice(start, end)]]
             
         return await asyncio.to_thread(_get)
-
-    def _build_assistant_tool_calls(
-        self,
-        tool_calls_meta: list[dict[str, Any]],
-        tool_map: dict[str, dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        tool_calls: list[dict[str, Any]] = []
-        for tc_meta in tool_calls_meta:
-            tc_id = str(tc_meta.get("id") or "")
-            tc_name = tc_meta.get("name") or ""
-            if not tc_id:
-                raise ValueError("Invalid tool call message: missing tool call id.")
-            tc_record = tool_map.get(tc_id)
-            if not isinstance(tc_record, dict):
-                raise ValueError(f"Invalid tool call message: missing tool record for {tc_id}.")
-            raw_args = tc_record.get("raw_args") or ""
-            if not raw_args:
-                raise ValueError(f"Invalid tool call record: missing raw_args for {tc_id}.")
-            tool_calls.append(
-                {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
-            )
-        return tool_calls
-
-    def _missing_tool_messages(
-        self,
-        tool_calls: list[dict[str, Any]],
-        tool_map: dict[str, dict[str, Any]],
-        emitted_tool_call_ids: set[str],
-    ) -> list[dict[str, str]]:
-        missing: list[dict[str, str]] = []
-        for tool_call in tool_calls:
-            tool_call_id = str(tool_call.get("id") or "")
-            if not tool_call_id or tool_call_id in emitted_tool_call_ids:
-                continue
-            content = self._build_tool_content(tool_map.get(tool_call_id))
-            missing.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
-            emitted_tool_call_ids.add(tool_call_id)
-        return missing
 
     async def list_recent_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
         def _list():
