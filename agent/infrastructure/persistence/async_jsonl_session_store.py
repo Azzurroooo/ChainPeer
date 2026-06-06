@@ -385,12 +385,6 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         meta = message.get("meta")
         return isinstance(meta, dict) and meta.get("kind") == "compact_boundary"
 
-    def _latest_compact_boundary_index(self, messages: list[dict[str, Any]]) -> int:
-        for index in range(len(messages) - 1, -1, -1):
-            if self._is_compact_boundary_message(messages[index]):
-                return index
-        return -1
-
     def _latest_compaction_sync(self) -> dict[str, Any] | None:
         if not self._compaction_repo or not self._msg_repo:
             return None
