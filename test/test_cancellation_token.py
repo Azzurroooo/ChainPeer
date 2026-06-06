@@ -1,5 +1,13 @@
 import unittest
 import asyncio
+import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(PROJECT_ROOT)
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.application.runtime.cancellation import (
     CancellationToken,
@@ -35,6 +43,7 @@ class TestCancellationToken(unittest.TestCase):
         
         source.cancel()
         self.assertTrue(called)
+        self.assertEqual(source.token._callbacks, [])
 
     def test_callback_after_cancellation(self):
         source = CancellationTokenSource()
@@ -48,6 +57,16 @@ class TestCancellationToken(unittest.TestCase):
         # Should be called immediately
         source.token.register_callback(on_cancel)
         self.assertTrue(called)
+        self.assertEqual(source.token._callbacks, [])
+
+    def test_callback_deregister_after_cancellation_is_noop(self):
+        source = CancellationTokenSource()
+
+        deregister = source.token.register_callback(lambda: None)
+        source.cancel()
+        deregister()
+
+        self.assertEqual(source.token._callbacks, [])
 
     def test_child_token_propagation(self):
         parent_source = CancellationTokenSource()

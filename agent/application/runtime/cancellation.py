@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, List, Any
+from typing import Callable
 
 
 class CancellationToken:
@@ -13,7 +13,7 @@ class CancellationToken:
     def __init__(self) -> None:
         self._is_cancelled = False
         self._reason: str | None = None
-        self._callbacks: List[Callable[[], None]] = []
+        self._callbacks: list[Callable[[], None]] = []
         self._async_event: asyncio.Event | None = None
 
     @property
@@ -65,7 +65,9 @@ class CancellationToken:
         if self._async_event is not None:
             self._async_event.set()
             
-        for callback in list(self._callbacks): # Copy list in case callbacks modify it
+        callbacks = list(self._callbacks)
+        self._callbacks.clear()
+        for callback in callbacks:
             try:
                 callback()
             except Exception:
