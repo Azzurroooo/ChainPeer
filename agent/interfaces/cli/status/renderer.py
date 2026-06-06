@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -134,7 +135,9 @@ class CliStatusRenderer:
         duration = _format_duration(event.duration_ms)
         if event.status == "failed":
             error = f" ({state.error_type})" if state.error_type else ""
-            self._print_status(f"Tool: {state.name} failed in {duration}{error}", style="red")
+            detail = _tool_error_detail(event.result)
+            suffix = f": {detail}" if detail else ""
+            self._print_status(f"Tool: {state.name} failed in {duration}{error}{suffix}", style="red")
             return
         self._print_status(f"Tool: {state.name} completed in {duration}")
 
@@ -227,3 +230,18 @@ def _progress_message(payload: dict[str, Any] | None) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
+
+
+def _tool_error_detail(result: str) -> str:
+    if not isinstance(result, str) or not result:
+        return ""
+    try:
+        payload = json.loads(result)
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    error = payload.get("error")
+    if not isinstance(error, str) or not error.strip():
+        return ""
+    return clip_text(escaped_newlines(error.strip()), 120, strip=False)

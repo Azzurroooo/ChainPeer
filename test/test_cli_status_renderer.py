@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -94,6 +95,25 @@ def test_tool_lifecycle_failed_output() -> None:
     text = output.getvalue()
     if "Tool: bash failed in 50ms (ToolExecutionError)" not in text:
         raise AssertionError(f"Expected failed line, got: {text!r}")
+
+
+def test_tool_failed_output_includes_error_detail() -> None:
+    renderer, output = make_renderer()
+
+    renderer.handle(
+        ToolResultEvent(
+            tool_call_id="call_1",
+            tool_name="bash",
+            status="failed",
+            error_type="ToolExecutionError",
+            result=json.dumps({"ok": False, "tool": "bash", "error": "command not found"}),
+            duration_ms=50,
+        )
+    )
+
+    text = output.getvalue()
+    if "Tool: bash failed in 50ms (ToolExecutionError): command not found" not in text:
+        raise AssertionError(f"Expected failed detail line, got: {text!r}")
 
 
 def test_skill_activation_deduplicates_within_turn() -> None:
@@ -202,6 +222,7 @@ def main() -> int:
     test_tool_requested_shows_bash_command_and_deduplicates_start()
     test_tool_requested_shows_file_path_summary()
     test_tool_lifecycle_failed_output()
+    test_tool_failed_output_includes_error_detail()
     test_skill_activation_deduplicates_within_turn()
     test_context_built_is_quiet_in_normal_mode()
     test_context_built_is_quiet_in_debug_mode()
