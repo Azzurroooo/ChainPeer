@@ -24,7 +24,6 @@ from agent.infrastructure.persistence.session_meta import (
     positive_int_or_none,
     sync_session_counts,
 )
-from agent.application.services.compaction_service import CompactionService
 from agent.domain import looks_like_tool_payload
 
 
@@ -536,18 +535,3 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
 
     async def get_latest_compaction(self) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._latest_compaction_sync)
-
-    async def compact_context(self) -> dict[str, Any]:
-        def _build():
-            messages = self._msg_repo.load_messages() if self._msg_repo else []
-            tool_records = self._tool_repo.load_tool_calls() if self._tool_repo else []
-            previous = self._latest_compaction_sync()
-            return CompactionService().build_compaction(
-                messages=messages,
-                tool_records=tool_records,
-                previous_compaction=previous,
-                created_at=self.now_iso(),
-            )
-
-        record = await asyncio.to_thread(_build)
-        return await self.persist_compaction(record)

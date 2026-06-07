@@ -140,19 +140,9 @@ async def handle_plan(context: SlashCommandContext, args: list[str]) -> str:
 
 async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
     compact_context = getattr(context.runtime, "compact_context", None)
-    if callable(compact_context):
-        try:
-            record = await compact_context(reason="manual", cancellation_token=context.cancellation_token)
-        except TypeError:
-            try:
-                record = await compact_context(reason="manual")
-            except TypeError:
-                record = await compact_context()
-    else:
-        compact_context = getattr(context.session, "compact_context", None)
-        if not callable(compact_context):
-            return "Compact is not supported by this session store."
-        record = await compact_context()
+    if not callable(compact_context):
+        return "Compact is not supported by this runtime."
+    record = await compact_context(reason="manual", cancellation_token=context.cancellation_token)
     source = record.get("source") if isinstance(record, dict) else {}
     if not isinstance(source, dict):
         source = {}

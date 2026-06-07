@@ -222,8 +222,8 @@ async def test_async_runtime_facade_manual_compact_uses_runner():
         def __init__(self):
             self.called = None
 
-        async def compact_context(self, session, reason="manual", phase="manual"):
-            self.called = (session, reason, phase)
+        async def compact_context(self, session, reason="manual", phase="manual", cancellation_token=None):
+            self.called = (session, reason, phase, cancellation_token)
             return {"id": "compact_1"}
 
     session = FakeSession()
@@ -233,7 +233,7 @@ async def test_async_runtime_facade_manual_compact_uses_runner():
     record = await facade.compact_context(reason="manual")
 
     assert record == {"id": "compact_1"}
-    assert runner.called == (session, "manual", "manual")
+    assert runner.called == (session, "manual", "manual", None)
 
 
 @pytest.mark.asyncio

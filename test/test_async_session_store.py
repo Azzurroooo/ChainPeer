@@ -354,14 +354,29 @@ async def test_legacy_session_schema_is_rejected(temp_session_dir):
 
 
 @pytest.mark.asyncio
-async def test_manual_compact_appends_boundary_without_rewriting_messages(temp_session_dir):
+async def test_persist_compaction_appends_boundary_without_rewriting_messages(temp_session_dir):
     store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
     await store.initialize()
     await store.persist_message("user", "old question")
     await store.persist_message("assistant", "old answer")
     before = await store.load_messages()
 
-    record = await store.compact_context()
+    record = await store.persist_compaction(
+        {
+            "id": "compact_1",
+            "created_at": store.now_iso(),
+            "policy_version": "compact_boundary_v2",
+            "source": {
+                "message_start_index": 0,
+                "message_end_index_exclusive": len(before),
+                "tool_call_ids": [],
+            },
+            "handoff_message": {
+                "role": "assistant",
+                "content": "Context compacted.\n\n- old question\n- old answer",
+            },
+        }
+    )
     after = await store.load_messages()
     session_base = Path(temp_session_dir) / store.session_id
 
@@ -463,7 +478,22 @@ async def test_latest_valid_compact_boundary_survives_newer_broken_boundary(temp
     store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
     await store.initialize()
     await store.persist_message("user", "old compacted question")
-    record = await store.compact_context()
+    record = await store.persist_compaction(
+        {
+            "id": "compact_1",
+            "created_at": store.now_iso(),
+            "policy_version": "compact_boundary_v2",
+            "source": {
+                "message_start_index": 0,
+                "message_end_index_exclusive": 1,
+                "tool_call_ids": [],
+            },
+            "handoff_message": {
+                "role": "assistant",
+                "content": "Context compacted.\n\n- old compacted question",
+            },
+        }
+    )
     await store.persist_message("user", "after valid compact")
     await store.persist_message("assistant", "", meta={"kind": "compact_boundary", "compact_id": "missing"})
     await store.persist_message("user", "after broken boundary")
@@ -637,7 +667,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as tmp:
             await test_legacy_session_schema_is_rejected(tmp)
         with tempfile.TemporaryDirectory() as tmp:
-            await test_manual_compact_appends_boundary_without_rewriting_messages(tmp)
+            await test_persist_compaction_appends_boundary_without_rewriting_messages(tmp)
         with tempfile.TemporaryDirectory() as tmp:
             await test_orphan_compaction_record_does_not_compact_context(tmp)
         with tempfile.TemporaryDirectory() as tmp:

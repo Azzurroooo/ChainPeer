@@ -45,21 +45,8 @@ def restore_config_state():
 class FakeSession:
     session_id = "session_1"
     model = "model_a"
-    compact_called = False
-
     async def get_messages_slice(self):
         return [{"role": "system", "content": "sys"}, {"role": "user", "content": "hello"}]
-
-    async def compact_context(self):
-        self.compact_called = True
-        return {
-            "id": "compact_1",
-            "source": {
-                "message_start_index": 0,
-                "message_end_index_exclusive": 2,
-                "tool_call_ids": ["call_1"],
-            },
-        }
 
     async def get_latest_sampling_usage(self):
         return None
@@ -78,8 +65,9 @@ class FakeRuntime:
         self.called = True
         return EmptyStream()
 
-    async def compact_context(self, reason="manual"):
+    async def compact_context(self, reason="manual", cancellation_token=None):
         self.compact_called = True
+        self.cancellation_token = cancellation_token
         return {
             "id": "runtime_compact_1",
             "source": {
@@ -450,14 +438,13 @@ async def test_model_rejects_invalid_set_args() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compact_calls_session_compact_context() -> None:
+async def test_compact_calls_runtime_compact_context() -> None:
     session = FakeSession()
     runtime = FakeRuntime()
     context = SlashCommandContext(runtime=runtime, session=session, debug=True)
     result = await SlashCommandRouter().execute("/compact", context)
 
     assert runtime.compact_called is True
-    assert session.compact_called is False
     assert "Compact complete." in result.text
     assert "runtime_compact_1" in result.text
     assert "tool calls: 0" in result.text
@@ -663,7 +650,7 @@ def main() -> int:
     asyncio.run(test_status_shows_latest_sampling_usage())
     asyncio.run(test_status_does_not_show_recent_tools())
     asyncio.run(test_model_rejects_invalid_set_args())
-    asyncio.run(test_compact_calls_session_compact_context())
+    asyncio.run(test_compact_calls_runtime_compact_context())
     asyncio.run(test_compact_passes_cancellation_token_to_runtime())
     asyncio.run(test_clear_requests_screen_clear())
     asyncio.run(test_clear_rejects_extra_args())

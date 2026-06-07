@@ -88,9 +88,6 @@ class AsyncSessionStore(Protocol):
         """Get the latest compact boundary record."""
         ...
 
-    async def compact_context(self) -> dict[str, Any]:
-        """Create and persist a deterministic manual compact boundary."""
-        ...
 
     async def persist_sampling_usage(self, usage: dict[str, Any]) -> None:
         """Persist latest provider token usage for observability."""
