@@ -398,7 +398,7 @@ async def test_context_manager_compact_usage_does_not_act_as_anchor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_context_manager_reports_plan_and_skill_error_types() -> None:
+async def test_context_manager_ignores_plan_provider_and_reports_skill_error_type() -> None:
     class BrokenPlanProvider:
         def build_context(self):
             raise ValueError("bad plan")
@@ -418,8 +418,8 @@ async def test_context_manager_reports_plan_and_skill_error_types() -> None:
 
     result = await manager.build_messages_async(session=session)
 
-    if result.decisions.get("plan_state") != "error" or result.decisions.get("plan_error_type") != "ValueError":
-        raise AssertionError(f"Expected plan error type, got: {result.decisions}")
+    if result.decisions.get("plan_state") != "none" or result.decisions.get("plan_error_type") is not None:
+        raise AssertionError(f"Expected plan provider to be ignored, got: {result.decisions}")
     if result.decisions.get("skill_error_type") != "RuntimeError":
         raise AssertionError(f"Expected skill error type, got: {result.decisions}")
 
@@ -462,7 +462,7 @@ def main() -> int:
         await test_context_manager_estimate_after_compact_baseline_ignores_stale_server_usage()
         await test_context_manager_generation_mismatch_falls_back_to_local_estimate()
         await test_context_manager_compact_usage_does_not_act_as_anchor()
-        await test_context_manager_reports_plan_and_skill_error_types()
+        await test_context_manager_ignores_plan_provider_and_reports_skill_error_type()
         await test_context_manager_new_tool_append_does_not_change_old_tool_content()
 
     asyncio.run(_run_all())

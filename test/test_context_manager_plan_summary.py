@@ -63,7 +63,7 @@ class ChangingPlanProvider:
 
 
 @pytest.mark.asyncio
-async def test_context_manager_inserts_plan_summary_before_latest_user_without_inactive_skill_index() -> None:
+async def test_context_manager_does_not_inject_plan_summary_before_latest_user() -> None:
     provider = ChangingPlanProvider()
     manager = ContextManager(
         plan_context_provider=provider,
@@ -79,25 +79,20 @@ async def test_context_manager_inserts_plan_summary_before_latest_user_without_i
 
     result = await manager.build_messages_async(session=session)
 
-    contents = [message.get("content", "") for message in result.messages]
-    if contents != [
-        "sys",
-        "old question",
-        "old answer",
-        "Active plan summary:\n- Plan: p (version 1)",
-        "latest question",
-    ]:
-        raise AssertionError(f"Expected plan summary before latest user, got: {result.messages}")
-    if any(content.startswith("Available skills:") for content in contents):
-        raise AssertionError(f"Did not expect inactive skill index, got: {result.messages}")
-    if result.stats.get("plan_summary_chars", 0) <= 0:
-        raise AssertionError(f"Expected plan stats, got: {result.stats}")
-    if result.decisions.get("plan_state") != "open" or not result.decisions.get("plan_summary_injected"):
-        raise AssertionError(f"Expected plan decisions, got: {result.decisions}")
+    assert result.messages == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "old question"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "latest question"},
+    ]
+    assert provider.count == 0
+    assert result.stats["plan_summary_chars"] == 0
+    assert result.decisions["plan_summary_injected"] is False
+    assert result.decisions["plan_state"] == "none"
 
 
 @pytest.mark.asyncio
-async def test_context_manager_keeps_active_skill_after_system_when_plan_moves_to_tail() -> None:
+async def test_context_manager_keeps_active_skill_after_system_without_plan_injection() -> None:
     provider = ChangingPlanProvider()
     skill = Skill(
         name="demo",
@@ -124,14 +119,15 @@ async def test_context_manager_keeps_active_skill_after_system_when_plan_moves_t
     )
 
     contents = [message.get("content", "") for message in result.messages]
-    if contents[0] != "sys" or not contents[1].startswith("Active skill instructions:"):
-        raise AssertionError(f"Expected active skill immediately after system, got: {result.messages}")
-    if contents[-2] != "Active plan summary:\n- Plan: p (version 1)" or contents[-1] != "latest $demo question":
-        raise AssertionError(f"Expected plan summary before latest user, got: {result.messages}")
+    assert contents[0] == "sys"
+    assert contents[1].startswith("Active skill instructions:")
+    assert contents[-1] == "latest $demo question"
+    assert all(not content.startswith("Active plan summary:") for content in contents)
+    assert provider.count == 0
 
 
 @pytest.mark.asyncio
-async def test_context_manager_reads_plan_summary_each_build() -> None:
+async def test_context_manager_repeated_builds_keep_messages_stable_without_plan_reads() -> None:
     provider = ChangingPlanProvider()
     manager = ContextManager(plan_context_provider=provider)
     session = QueryOnlySession([
@@ -144,41 +140,18 @@ async def test_context_manager_reads_plan_summary_each_build() -> None:
     first = await manager.build_messages_async(session=session)
     second = await manager.build_messages_async(session=session)
 
-    first_summary = first.messages[-2]["content"]
-    second_summary = second.messages[-2]["content"]
-    if "version 1" not in first_summary or "version 2" not in second_summary:
-        raise AssertionError(f"Expected fresh plan summary each build, got: {first_summary}, {second_summary}")
-
-
-@pytest.mark.asyncio
-async def test_context_manager_plan_summary_changes_preserve_history_prefix() -> None:
-    provider = ChangingPlanProvider()
-    manager = ContextManager(plan_context_provider=provider)
-    session = QueryOnlySession([
+    assert first.messages == second.messages
+    assert first.messages == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "old question"},
         {"role": "assistant", "content": "old answer"},
         {"role": "user", "content": "latest question"},
-    ])
-
-    first = await manager.build_messages_async(session=session)
-    second = await manager.build_messages_async(session=session)
-
-    first_prefix = first.messages[:3]
-    second_prefix = second.messages[:3]
-    expected_prefix = [
-        {"role": "system", "content": "sys"},
-        {"role": "user", "content": "old question"},
-        {"role": "assistant", "content": "old answer"},
     ]
-    if first_prefix != expected_prefix or second_prefix != expected_prefix:
-        raise AssertionError(f"Expected stable history prefix, got: {first.messages} / {second.messages}")
-    if first.messages[-2] == second.messages[-2]:
-        raise AssertionError(f"Expected plan summary to refresh, got: {first.messages} / {second.messages}")
+    assert provider.count == 0
 
 
 @pytest.mark.asyncio
-async def test_context_manager_appends_plan_summary_when_no_user_message_exists() -> None:
+async def test_context_manager_does_not_inject_plan_without_user_message() -> None:
     provider = ChangingPlanProvider()
     manager = ContextManager(plan_context_provider=provider)
     session = QueryOnlySession([
@@ -188,23 +161,20 @@ async def test_context_manager_appends_plan_summary_when_no_user_message_exists(
 
     result = await manager.build_messages_async(session=session)
 
-    contents = [message.get("content", "") for message in result.messages]
-    if contents != [
-        "sys",
-        "Active plan summary:\n- Plan: p (version 1)",
-        "assistant only",
-    ]:
-        raise AssertionError(f"Expected plan summary in system prefix without user message, got: {result.messages}")
+    assert result.messages == [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "content": "assistant only"},
+    ]
+    assert provider.count == 0
 
 
 def main() -> int:
     import asyncio
 
-    asyncio.run(test_context_manager_inserts_plan_summary_before_latest_user_without_inactive_skill_index())
-    asyncio.run(test_context_manager_keeps_active_skill_after_system_when_plan_moves_to_tail())
-    asyncio.run(test_context_manager_reads_plan_summary_each_build())
-    asyncio.run(test_context_manager_plan_summary_changes_preserve_history_prefix())
-    asyncio.run(test_context_manager_appends_plan_summary_when_no_user_message_exists())
+    asyncio.run(test_context_manager_does_not_inject_plan_summary_before_latest_user())
+    asyncio.run(test_context_manager_keeps_active_skill_after_system_without_plan_injection())
+    asyncio.run(test_context_manager_repeated_builds_keep_messages_stable_without_plan_reads())
+    asyncio.run(test_context_manager_does_not_inject_plan_without_user_message())
     print("ContextManager plan summary tests passed.")
     return 0
 

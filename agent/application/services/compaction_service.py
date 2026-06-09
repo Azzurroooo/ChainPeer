@@ -75,6 +75,7 @@ class CompactionService:
                 "message": str(exc),
             }
 
+        self._append_active_plan_snapshot(record)
         persist = getattr(session, "persist_compaction", None)
         if callable(persist):
             return await persist(record)
@@ -207,6 +208,32 @@ class CompactionService:
             except Exception:
                 return None
         return None
+
+    def _append_active_plan_snapshot(self, record: dict[str, Any]) -> None:
+        snapshot = self._active_plan_snapshot()
+        if not snapshot:
+            return
+        handoff = record.get("handoff_message")
+        if not isinstance(handoff, dict):
+            return
+        content = handoff.get("content")
+        if not isinstance(content, str):
+            return
+        handoff["content"] = content.rstrip() + "\n\nPlan state at compact boundary:\n" + snapshot
+
+    def _active_plan_snapshot(self) -> str:
+        try:
+            from agent.infrastructure.plans.model import ensure_plan_defaults
+            from agent.infrastructure.plans.state_summary import render_compact_plan_summary
+            from agent.infrastructure.plans.store import load_plan_if_exists
+
+            plan = load_plan_if_exists()
+            if not plan or plan.get("status") != "active":
+                return ""
+            ensure_plan_defaults(plan)
+            return render_compact_plan_summary(plan, char_limit=1800).strip()
+        except Exception:
+            return ""
 
     def _assistant_content(self, response: Any) -> str:
         output_text = getattr(response, "output_text", None)
