@@ -9,6 +9,7 @@ from agent.application.runtime.async_turn_runner import AsyncTurnRunner
 from agent.application.runtime.message_stream_parser import MessageStreamParser
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.infrastructure.config import Config
+from agent.infrastructure.chainpeer_docs import build_chainpeer_doc_context
 from agent.infrastructure.llm.openai_async_chat_client import AsyncOpenAIChatClient
 from agent.infrastructure.persistence.async_jsonl_session_store import AsyncJsonlSessionStore
 from agent.infrastructure.plans import PlanContextProvider
@@ -72,6 +73,7 @@ def build_basic_agent_dependencies(
             skill_repository=skill_repository,
             skill_selector=skill_selector,
             plan_context_provider=plan_context_provider,
+            chainpeer_doc_provider=build_chainpeer_doc_context,
         ),
         debug=debug,
     )

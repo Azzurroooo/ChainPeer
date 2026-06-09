@@ -24,3 +24,31 @@ def test_system_info_uses_detected_shell_backend(monkeypatch):
 
     assert "Shell Type: PowerShell" in info
     assert f"Shell Executable: {shell_path}" in info
+
+
+def test_system_prompt_contains_chainpeer_doc_rules():
+    text = prompts.SYSTEM_PROMPT
+
+    assert "CHAINPEER.md Context Docs" in text
+    assert "32 KiB byte budget" in text
+    assert "Never create, update, delete, or rename any `CHAINPEER.md`" in text
+    assert "not automatically updated memory" in text
+
+
+def test_chainpeer_init_prompt_scopes_project_file():
+    prompt = prompts.build_chainpeer_init_prompt("project", r"C:\repo\CHAINPEER.md")
+
+    assert "project-level ChainPeer context document" in prompt
+    assert r"C:\repo\CHAINPEER.md" in prompt
+    assert "Explore the project lightly before writing" in prompt
+    assert "Do not modify the other CHAINPEER.md level." in prompt
+    assert "32 KiB byte budget" in prompt
+
+
+def test_chainpeer_init_prompt_scopes_user_file():
+    prompt = prompts.build_chainpeer_init_prompt("user", r"C:\Users\me\.chainpeer\CHAINPEER.md")
+
+    assert "user-level ChainPeer context document" in prompt
+    assert "Do not copy project facts into the user-level file." in prompt
+    assert "Do not invent preferences." in prompt
+    assert r"C:\Users\me\.chainpeer\CHAINPEER.md" in prompt

@@ -9,6 +9,7 @@ from typing import Any
 from rich.console import Console
 
 from agent.domain.events import (
+    ContextBuiltEvent,
     RuntimeEvent,
     SkillActivatedEvent,
     ToolCallStartedEvent,
@@ -46,6 +47,8 @@ class CliStatusRenderer:
         """Render a runtime event if it is relevant to CLI status."""
         if isinstance(event, TurnStartedEvent):
             self._handle_turn_started(event)
+        elif isinstance(event, ContextBuiltEvent):
+            self._handle_context_built(event)
         elif isinstance(event, SkillActivatedEvent):
             self._handle_skill_activated(event)
         elif isinstance(event, ToolRequestedEvent):
@@ -72,6 +75,14 @@ class CliStatusRenderer:
                 f"turn started: turn_id={event.turn_id or 'unknown'}, "
                 f"user_message_chars={event.user_message_chars}"
             )
+
+    def _handle_context_built(self, event: ContextBuiltEvent) -> None:
+        decisions = event.decisions if isinstance(event.decisions, dict) else {}
+        if not decisions.get("chainpeer_docs_truncated"):
+            return
+        scopes = decisions.get("chainpeer_docs_truncated_scopes")
+        scope_text = ", ".join(str(scope) for scope in scopes) if isinstance(scopes, list) else "unknown"
+        self._print_status(f"Warning: CHAINPEER.md truncated for context: {scope_text}", style="yellow")
 
     def _handle_skill_activated(self, event: SkillActivatedEvent) -> None:
         skill_name = event.skill_name or "unknown"

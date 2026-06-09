@@ -19,6 +19,7 @@ COMMAND_INFOS = (
     SlashCommandInfo("doctor", "Run local setup diagnostics", "/doctor"),
     SlashCommandInfo("sessions", "List recent sessions", "/sessions [limit]"),
     SlashCommandInfo("skill", "List skills", "/skill [list]"),
+    SlashCommandInfo("init", "Draft CHAINPEER.md", "/init [project|user]"),
     SlashCommandInfo("plan", "Show active plan summary", "/plan"),
     SlashCommandInfo("compact", "Compact current session context", "/compact"),
     SlashCommandInfo("model", "Show or change the active model", "/model | /model set <model>"),
@@ -40,6 +41,7 @@ def default_handlers() -> dict[str, Callable]:
         "doctor": handle_doctor,
         "sessions": handle_sessions,
         "skill": handle_skill,
+        "init": handle_init,
         "plan": handle_plan,
         "compact": handle_compact,
         "model": handle_model,
@@ -120,6 +122,31 @@ async def handle_skill(context: SlashCommandContext, args: list[str]) -> str:
         path = str(getattr(skill, "path", "") or "")
         lines.append(f"- {skill.name} [{skill.source}] {description} ({path})")
     return "\n".join(lines)
+
+
+async def handle_init(context: SlashCommandContext, args: list[str]) -> SlashCommandResult:
+    if len(args) > 1:
+        return SlashCommandResult("Usage: /init [project|user]")
+    scope = args[0].lower() if args else "project"
+    if scope not in {"project", "user"}:
+        return SlashCommandResult("Usage: /init [project|user]")
+
+    from agent.infrastructure.chainpeer_docs import resolve_project_doc_path, resolve_user_doc_path
+    from agent.prompts import build_chainpeer_init_prompt
+
+    target = resolve_project_doc_path() if scope == "project" else resolve_user_doc_path()
+    prompt = build_chainpeer_init_prompt(scope, str(target))
+    return SlashCommandResult(
+        text=f"Initializing {scope} CHAINPEER.md: {target}",
+        run_turn_input=f"Initialize {scope} CHAINPEER.md at {target}",
+        transient_system_messages=[
+            {
+                "role": "system",
+                "content": prompt,
+                "_context_kind": "chainpeer_init",
+            }
+        ],
+    )
 
 
 async def handle_plan(context: SlashCommandContext, args: list[str]) -> str:

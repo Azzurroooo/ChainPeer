@@ -319,10 +319,21 @@ class ChatCLI:
             return Path(str(root)) / str(session_id)
         return None
 
-    async def _run_turn_async(self, user_input: str) -> None:
+    async def _run_turn_async(
+        self,
+        user_input: str,
+        transient_system_messages: list[dict] | None = None,
+    ) -> None:
         cancel_source = CancellationTokenSource()
         self._current_cancel_source = cancel_source
-        event_stream = self._runtime.run_turn(query=user_input, cancellation_token=cancel_source.token)
+        if transient_system_messages:
+            event_stream = self._runtime.run_turn(
+                query=user_input,
+                cancellation_token=cancel_source.token,
+                transient_system_messages=transient_system_messages,
+            )
+        else:
+            event_stream = self._runtime.run_turn(query=user_input, cancellation_token=cancel_source.token)
         try:
             async for event in event_stream:
                 self._on_event(event)
@@ -386,6 +397,20 @@ class ChatCLI:
             self._pending_input_prefill = result.input_prefill
         if result.text:
             render_markdown(result.text)
+        if result.run_turn_input:
+            print("\nAgent:")
+            self._streaming_renderer = StreamingRenderer(self._console)
+            self._status_renderer = CliStatusRenderer(
+                self._console,
+                debug=self._debug,
+                before_print=self._flush_assistant_for_status,
+            )
+            await self._run_turn_async(
+                result.run_turn_input,
+                transient_system_messages=result.transient_system_messages,
+            )
+            self._streaming_renderer.flush()
+            print()
         return result.should_exit
 
     def _run_slash_command_blocking(self, user_input: str) -> bool:

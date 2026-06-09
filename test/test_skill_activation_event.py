@@ -55,7 +55,10 @@ class FakeContextManager:
         active_matches = list(kwargs.get("active_skill_matches") or [])
         self.build_active_matches.append(active_matches)
         return MagicMock(
-            messages=[{"role": "system", "content": "sys"}],
+            messages=[
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hello"},
+            ],
             decisions={
                 "active_skills": [
                     {
