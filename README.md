@@ -1,129 +1,181 @@
-# 🤖 ChainPeer Agent
+<p align="center">
+  <img src="assets/chainpeer.svg" alt="ChainPeer logo" width="104" />
+</p>
 
-![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
-![Architecture](https://img.shields.io/badge/Architecture-Layered-success.svg)
-![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)
+<h1 align="center">ChainPeer Agent</h1>
 
-A context-aware autonomous coding agent with a clean layered architecture. It uses **append-only session records** for resume, a **DAG-based plan tool**, and runtime context management built around compaction, tool-result normalization, and context-length rescue.
+<p align="center">
+  A compact Python agent runtime for coding workflows, built around clarity, resumability, and small composable tools.
+</p>
 
----
+<p align="center">
+  English | <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-## ✨ Why ChainPeer?
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12+-blue.svg" alt="Python 3.12+" />
+  <img src="https://img.shields.io/badge/Architecture-layered-success.svg" alt="Layered architecture" />
+  <img src="https://img.shields.io/badge/Interface-CLI-informational.svg" alt="CLI interface" />
+</p>
 
-Most open-source agents suffer from two fatal flaws: they crash when tool outputs are too large, and they lose state if interrupted. ChainPeer solves this with enterprise-grade engineering:
+## What is ChainPeer?
 
-- 🧠 **Context Management**: `ContextManager` builds model input from persisted records, `ContextEstimator` tracks budget pressure, `CompactionService` creates compact handoffs, and `ToolResultNormalizer` keeps large tool outputs model-safe.
-- 💾 **Fail-Safe Resume**: Messages, tool calls, compactions, and session metadata are stored as append-only local records. Run `python main.py -c` to resume the latest session.
-- 🗺️ **DAG Task Planning**: The plan tool validates dependency graphs, persists control state, and blocks dependent steps until prerequisites are completed.
-- 🏗️ **Layered Architecture**: The `application` layer owns runtime orchestration and service logic, `infrastructure` owns LLM/persistence/tool adapters, and `interfaces` exposes the CLI and session API adapters.
+ChainPeer is a standard Python implementation of an autonomous coding agent. It is designed to be useful as a local CLI tool, but also readable enough to serve as a reference implementation for how an agent runtime can be assembled.
 
----
+The project takes a restrained position: an agent should not become a large framework before it becomes a reliable instrument. ChainPeer keeps the structure explicit, the tool contracts small, and the runtime state recoverable. From context compaction to tool execution, each part is implemented in the smallest form that preserves a good working experience.
 
-## 🚀 Quick Start
+## Design Principles
 
-### 1. Prerequisites
+- **Subtract before adding**: ChainPeer favors fewer concepts, smaller modules, and explicit boundaries. New abstractions are introduced only when they reduce real complexity.
+- **Small tools, clear contracts**: Shell, file, web, PDF, plan, and skill tools are exposed through compact interfaces and predictable result shapes.
+- **Context is runtime state**: Context estimation, compaction, and tool-result normalization are treated as first-class runtime responsibilities, not as prompt afterthoughts.
+- **Local-first continuity**: Sessions, messages, tool calls, and compactions are persisted as append-only local records so work can resume after interruption.
+- **Standard Python over framework gravity**: The codebase uses ordinary Python modules, dependency inversion, async orchestration, and focused services instead of a heavy plugin framework.
+- **Good defaults, visible mechanics**: The CLI aims to feel direct and practical while still making model, session, cwd, status, and diagnostics visible when they matter.
+
+## Capabilities
+
+- Interactive coding-agent CLI with streaming output, slash commands, session resume, status rendering, and setup diagnostics.
+- OpenAI-compatible async chat client with configurable model, base URL, reasoning effort, and context window.
+- Append-only JSONL session storage for messages, tool calls, compactions, and session metadata.
+- Runtime context management with budget estimation, automatic compaction, context-length rescue, and normalized tool outputs.
+- DAG-based planning tool for tracking dependent work items across turns.
+- Built-in tools for shell execution, file operations, web retrieval, PDF handling, planning, and skill discovery.
+- FastAPI session adapter for applications that need to drive the runtime outside the interactive CLI.
+
+## Quick Start
+
+### Requirements
+
 - Python 3.12+
-- An OpenAI-compatible API key
+- An API key for an OpenAI-compatible chat completion endpoint
 
-### 2. Installation
+### Install
+
 ```bash
-git clone https://github.com/your-username/chainpeer.git
+git clone https://github.com/Azzurroooo/ChainPeer.git
 cd chainpeer
 
-# Create and activate a virtual environment
-python -m venv venv
-source venv/Scripts/activate  # On Windows
-# source venv/bin/activate    # On Mac/Linux
-
-# Install dependencies
-pip install -r requirements.txt
+python -m venv .venv
 ```
 
-### 3. Configuration
-Create a `.env` file in the root directory:
-```env
-OPENAI_API_KEY=your_api_key_here
-# Optional: Use an alternative API base (e.g., DeepSeek, Claude via proxy)
-# OPENAI_API_BASE=https://api.deepseek.com/v1 
+On Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-runtime.txt
 ```
 
-### 4. Run the Agent
+On macOS or Linux:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-runtime.txt
+```
+
+### Configure
+
+ChainPeer reads configuration from `~/.chainpeer/settings.json` by default. You can also use environment variables such as `OPENAI_API_KEY`, `OPENAI_API_BASE`, and `DEFAULT_MODEL`.
+
+Minimal `settings.json` example:
+
+```json
+{
+  "model": "your-model-name",
+  "apiKey": "your-api-key",
+  "baseUrl": "https://api.openai.com/v1",
+  "reasoningEffort": "high",
+  "contextWindow": 258400,
+  "effectiveContextWindowPercent": 95,
+  "autoCompactEnabled": true
+}
+```
+
+Run diagnostics before starting a session:
+
+```bash
+python main.py --doctor
+```
+
+### Run
+
 ```bash
 python main.py
 ```
 
----
+Resume the latest local session:
 
-## 🛠️ CLI Usage
+```bash
+python main.py -c
+```
 
-ChainPeer comes with a powerful CLI interface for managing sessions and debugging.
+Resume a specific session:
+
+```bash
+python main.py --session <session-id>
+```
+
+## CLI Commands
 
 | Command | Description |
-|---|---|
-| `python main.py` | Start a brand new agent session. |
-| `python main.py -c` | **Resume** the latest session from your local `.jsonl` storage. |
-| `python main.py --session <ID>` | Resume a specific session by its ID. |
-| `python main.py --debug` | Run in debug mode. Displays raw tool inputs/outputs and detailed context stats without streaming. |
-| `python main.py --doctor` | Run setup diagnostics without requiring a valid API key. |
-| `python main.py --allow-unsafe-bash` | Allow the agent to execute potentially dangerous shell commands. |
+| --- | --- |
+| `python main.py` | Start a new interactive agent session. |
+| `python main.py -c` | Resume the latest local session. |
+| `python main.py --session <id>` | Resume a specific session by ID. |
+| `python main.py --debug` | Disable streaming and show detailed runtime/tool diagnostics. |
+| `python main.py --doctor` | Check local setup without requiring a valid API key. |
+| `python main.py --allow-unsafe-bash` | Allow shell commands that are blocked by the default safety policy. |
 
-Inside the interactive CLI, the input toolbar shows the active session, model, cwd, and key hints. Slash commands complete with Tab after typing `/`. Resumed sessions show a compact recent-message preview while keeping the full context loaded. Tool activity lines summarize what is running, such as the shell command or file path, instead of only showing raw tool names. Run `/doctor` for a local setup check covering Python, Git, settings, API key state, model, context window, session storage, and shell detection. Run `/sessions` to list recent local sessions before resuming one with `python main.py --session <id>`. Use `/model set <model>` to switch the default model and the active session model.
+Inside the CLI, slash commands provide local controls for diagnostics, sessions, model selection, and status inspection. The input toolbar shows the active session, model, working directory, and key hints.
 
----
+## Architecture
 
-## 🏗️ Architecture at a Glance
-
-ChainPeer strictly follows the Dependency Inversion Principle.
+ChainPeer follows a layered structure with dependency inversion between the runtime core and infrastructure adapters.
 
 ```text
 agent/
 ├── application/
-│   ├── runtime/       # AsyncRuntimeFacade, AsyncTurnRunner, AsyncToolCallProcessor
-│   ├── services/      # ContextManager, ContextEstimator, CompactionService, ToolResultNormalizer
-│   └── ports/         # AsyncChatClient, AsyncSessionStore, ToolRegistry
+│   ├── runtime/       # Async runtime facade, turn runner, stream pump, tool-call processor
+│   ├── services/      # Context manager, compaction, token usage, skill selection
+│   └── ports/         # Chat client, session store, tool registry abstractions
 ├── infrastructure/
 │   ├── llm/           # OpenAI-compatible async chat client
-│   ├── persistence/   # AsyncJsonlSessionStore and record repositories
-│   ├── plans/         # Plan state, DAG validation, plan context injection
+│   ├── persistence/   # Append-only session records and repositories
+│   ├── plans/         # DAG plan model, store, scheduler, context injection
 │   └── tools/impl/    # Bash, file, web, PDF, plan, and skill tools
 └── interfaces/
-    ├── cli/           # Interactive CLI, slash commands, status rendering
-    └── api/           # FastAPI session turn streaming
+    ├── cli/           # Interactive CLI, slash commands, status UI
+    └── api/           # FastAPI session streaming adapter
 ```
 
-Runtime and persistence stream boundaries are documented in `docs/runtime-and-persistence.md`.
+Runtime and persistence boundaries are documented in [`docs/runtime-and-persistence.md`](docs/runtime-and-persistence.md).
 
----
+## Development
 
-## 🔧 Core Tools Built-in
+Install development dependencies:
 
-The agent is equipped with a powerful arsenal of tools to interact with your codebase:
+```bash
+pip install -r requirements.txt
+```
 
-- **`plan`**: Creates, updates, and tracks DAG-based task trees.
-- **`bash`**: Executes shell commands with robust timeout, cwd awareness, and auto-fallback decoding for Windows `gbk`/`utf-8` issues.
-- **`file_ops`**: Reads, edits, and creates files.
-- **`web`**: Fetches and parses web pages for documentation and search.
+Run the test suite:
 
----
-
-## 🧪 Testing
-
-We believe in reliable agents. Run the test suite:
 ```bash
 pytest test/ -q
 ```
-The repository includes focused tests for context budgets, tool-result normalization, compaction, append-only session records, resume behavior, runtime events, plans, skills, and CLI slash commands.
 
----
+The tests cover runtime events, context budgets, compaction, session persistence, resume behavior, tool result normalization, planning, skills, CLI rendering, and slash commands.
 
-## 🤝 Contributing
+## Direction
 
-We welcome contributions! Please follow our `feat:`, `fix:`, `refactor:` commit conventions. Keep single Python files compact (<= 400 lines preferred). 
+ChainPeer is an exploration of how far agent systems can go while remaining small enough to understand. Its future work is guided by three questions:
 
-When adding new tools, ensure you define the interfaces in `application/ports` and implement the messy details in `infrastructure/tools`.
+- How can an agent become more capable without accumulating unnecessary mechanism?
+- What new interfaces and presentations can make agent work more inspectable, continuous, and calm?
+- Which general design patterns can help Python agents become easier to build, test, package, and reason about?
 
----
+The project is intentionally modest in shape, but ambitious in what it tries to clarify: a capable agent can be built from simple parts, visible state, and disciplined boundaries.
 
-## 📄 License
+## License
 
-MIT License. See `LICENSE` for details.
+This project is released under the [MIT License](LICENSE).
