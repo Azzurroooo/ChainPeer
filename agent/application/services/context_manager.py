@@ -48,12 +48,10 @@ class ContextManager:
         pending = [dict(message) for message in (pending_messages or [])]
         budget = self._estimator.budget
         full_messages = persisted_messages + pending
-        plan_messages, plan_stats, plan_decisions = self._build_plan_messages()
+        plan_stats, plan_decisions = self._empty_plan_context()
         skill_messages, skill_stats, skill_decisions = self._build_skill_messages(active_skill_matches)
         if skill_messages:
             full_messages = self._insert_after_first_system(full_messages, skill_messages)
-        if plan_messages:
-            full_messages = self._insert_before_latest_user(full_messages, plan_messages)
 
         messages = list(full_messages)
         hot_message_count = min(
@@ -313,6 +311,10 @@ class ContextManager:
             return []
 
     def _build_plan_messages(self) -> tuple[list[dict], dict, dict]:
+        stats, decisions = self._empty_plan_context()
+        return [], stats, decisions
+
+    def _empty_plan_context(self) -> tuple[dict, dict]:
         stats = {
             "plan_summary_chars": 0,
             "plan_open": False,
@@ -326,15 +328,7 @@ class ContextManager:
             "plan_state": "none",
             "plan_error_type": None,
         }
-        if not self._plan_context_provider:
-            return [], stats, decisions
-        try:
-            messages, stats, decisions = self._plan_context_provider.build_context()
-            return self._mark_context_kind(messages, "plan_instruction"), stats, decisions
-        except Exception as exc:
-            decisions["plan_state"] = "error"
-            decisions["plan_error_type"] = type(exc).__name__
-            return [], stats, decisions
+        return stats, decisions
 
     def _build_skill_messages(self, active_skill_matches: list | None = None) -> tuple[list[dict], dict, dict]:
         stats = {
