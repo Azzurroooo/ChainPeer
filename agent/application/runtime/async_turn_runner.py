@@ -84,6 +84,7 @@ class AsyncTurnRunner:
         session: AsyncSessionStore,
         cancellation_token: CancellationToken | None = None,
         turn_id: str = "",
+        transient_system_messages: list[dict] | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
         """Run the main conversation loop for a user turn asynchronously, yielding events."""
         
@@ -106,6 +107,7 @@ class AsyncTurnRunner:
                 context = await self._build_context(
                     session,
                     turn_active_skill_matches,
+                    transient_system_messages=transient_system_messages,
                     allow_rescue=force_rescue_next_build,
                 )
                 force_rescue_next_build = False
@@ -142,6 +144,7 @@ class AsyncTurnRunner:
                         phase="mid_turn",
                         phase_detail="before_first_sampling" if sampling_index == 0 else None,
                         active_skill_matches=turn_active_skill_matches,
+                        transient_system_messages=transient_system_messages,
                         cancellation_token=cancellation_token,
                     )
                     context_stats = context.stats if isinstance(getattr(context, "stats", None), dict) else {}
@@ -200,6 +203,7 @@ class AsyncTurnRunner:
                                 phase="mid_turn",
                                 phase_detail="context_length_recovery",
                                 active_skill_matches=turn_active_skill_matches,
+                                transient_system_messages=transient_system_messages,
                                 cancellation_token=cancellation_token,
                             )
                         else:
@@ -293,6 +297,7 @@ class AsyncTurnRunner:
         phase: str,
         phase_detail: str | None = None,
         active_skill_matches: list | None = None,
+        transient_system_messages: list[dict] | None = None,
         cancellation_token: CancellationToken | None = None,
     ):
         await self._compaction_service.compact_async(
@@ -305,7 +310,11 @@ class AsyncTurnRunner:
             context_stats=context_stats,
             cancellation_token=cancellation_token,
         )
-        context = await self._build_context(session, active_skill_matches=active_skill_matches)
+        context = await self._build_context(
+            session,
+            active_skill_matches=active_skill_matches,
+            transient_system_messages=transient_system_messages,
+        )
         await self._update_auto_compact_window_from_context_estimate(session, context)
         self._validate_compact_context(context)
         return context
@@ -314,11 +323,13 @@ class AsyncTurnRunner:
         self,
         session: AsyncSessionStore,
         active_skill_matches: list | None,
+        transient_system_messages: list[dict] | None = None,
         allow_rescue: bool = False,
     ):
         return await self._context_manager.build_messages_async(
             session=session,
             active_skill_matches=active_skill_matches,
+            transient_system_messages=transient_system_messages,
             allow_rescue=allow_rescue,
         )
 

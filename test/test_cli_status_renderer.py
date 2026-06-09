@@ -148,6 +148,24 @@ def test_context_built_is_quiet_in_debug_mode() -> None:
         raise AssertionError(f"Expected no debug context output, got: {output.getvalue()!r}")
 
 
+def test_context_built_warns_on_chainpeer_truncation() -> None:
+    renderer, output = make_renderer()
+
+    renderer.handle(
+        ContextBuiltEvent(
+            message_count=8,
+            decisions={
+                "chainpeer_docs_truncated": True,
+                "chainpeer_docs_truncated_scopes": ["user", "project"],
+            },
+        )
+    )
+
+    text = output.getvalue()
+    if "Warning: CHAINPEER.md truncated for context: user, project" not in text:
+        raise AssertionError(f"Expected CHAINPEER truncation warning, got: {text!r}")
+
+
 def test_token_stats_updated_output() -> None:
     renderer, output = make_renderer()
 
@@ -247,6 +265,7 @@ def main() -> int:
     test_skill_activation_deduplicates_within_turn()
     test_context_built_is_quiet_in_normal_mode()
     test_context_built_is_quiet_in_debug_mode()
+    test_context_built_warns_on_chainpeer_truncation()
     test_token_stats_updated_output()
     test_token_stats_tolerates_invalid_numeric_values()
     test_debug_tool_requested_shows_truncated_args()

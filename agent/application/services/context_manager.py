@@ -29,6 +29,7 @@ class ContextManager:
         skill_selector=None,
         plan_context_provider=None,
         active_skill_char_limit: int = 12000,
+        chainpeer_doc_provider=None,
     ):
         self._estimator = estimator or ContextEstimator()
         self._hot_message_limit = max(1, int(hot_message_limit))
@@ -36,12 +37,14 @@ class ContextManager:
         self._skill_selector = skill_selector
         self._plan_context_provider = plan_context_provider
         self._active_skill_char_limit = max(0, int(active_skill_char_limit))
+        self._chainpeer_doc_provider = chainpeer_doc_provider
 
     async def build_messages_async(
         self,
         session,
         pending_messages: list[dict] | None = None,
         active_skill_matches: list | None = None,
+        transient_system_messages: list[dict] | None = None,
         allow_rescue: bool = False,
     ) -> ContextBuildResult:
         persisted_messages = [dict(message) for message in await session.get_messages_slice()]
@@ -49,9 +52,15 @@ class ContextManager:
         budget = self._estimator.budget
         full_messages = persisted_messages + pending
         plan_stats, plan_decisions = self._empty_plan_context()
+        chainpeer_messages, chainpeer_stats, chainpeer_decisions = self._build_chainpeer_doc_messages()
         skill_messages, skill_stats, skill_decisions = self._build_skill_messages(active_skill_matches)
-        if skill_messages:
-            full_messages = self._insert_after_first_system(full_messages, skill_messages)
+        extra_system_messages = (
+            chainpeer_messages
+            + self._valid_system_messages(transient_system_messages)
+            + skill_messages
+        )
+        if extra_system_messages:
+            full_messages = self._insert_after_first_system(full_messages, extra_system_messages)
 
         messages = list(full_messages)
         hot_message_count = min(
@@ -95,6 +104,7 @@ class ContextManager:
             "budget": budget.to_dict(),
             **auto_compact_status,
             **plan_stats,
+            **chainpeer_stats,
             **skill_stats,
         }
         decisions = {
@@ -109,6 +119,7 @@ class ContextManager:
             "compact_required": final_estimate.over_hard_limit,
             "auto_compact_token_limit_reached": auto_compact_status["auto_compact_token_limit_reached"],
             **plan_decisions,
+            **chainpeer_decisions,
             **skill_decisions,
         }
         return ContextBuildResult(messages=final_messages, stats=stats, decisions=decisions)
@@ -330,6 +341,35 @@ class ContextManager:
         }
         return stats, decisions
 
+    def _build_chainpeer_doc_messages(self) -> tuple[list[dict], dict, dict]:
+        stats = {
+            "chainpeer_docs_user_exists": False,
+            "chainpeer_docs_project_exists": False,
+            "chainpeer_docs_user_bytes": 0,
+            "chainpeer_docs_project_bytes": 0,
+            "chainpeer_docs_user_injected_bytes": 0,
+            "chainpeer_docs_project_injected_bytes": 0,
+            "chainpeer_docs_injected_chars": 0,
+        }
+        decisions = {
+            "chainpeer_docs_injected": False,
+            "chainpeer_docs_truncated": False,
+            "chainpeer_docs_truncated_scopes": [],
+            "chainpeer_docs_user_path": None,
+            "chainpeer_docs_project_path": None,
+            "chainpeer_docs_error_type": None,
+        }
+        if not self._chainpeer_doc_provider:
+            return [], stats, decisions
+        try:
+            messages, provider_stats, provider_decisions = self._chainpeer_doc_provider()
+        except Exception as exc:
+            decisions["chainpeer_docs_error_type"] = type(exc).__name__
+            return [], stats, decisions
+        stats.update(provider_stats if isinstance(provider_stats, dict) else {})
+        decisions.update(provider_decisions if isinstance(provider_decisions, dict) else {})
+        return self._valid_system_messages(messages), stats, decisions
+
     def _build_skill_messages(self, active_skill_matches: list | None = None) -> tuple[list[dict], dict, dict]:
         stats = {
             "skill_count": 0,
@@ -394,6 +434,16 @@ class ContextManager:
             }
         )
         return messages, stats, decisions
+
+    def _valid_system_messages(self, messages: list[dict] | None) -> list[dict]:
+        valid = []
+        for message in messages or []:
+            if not isinstance(message, dict) or message.get("role") != "system":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                valid.append(dict(message))
+        return valid
 
     def _insert_after_first_system(self, messages: list[dict], extra_messages: list[dict]) -> list[dict]:
         if not extra_messages:

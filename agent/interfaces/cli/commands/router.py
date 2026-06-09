@@ -24,6 +24,8 @@ class SlashCommandResult:
     should_exit: bool = False
     clear_screen: bool = False
     input_prefill: str = ""
+    run_turn_input: str = ""
+    transient_system_messages: list[dict] | None = None
 
 
 @dataclass(frozen=True, slots=True)

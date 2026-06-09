@@ -177,6 +177,49 @@ async def test_async_runtime_facade_emits_turn_started_first():
 
 
 @pytest.mark.asyncio
+async def test_async_runtime_facade_passes_transient_system_messages():
+    class FakeSession:
+        session_id = "session_1"
+
+        def __init__(self):
+            self.persisted = []
+
+        async def initialize(self):
+            return None
+
+        async def persist_message(self, role, content, **kwargs):
+            self.persisted.append((role, content, kwargs))
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+    class FakeRunner:
+        def __init__(self):
+            self.received = None
+
+        async def run_turn(self, session, cancellation_token=None, turn_id="", transient_system_messages=None):
+            self.received = transient_system_messages
+            yield TurnCompletedEvent(turn_id=turn_id)
+
+    prompt_messages = [{"role": "system", "content": "init prompt"}]
+    runner = FakeRunner()
+    session = FakeSession()
+    facade = AsyncRuntimeFacade(turn_runner=runner, session_store=session)
+
+    events = [
+        event
+        async for event in facade.run_turn(
+            query="Initialize project CHAINPEER.md",
+            transient_system_messages=prompt_messages,
+        )
+    ]
+
+    assert isinstance(events[0], TurnStartedEvent)
+    assert runner.received == prompt_messages
+    assert session.persisted == [("user", "Initialize project CHAINPEER.md", {})]
+
+
+@pytest.mark.asyncio
 async def test_async_runtime_facade_initializes_session_once_for_concurrent_turns():
     class FakeSession:
         session_id = "session_1"
@@ -335,6 +378,50 @@ async def test_async_turn_runner_emits_tool_requested_before_tool_execution():
     assert requested_index < result_index
     assert events[requested_index].args_preview == '{"command":"date"}'
     assert events[requested_index].turn_id == "turn_1"
+
+
+@pytest.mark.asyncio
+async def test_async_turn_runner_passes_transient_system_messages_to_context():
+    class EmptyStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock(return_value=EmptyStream())
+    mock_parser = MagicMock()
+    mock_parser.consume_async_stream = AsyncMock(return_value=("", [], None))
+    mock_context = MagicMock()
+    mock_context.build_messages_async = AsyncMock(return_value=MagicMock(messages=[], stats={}, decisions={}))
+    mock_context.select_active_skills_for_turn = None
+
+    class FakeSession:
+        session_id = "session_1"
+
+        def now_iso(self):
+            return "2026-05-08T00:00:00Z"
+
+    prompt_messages = [{"role": "system", "content": "init prompt"}]
+    runner = AsyncTurnRunner(
+        chat_client=mock_client,
+        tool_processor=MagicMock(),
+        stream_parser=mock_parser,
+        tool_schemas=[],
+        context_manager=mock_context,
+    )
+
+    events = [
+        event
+        async for event in runner.run_turn(
+            FakeSession(),
+            transient_system_messages=prompt_messages,
+        )
+    ]
+
+    assert any(isinstance(event, TurnCompletedEvent) for event in events)
+    assert mock_context.build_messages_async.call_args.kwargs["transient_system_messages"] == prompt_messages
 
 
 @pytest.mark.asyncio
@@ -1038,10 +1125,12 @@ def main() -> int:
     asyncio.run(test_async_turn_runner_stream_cancelled_error_is_cancelled_event())
     asyncio.run(test_async_turn_runner_cancelled_error_prefers_token_reason())
     asyncio.run(test_async_runtime_facade_emits_turn_started_first())
+    asyncio.run(test_async_runtime_facade_passes_transient_system_messages())
     asyncio.run(test_async_runtime_facade_initializes_session_once_for_concurrent_turns())
     asyncio.run(test_async_runtime_facade_manual_compact_uses_runner())
     asyncio.run(test_async_runtime_facade_set_model_updates_runner_and_session())
     asyncio.run(test_async_turn_runner_emits_tool_requested_before_tool_execution())
+    asyncio.run(test_async_turn_runner_passes_transient_system_messages_to_context())
     asyncio.run(test_async_turn_runner_fails_after_tool_persist_failure())
     asyncio.run(test_async_turn_runner_emits_and_persists_sampling_usage())
     asyncio.run(test_async_turn_runner_usage_persistence_failure_does_not_fail_turn())

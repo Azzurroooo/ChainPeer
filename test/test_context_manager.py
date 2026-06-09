@@ -423,6 +423,25 @@ async def test_context_manager_ignores_plan_provider_and_reports_skill_error_typ
     if result.decisions.get("skill_error_type") != "RuntimeError":
         raise AssertionError(f"Expected skill error type, got: {result.decisions}")
 
+
+@pytest.mark.asyncio
+async def test_context_manager_reports_chainpeer_provider_error() -> None:
+    def broken_chainpeer_provider():
+        raise RuntimeError("bad docs")
+
+    session = QueryOnlySession([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ])
+    manager = ContextManager(chainpeer_doc_provider=broken_chainpeer_provider)
+
+    result = await manager.build_messages_async(session=session)
+
+    assert result.messages == session._messages
+    assert result.decisions["chainpeer_docs_injected"] is False
+    assert result.decisions["chainpeer_docs_error_type"] == "RuntimeError"
+
+
 @pytest.mark.asyncio
 async def test_context_manager_new_tool_append_does_not_change_old_tool_content() -> None:
     session_messages = [
@@ -463,6 +482,7 @@ def main() -> int:
         await test_context_manager_generation_mismatch_falls_back_to_local_estimate()
         await test_context_manager_compact_usage_does_not_act_as_anchor()
         await test_context_manager_ignores_plan_provider_and_reports_skill_error_type()
+        await test_context_manager_reports_chainpeer_provider_error()
         await test_context_manager_new_tool_append_does_not_change_old_tool_content()
 
     asyncio.run(_run_all())

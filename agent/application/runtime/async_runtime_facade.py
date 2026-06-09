@@ -71,6 +71,7 @@ class AsyncRuntimeFacade:
         session_id: str | None = None,
         query: str | None = None,
         cancellation_token: CancellationToken | None = None,
+        transient_system_messages: list[dict] | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
         """
         Run a single conversational turn asynchronously, yielding runtime events.
@@ -90,9 +91,13 @@ class AsyncRuntimeFacade:
             user_message_chars=len(query or ""),
         )
 
-        async for event in self._turn_runner.run_turn(
-            session=self._session_store,
-            cancellation_token=cancellation_token,
-            turn_id=turn_id,
-        ):
+        runner_kwargs = {
+            "session": self._session_store,
+            "cancellation_token": cancellation_token,
+            "turn_id": turn_id,
+        }
+        if transient_system_messages:
+            runner_kwargs["transient_system_messages"] = transient_system_messages
+
+        async for event in self._turn_runner.run_turn(**runner_kwargs):
             yield event

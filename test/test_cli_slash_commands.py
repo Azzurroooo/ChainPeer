@@ -60,9 +60,13 @@ class FakeRuntime:
         self.called = False
         self.compact_called = False
         self.model = None
+        self.query = None
+        self.transient_system_messages = None
 
-    def run_turn(self, query=None, cancellation_token=None):
+    def run_turn(self, query=None, cancellation_token=None, transient_system_messages=None):
         self.called = True
+        self.query = query
+        self.transient_system_messages = transient_system_messages
         return EmptyStream()
 
     async def compact_context(self, reason="manual", cancellation_token=None):
@@ -185,6 +189,7 @@ def test_router_exposes_command_descriptions() -> None:
     assert descriptions["draft"] == "Show, reuse, or clear saved input draft"
     assert usages["sessions"] == "/sessions [limit]"
     assert usages["draft"] == "/draft | /draft use | /draft clear"
+    assert usages["init"] == "/init [project|user]"
 
 
 @pytest.mark.asyncio
@@ -606,6 +611,49 @@ async def test_skill_lists_project_skill(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_init_project_returns_turn_payload(tmp_path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".git").mkdir()
+    monkeypatch.chdir(project)
+
+    result = await SlashCommandRouter().execute("/init", _context())
+
+    assert "Initializing project CHAINPEER.md" in result.text
+    assert result.run_turn_input.startswith("Initialize project CHAINPEER.md")
+    assert str(project / "CHAINPEER.md") in result.run_turn_input
+    assert result.transient_system_messages
+    prompt = result.transient_system_messages[0]["content"]
+    assert "project-level ChainPeer context document" in prompt
+    assert str(project / "CHAINPEER.md") in prompt
+    assert "Do not modify the other CHAINPEER.md level." in prompt
+
+
+@pytest.mark.asyncio
+async def test_init_user_returns_turn_payload(tmp_path, monkeypatch) -> None:
+    user_home = tmp_path / "home"
+    user_home.mkdir()
+    monkeypatch.setenv("CHAINPEER_HOME", str(user_home))
+
+    result = await SlashCommandRouter().execute("/init user", _context())
+
+    assert "Initializing user CHAINPEER.md" in result.text
+    assert result.run_turn_input.startswith("Initialize user CHAINPEER.md")
+    assert str(user_home / "CHAINPEER.md") in result.run_turn_input
+    prompt = result.transient_system_messages[0]["content"]
+    assert "user-level ChainPeer context document" in prompt
+    assert "Do not copy project facts into the user-level file." in prompt
+
+
+@pytest.mark.asyncio
+async def test_init_rejects_invalid_scope() -> None:
+    result = await SlashCommandRouter().execute("/init all", _context())
+
+    assert result.text == "Usage: /init [project|user]"
+    assert result.run_turn_input == ""
+
+
+@pytest.mark.asyncio
 async def test_plan_without_active_plan_is_clear(monkeypatch) -> None:
     monkeypatch.delenv("AGENT_SESSION_ROOT", raising=False)
     monkeypatch.delenv("AGENT_SESSION_ID", raising=False)
@@ -668,6 +716,26 @@ async def test_chat_cli_normal_turn_still_calls_runtime() -> None:
     await cli._run_turn_async("hello")
 
     assert runtime.called is True
+
+
+@pytest.mark.asyncio
+async def test_chat_cli_init_runs_runtime_with_transient_prompt(tmp_path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".git").mkdir()
+    monkeypatch.chdir(project)
+    runtime = FakeRuntime()
+    cli = ChatCLI(runtime=runtime, session=FakeSession())
+
+    output = io.StringIO()
+    with redirect_stdout(output):
+        should_exit = await cli._run_slash_command_async("/init project")
+
+    assert should_exit is False
+    assert runtime.called is True
+    assert runtime.query.startswith("Initialize project CHAINPEER.md")
+    assert runtime.transient_system_messages
+    assert "project-level ChainPeer context document" in runtime.transient_system_messages[0]["content"]
 
 
 def main() -> int:
