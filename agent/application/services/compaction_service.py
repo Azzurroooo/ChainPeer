@@ -32,6 +32,7 @@ class CompactionService:
         chat_client,
         reason: str = "manual",
         phase: str = "manual",
+        diagnostics: dict[str, Any] | None = None,
         context_stats: dict[str, Any] | None = None,
         cancellation_token: CancellationToken | None = None,
     ) -> dict[str, Any]:
@@ -46,11 +47,13 @@ class CompactionService:
             created_at=created_at,
             reason=reason,
             phase=phase,
+            diagnostics=diagnostics,
+            handoff_messages=context_messages,
             strategy="deterministic_fallback",
         )
         try:
             response = await chat_client.create(
-                messages=self._build_compact_prompt(context_messages),
+                messages=self._build_compact_prompt(self.build_compression_corpus(context_messages)),
                 tools=None,
                 cancellation_token=cancellation_token,
             )
@@ -85,6 +88,8 @@ class CompactionService:
         created_at: str | None = None,
         reason: str = "manual",
         phase: str = "manual",
+        diagnostics: dict[str, Any] | None = None,
+        handoff_messages: list[dict[str, Any]] | None = None,
         strategy: str = "manual_deterministic",
     ) -> dict[str, Any]:
         created = created_at or self._now()
@@ -96,19 +101,21 @@ class CompactionService:
             for message in messages[source_start:source_end]
             if not self._is_boundary(message)
         ]
+        corpus_source = handoff_messages if handoff_messages is not None else source_messages
+        corpus_messages = self.build_compression_corpus(corpus_source)
         previous_handoff = self._previous_handoff(previous_compaction)
-        tool_ids = self._collect_tool_call_ids(source_messages)
+        tool_ids = self._collect_tool_call_ids(corpus_messages)
         tool_lines = self._render_tool_lines(tool_ids, tool_records or [])
-        handoff = self._render_handoff(previous_handoff, source_messages, tool_lines)
+        handoff = self._render_handoff(previous_handoff, corpus_messages, tool_lines)
 
         source = {
             "message_start_index": source_start,
             "message_end_index_exclusive": source_end,
             "tool_call_ids": tool_ids,
-            "history_digest": self._digest(source_messages, previous_compaction),
+            "history_digest": self._digest(corpus_messages, previous_compaction),
         }
 
-        return {
+        record = {
             "id": uuid.uuid4().hex,
             "created_at": created,
             "strategy": strategy,
@@ -126,9 +133,23 @@ class CompactionService:
             },
             "usage": {},
         }
+        if diagnostics:
+            record["diagnostics"] = dict(diagnostics)
+        return record
 
-    def _build_compact_prompt(self, context_messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-        payload = json.dumps(context_messages, ensure_ascii=False, sort_keys=True, default=str)
+    def build_compression_corpus(self, context_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return compactable conversation facts, excluding instruction messages."""
+        corpus: list[dict[str, Any]] = []
+        for message in context_messages:
+            if not isinstance(message, dict):
+                continue
+            if self._is_boundary(message) or message.get("role") == "system":
+                continue
+            corpus.append(self._strip_internal_fields(message))
+        return corpus
+
+    def _build_compact_prompt(self, corpus_messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+        payload = json.dumps(corpus_messages, ensure_ascii=False, sort_keys=True, default=str)
         payload = self._limit_prompt_payload(payload)
         system = (
             "You are compacting a coding-agent conversation into a source-bound handoff. "
@@ -138,7 +159,7 @@ class CompactionService:
             "tool loop state and do not assume raw tool messages remain visible. Write concise Markdown."
         )
         user = (
-            "Create a compact handoff for the following model-visible context. "
+            "Create a compact handoff for the following compression corpus. "
             "The handoff will replace the full prior context after a compact boundary. "
             "If a tool loop is in progress, summarize the tool call intent, tool result, "
             "and required continuation.\n\n"
@@ -151,7 +172,7 @@ class CompactionService:
             "- Key tool results\n"
             "- User preferences and constraints\n"
             "- Risks and next checks\n\n"
-            f"Context JSON:\n{payload}"
+            f"Compression corpus JSON:\n{payload}"
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -325,6 +346,9 @@ class CompactionService:
     def _is_boundary(self, message: dict[str, Any]) -> bool:
         meta = message.get("meta")
         return isinstance(meta, dict) and meta.get("kind") == "compact_boundary"
+
+    def _strip_internal_fields(self, message: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in dict(message).items() if not key.startswith("_")}
 
     def _previous_handoff(self, compaction: dict[str, Any] | None) -> str:
         if not isinstance(compaction, dict):

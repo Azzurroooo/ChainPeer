@@ -191,10 +191,10 @@ async def test_context_manager_appends_plan_summary_when_no_user_message_exists(
     contents = [message.get("content", "") for message in result.messages]
     if contents != [
         "sys",
-        "assistant only",
         "Active plan summary:\n- Plan: p (version 1)",
+        "assistant only",
     ]:
-        raise AssertionError(f"Expected plan summary appended without user message, got: {result.messages}")
+        raise AssertionError(f"Expected plan summary in system prefix without user message, got: {result.messages}")
 
 
 def main() -> int:

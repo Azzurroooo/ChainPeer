@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -55,6 +56,33 @@ def normalize_sampling_usage(
     }
 
 
+def attach_context_anchor(
+    usage: dict[str, Any],
+    *,
+    context_stats: dict[str, Any],
+    model: str | None = None,
+    compact_generation: int | None = None,
+) -> dict[str, Any]:
+    """Attach local context metadata for future token-pressure deltas."""
+    anchored = dict(usage or {})
+    local_tokens = _positive_int_or_none(context_stats.get("estimated_input_tokens"))
+    generation = _positive_int_or_none(compact_generation)
+    if local_tokens is None or generation is None:
+        return anchored
+
+    anchor: dict[str, Any] = {
+        "local_estimated_input_tokens": local_tokens,
+        "local_estimated_chars": _non_negative_int(context_stats.get("estimated_chars")),
+        "context_message_count": _non_negative_int(context_stats.get("message_count")),
+        "compact_generation": generation,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if isinstance(model, str) and model.strip():
+        anchor["model"] = model.strip()
+    anchored["anchor"] = anchor
+    return anchored
+
+
 def _int_attr(value: Any, *names: str) -> int:
     for name in names:
         raw = _get_attr(value, name)
@@ -65,6 +93,22 @@ def _int_attr(value: Any, *names: str) -> int:
         except (TypeError, ValueError):
             continue
     return 0
+
+
+def _positive_int_or_none(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)
 
 
 def _nested_int_attr(value: Any, parent_name: str, child_name: str) -> int:

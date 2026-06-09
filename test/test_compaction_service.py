@@ -134,7 +134,7 @@ async def test_compaction_service_keeps_llm_handoff_with_bad_context_stats() -> 
         context_messages=await session.load_messages(),
         chat_client=SuccessfulClient(),
         reason="auto",
-        phase="pre_sampling",
+        phase="mid_turn",
         context_stats={"context_window_tokens": "bad", "effective_context_window_tokens": 0},
     )
 

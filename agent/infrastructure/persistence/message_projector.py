@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.application.services.message_boundary import validate_compact_handoff_boundary
 from agent.domain.compaction import COMPACT_CONTINUATION_USER_CONTENT
 
 
@@ -13,6 +14,7 @@ def project_messages(
     compactions: list[dict[str, Any]],
     system_prompt: str,
 ) -> list[dict[str, Any]]:
+    compact_applied = latest_compact_pair(messages, compactions) is not None
     projected_messages = apply_latest_compact_boundary(messages, compactions)
     tool_map = {
         str(item["id"]): item
@@ -52,6 +54,10 @@ def project_messages(
 
     if not built_messages:
         return [{"role": "system", "content": system_prompt}]
+    if compact_applied:
+        result = validate_compact_handoff_boundary(built_messages)
+        if not result.ok:
+            raise ValueError(f"Invalid compact continuation boundary: {result.reason}")
     return built_messages
 
 
@@ -115,11 +121,7 @@ def is_compact_boundary_message(message: dict[str, Any]) -> bool:
 
 def _compact_replacement_boundary(compaction: dict[str, Any]) -> list[dict[str, Any]]:
     handoff = compaction["handoff_message"]
-    role = handoff["role"]
     content = handoff["content"]
-    if role != "assistant":
-        return [{"role": role, "content": content}]
-
     user = compaction.get("continuation_user_message")
     if not _valid_message(user, {"user"}):
         user = {"role": "user", "content": COMPACT_CONTINUATION_USER_CONTENT}
@@ -141,7 +143,7 @@ def _has_valid_handoff(record: dict[str, Any]) -> bool:
         return False
     role = handoff.get("role")
     content = handoff.get("content")
-    return role in {"user", "assistant", "system"} and isinstance(content, str)
+    return role == "assistant" and isinstance(content, str)
 
 
 def _has_tool_calls_meta(message: dict[str, Any]) -> bool:

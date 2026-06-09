@@ -10,7 +10,12 @@ from tenacity import RetryError
 
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.application.ports.async_chat_client import AsyncChatClient
-from agent.application.services import CompactionService, ContextManager
+from agent.application.services import (
+    CompactionService,
+    ContextManager,
+    validate_compact_handoff_boundary,
+    validate_model_message_boundary,
+)
 from agent.application.runtime.cancellation import CancellationToken
 from agent.application.runtime.model_stream_pump import ModelStreamResult, pump_model_stream_events
 from agent.domain.events import (
@@ -28,6 +33,13 @@ from agent.domain.events import (
 
 from .message_stream_parser import MessageStreamParser
 from agent.application.runtime.async_tool_call_processor import AsyncToolCallProcessor
+
+
+def _compact_diagnostics(phase_detail: str | None) -> dict | None:
+    if not phase_detail:
+        return None
+    return {"auto_compact_phase_detail": phase_detail}
+
 
 class AsyncTurnRunner:
     """Manages the execution of a single conversational turn asynchronously."""
@@ -116,13 +128,13 @@ class AsyncTurnRunner:
                     )
 
                 if context_decisions.get("auto_compact_token_limit_reached"):
-                    phase = "pre_sampling" if sampling_index == 0 else "mid_turn"
                     context = await self._run_compact(
                         session=session,
                         context_messages=context_messages,
                         context_stats=context_stats,
                         reason="auto",
-                        phase=phase,
+                        phase="mid_turn",
+                        phase_detail="before_first_sampling" if sampling_index == 0 else None,
                         active_skill_matches=turn_active_skill_matches,
                         cancellation_token=cancellation_token,
                     )
@@ -136,6 +148,10 @@ class AsyncTurnRunner:
                         decisions=dict(context_decisions),
                     )
                 
+                boundary = validate_model_message_boundary(context_messages) if context_messages else None
+                if boundary is not None and not boundary.ok:
+                    raise RuntimeError(f"Invalid model message boundary: {boundary.reason}")
+
                 try:
                     stream_response = self._chat_client.stream(
                         messages=context_messages,
@@ -175,7 +191,8 @@ class AsyncTurnRunner:
                                 context_messages=context_messages,
                                 context_stats=context_stats,
                                 reason="context_length_error",
-                                phase="recovery",
+                                phase="mid_turn",
+                                phase_detail="context_length_recovery",
                                 active_skill_matches=turn_active_skill_matches,
                                 cancellation_token=cancellation_token,
                             )
@@ -257,6 +274,7 @@ class AsyncTurnRunner:
         )
         context = await self._build_context(session, active_skill_matches=None)
         await self._update_auto_compact_window_from_context_estimate(session, context)
+        self._validate_compact_context(context)
         return record
 
     async def _run_compact(
@@ -267,6 +285,7 @@ class AsyncTurnRunner:
         context_stats: dict,
         reason: str,
         phase: str,
+        phase_detail: str | None = None,
         active_skill_matches: list | None = None,
         cancellation_token: CancellationToken | None = None,
     ):
@@ -276,14 +295,13 @@ class AsyncTurnRunner:
             chat_client=self._chat_client,
             reason=reason,
             phase=phase,
+            diagnostics=_compact_diagnostics(phase_detail),
             context_stats=context_stats,
             cancellation_token=cancellation_token,
         )
         context = await self._build_context(session, active_skill_matches=active_skill_matches)
         await self._update_auto_compact_window_from_context_estimate(session, context)
-        context_messages = context.messages if isinstance(getattr(context, "messages", None), list) else []
-        if phase in {"mid_turn", "recovery"} and not self._has_valid_continuation_boundary(context_messages):
-            raise RuntimeError("Compact produced an invalid continuation boundary.")
+        self._validate_compact_context(context)
         return context
 
     async def _build_context(
@@ -315,20 +333,14 @@ class AsyncTurnRunner:
         if callable(update_window):
             await self._best_effort(update_window, tokens)
 
-    def _has_valid_continuation_boundary(self, messages: list[dict]) -> bool:
-        roles = [message.get("role") for message in messages if isinstance(message, dict)]
-        if "user" not in roles:
-            return False
-        return not self._ends_with_incomplete_tool_call(messages)
+    def _validate_compact_context(self, context) -> None:
+        messages = context.messages if isinstance(getattr(context, "messages", None), list) else []
+        result = validate_compact_handoff_boundary(messages)
+        if not result.ok:
+            raise RuntimeError(f"Compact produced an invalid continuation boundary: {result.reason}")
 
-    def _ends_with_incomplete_tool_call(self, messages: list[dict]) -> bool:
-        for message in reversed(messages):
-            if not isinstance(message, dict):
-                continue
-            if message.get("role") == "assistant" and message.get("tool_calls"):
-                return True
-            return False
-        return False
+    def _has_valid_continuation_boundary(self, messages: list[dict]) -> bool:
+        return validate_model_message_boundary(messages).ok
 
     def _positive_int_or_none(self, value) -> int | None:
         try:

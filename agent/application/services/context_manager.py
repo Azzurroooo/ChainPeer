@@ -74,7 +74,7 @@ class ContextManager:
 
         tool_messages = [dict(message) for message in final_messages if message.get("role") == "tool"]
         compact_threshold_tokens = budget.resolved_compact_threshold_tokens()
-        auto_compact_status = await self._build_auto_compact_status(session, final_estimate)
+        auto_compact_status = await self._build_token_pressure_status(session, final_estimate)
         context_window_tokens = budget.resolved_context_window_tokens()
         effective_context_window_tokens = budget.resolved_effective_context_window_tokens()
         context_usage_percent = final_estimate.estimated_input_tokens / max(1, effective_context_window_tokens)
@@ -126,30 +126,126 @@ class ContextManager:
                 return {}
         return {}
 
-    async def _build_auto_compact_status(self, session, final_estimate) -> dict:
+    async def _build_token_pressure_status(self, session, final_estimate) -> dict:
         budget = self._estimator.budget
         window = await self._get_auto_compact_window(session)
-        prefill_tokens = window.get("prefill_input_tokens")
-        prefill_source = window.get("prefill_source")
-        active_tokens = final_estimate.estimated_input_tokens
-        token_source = "local_estimate"
+        compact_generation = await self._get_compact_generation(session, window)
+        usage = await self._get_latest_assistant_sampling_usage(session)
+        anchor = self._resolve_usage_anchor(
+            usage=usage,
+            current_tokens=final_estimate.estimated_input_tokens,
+            compact_generation=compact_generation,
+            model=getattr(session, "model", None),
+        )
 
-        if prefill_source != "estimate_after_compact":
-            assistant_usage = await self._get_latest_assistant_sampling_usage(session)
-            server_input_tokens = self._positive_int_or_none(assistant_usage.get("input_tokens"))
-            if server_input_tokens is not None:
-                active_tokens = server_input_tokens
-                token_source = "assistant_server_usage"
+        if anchor["usable"]:
+            local_delta = max(0, final_estimate.estimated_input_tokens - anchor["local_estimated_input_tokens"])
+            active_tokens = anchor["server_input_tokens"] + local_delta
+            token_source = "assistant_usage_plus_local_delta"
+        else:
+            local_delta = 0
+            active_tokens = final_estimate.estimated_input_tokens
+            token_source = "local_estimate"
 
-        status = budget.auto_compact_token_status(active_tokens, prefill_tokens)
-        status.update(
+        limit = budget.resolved_auto_compact_token_limit()
+        reached = bool(budget.auto_compact_enabled and active_tokens >= limit)
+        scope = budget.resolved_auto_compact_token_limit_scope()
+        return {
+            "auto_compact_enabled": bool(budget.auto_compact_enabled),
+            "auto_compact_scope_tokens": active_tokens,
+            "auto_compact_scope_limit": limit,
+            "auto_compact_token_limit_scope": scope,
+            "auto_compact_token_limit_scope_deprecated": scope != "total",
+            "auto_compact_window_prefill_tokens": window.get("prefill_input_tokens"),
+            "auto_compact_window_prefill_source": window.get("prefill_source"),
+            "effective_context_window_reached": False,
+            "auto_compact_token_limit_reached": reached,
+            "auto_compact_active_tokens": active_tokens,
+            "auto_compact_token_source": token_source,
+            "auto_compact_compact_generation": compact_generation,
+            "auto_compact_anchor_usable": bool(anchor["usable"]),
+            "auto_compact_anchor_fallback_reason": anchor["fallback_reason"],
+            "auto_compact_anchor_input_tokens": anchor["server_input_tokens"],
+            "auto_compact_anchor_local_estimated_input_tokens": anchor["local_estimated_input_tokens"],
+            "auto_compact_anchor_compact_generation": anchor["compact_generation"],
+            "auto_compact_anchor_model": anchor["model"],
+            "auto_compact_anchor_model_status": anchor["model_status"],
+            "auto_compact_local_delta_tokens": local_delta,
+        }
+
+    async def _get_compact_generation(self, session, window: dict) -> int:
+        get_generation = getattr(session, "get_compact_generation", None)
+        if callable(get_generation):
+            try:
+                generation = self._positive_int_or_none(await get_generation())
+                if generation is not None:
+                    return generation
+            except Exception:
+                pass
+        return self._positive_int_or_none(window.get("ordinal")) or 1
+
+    def _resolve_usage_anchor(
+        self,
+        *,
+        usage: dict,
+        current_tokens: int,
+        compact_generation: int,
+        model,
+    ) -> dict:
+        result = {
+            "usable": False,
+            "fallback_reason": None,
+            "server_input_tokens": None,
+            "local_estimated_input_tokens": None,
+            "compact_generation": None,
+            "model": None,
+            "model_status": None,
+        }
+        if not usage:
+            result["fallback_reason"] = "missing_usage"
+            return result
+        if usage.get("sampling_kind") != "assistant":
+            result["fallback_reason"] = "non_assistant_usage"
+            return result
+        server_input_tokens = self._positive_int_or_none(usage.get("input_tokens"))
+        if server_input_tokens is None:
+            result["fallback_reason"] = "invalid_server_input_tokens"
+            return result
+        anchor = usage.get("anchor")
+        if not isinstance(anchor, dict):
+            result["fallback_reason"] = "missing_anchor"
+            result["server_input_tokens"] = server_input_tokens
+            return result
+
+        local_estimate = self._positive_int_or_none(anchor.get("local_estimated_input_tokens"))
+        anchor_generation = self._positive_int_or_none(anchor.get("compact_generation"))
+        anchor_model = self._clean_text(anchor.get("model"))
+        current_model = self._clean_text(model)
+        result.update(
             {
-                "auto_compact_active_tokens": active_tokens,
-                "auto_compact_token_source": token_source,
-                "auto_compact_window_prefill_source": prefill_source,
+                "server_input_tokens": server_input_tokens,
+                "local_estimated_input_tokens": local_estimate,
+                "compact_generation": anchor_generation,
+                "model": anchor_model,
             }
         )
-        return status
+        if local_estimate is None:
+            result["fallback_reason"] = "invalid_anchor_local_estimate"
+            return result
+        if anchor_generation != compact_generation:
+            result["fallback_reason"] = "compact_generation_mismatch"
+            return result
+        if int(current_tokens) < local_estimate:
+            result["fallback_reason"] = "current_estimate_below_anchor"
+            return result
+        if anchor_model and current_model and anchor_model != current_model:
+            result["fallback_reason"] = "model_mismatch"
+            result["model_status"] = "mismatch"
+            return result
+
+        result["usable"] = True
+        result["model_status"] = "matched" if anchor_model and current_model else "anchor_model_unknown"
+        return result
 
     async def _get_latest_assistant_sampling_usage(self, session) -> dict:
         get_usage = getattr(session, "get_latest_assistant_sampling_usage", None)
@@ -168,6 +264,12 @@ class ContextManager:
         except (TypeError, ValueError):
             return None
         return parsed if parsed > 0 else None
+
+    def _clean_text(self, value) -> str | None:
+        if not isinstance(value, str):
+            return None
+        clean = value.strip()
+        return clean or None
 
     def reduce_hard_limit(self, factor: float = 0.8) -> int:
         """Reduce the hard token limit by a factor and return the new value."""
@@ -227,7 +329,8 @@ class ContextManager:
         if not self._plan_context_provider:
             return [], stats, decisions
         try:
-            return self._plan_context_provider.build_context()
+            messages, stats, decisions = self._plan_context_provider.build_context()
+            return self._mark_context_kind(messages, "plan_instruction"), stats, decisions
         except Exception as exc:
             decisions["plan_state"] = "error"
             decisions["plan_error_type"] = type(exc).__name__
@@ -264,7 +367,13 @@ class ContextManager:
         if active_matches:
             active_content = render_active_skill_instructions(active_matches, self._active_skill_char_limit)
             if active_content:
-                messages.append({"role": "system", "content": active_content})
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": active_content,
+                        "_context_kind": "skill_instruction",
+                    }
+                )
 
         stats.update(
             {
@@ -306,6 +415,16 @@ class ContextManager:
             result = [dict(item) for item in extra_messages] + result
         return result
 
+    def _mark_context_kind(self, messages: list[dict], kind: str) -> list[dict]:
+        marked = []
+        for message in messages or []:
+            if not isinstance(message, dict):
+                continue
+            item = dict(message)
+            item.setdefault("_context_kind", kind)
+            marked.append(item)
+        return marked
+
     def _insert_before_latest_user(self, messages: list[dict], extra_messages: list[dict]) -> list[dict]:
         if not extra_messages:
             return list(messages)
@@ -317,7 +436,10 @@ class ContextManager:
                 break
         rendered_extra = [dict(item) for item in extra_messages]
         if insert_at is None:
-            return result + rendered_extra
+            prefix_end = 0
+            while prefix_end < len(result) and result[prefix_end].get("role") == "system":
+                prefix_end += 1
+            return result[:prefix_end] + rendered_extra + result[prefix_end:]
         return result[:insert_at] + rendered_extra + result[insert_at:]
 
     def _is_conversation_message(self, message: dict) -> bool:

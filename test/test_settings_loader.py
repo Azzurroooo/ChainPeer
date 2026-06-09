@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from agent.infrastructure.config.settings_loader import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
+    build_default_user_agent,
     ensure_user_settings_template,
     load_settings,
     save_settings_patch,
@@ -132,3 +133,37 @@ def test_save_settings_patch_creates_missing_settings_file(tmp_path):
     assert settings.model == "new-model"
     assert data["model"] == "new-model"
     assert "apiKey" in data
+
+
+def test_build_default_user_agent_uses_windows_terminal(monkeypatch):
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.system", lambda: "Windows")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.release", lambda: "11")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.machine", lambda: "AMD64")
+    monkeypatch.setenv("WT_SESSION", "session")
+    monkeypatch.delenv("TERM_PROGRAM", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
+
+    assert build_default_user_agent() == "chainpeer/0.1.1 (Windows 11; AMD64) WindowsTerminal"
+
+
+def test_build_default_user_agent_uses_term_program_version(monkeypatch):
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.release", lambda: "25.0.0")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.machine", lambda: "arm64")
+    monkeypatch.delenv("WT_SESSION", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "vscode")
+    monkeypatch.setenv("TERM_PROGRAM_VERSION", "1.99.0")
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    assert build_default_user_agent() == "chainpeer/0.1.1 (Darwin 25.0.0; arm64) vscode/1.99.0"
+
+
+def test_build_default_user_agent_sanitizes_terminal_token(monkeypatch):
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.system", lambda: "Linux")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.release", lambda: "6.1")
+    monkeypatch.setattr("agent.infrastructure.config.settings_loader.platform.machine", lambda: "x86_64")
+    monkeypatch.delenv("WT_SESSION", raising=False)
+    monkeypatch.setenv("TERM_PROGRAM", "bad\rname")
+    monkeypatch.setenv("TERM_PROGRAM_VERSION", "1 2")
+
+    assert build_default_user_agent() == "chainpeer/0.1.1 (Linux 6.1; x86_64) bad_name/1_2"

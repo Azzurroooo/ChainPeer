@@ -436,6 +436,10 @@ async def test_async_turn_runner_emits_and_persists_sampling_usage():
             stats={
                 "context_window_tokens": 258400,
                 "effective_context_window_tokens": 245480,
+                "estimated_input_tokens": 180,
+                "estimated_chars": 720,
+                "message_count": 3,
+                "auto_compact_compact_generation": 2,
             },
             decisions={},
         )
@@ -477,7 +481,12 @@ async def test_async_turn_runner_emits_and_persists_sampling_usage():
     assert token_event.stats["cached_input_tokens"] == 40
     assert token_event.stats["cache_hit_rate"] == 0.4
     assert token_event.stats["context_usage_percent"] == 100 / 245480
+    assert token_event.stats["anchor"]["local_estimated_input_tokens"] == 180
+    assert token_event.stats["anchor"]["local_estimated_chars"] == 720
+    assert token_event.stats["anchor"]["context_message_count"] == 3
+    assert token_event.stats["anchor"]["compact_generation"] == 2
     assert session.usages[-1]["output_tokens"] == 25
+    assert session.usages[-1]["anchor"]["local_estimated_input_tokens"] == 180
     assert session.window_updates[-1]["input_tokens"] == 100
 
 
@@ -686,7 +695,10 @@ async def test_async_turn_runner_auto_compacts_before_sampling():
         decisions={"auto_compact_token_limit_reached": True},
     )
     second_context = MagicMock(
-        messages=[{"role": "assistant", "content": "LLM handoff"}],
+        messages=[
+            {"role": "user", "content": COMPACT_CONTINUATION_USER_CONTENT},
+            {"role": "assistant", "content": "LLM handoff"},
+        ],
         stats={
             "context_window_tokens": 1000,
             "effective_context_window_tokens": 950,
@@ -718,7 +730,8 @@ async def test_async_turn_runner_auto_compacts_before_sampling():
     assert len(session.compactions) == 1
     assert session.compactions[0]["strategy"] == "llm_inline"
     assert session.compactions[0]["reason"] == "auto"
-    assert session.compactions[0]["phase"] == "pre_sampling"
+    assert session.compactions[0]["phase"] == "mid_turn"
+    assert session.compactions[0]["diagnostics"]["auto_compact_phase_detail"] == "before_first_sampling"
     assert session.compactions[0]["handoff_message"]["content"] == "LLM handoff"
     assert session.estimate_windows == [42]
     assert sum(isinstance(event, ContextBuiltEvent) for event in events) == 2
@@ -863,6 +876,79 @@ def test_compact_continuation_boundary_accepts_user_assistant_handoff():
     ) is True
 
 
+def test_model_boundary_rejects_naked_tool():
+    runner = AsyncTurnRunner(
+        chat_client=MagicMock(),
+        tool_processor=MagicMock(),
+        stream_parser=MagicMock(),
+        tool_schemas=[],
+        context_manager=MagicMock(),
+    )
+
+    assert runner._has_valid_continuation_boundary(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {"role": "tool", "tool_call_id": "call_1", "content": "orphan"},
+        ]
+    ) is False
+
+
+def test_model_boundary_rejects_incomplete_tool_call_tail():
+    runner = AsyncTurnRunner(
+        chat_client=MagicMock(),
+        tool_processor=MagicMock(),
+        stream_parser=MagicMock(),
+        tool_schemas=[],
+        context_manager=MagicMock(),
+    )
+
+    assert runner._has_valid_continuation_boundary(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{}"},
+                    }
+                ],
+            },
+        ]
+    ) is False
+
+
+def test_model_boundary_accepts_completed_tool_call():
+    runner = AsyncTurnRunner(
+        chat_client=MagicMock(),
+        tool_processor=MagicMock(),
+        stream_parser=MagicMock(),
+        tool_schemas=[],
+        context_manager=MagicMock(),
+    )
+
+    assert runner._has_valid_continuation_boundary(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "done"},
+        ]
+    ) is True
+
+
 @pytest.mark.asyncio
 async def test_context_length_recovery_hard_limit_is_turn_local():
     class LocalEmptyStream:
@@ -893,10 +979,18 @@ async def test_context_length_recovery_hard_limit_is_turn_local():
     class FakeSession:
         session_id = "session_1"
 
+        def __init__(self):
+            self.compacted = False
+
         def now_iso(self):
             return "2026-05-08T00:00:00Z"
 
         async def get_messages_slice(self, *args, **kwargs):
+            if self.compacted:
+                return [
+                    {"role": "user", "content": COMPACT_CONTINUATION_USER_CONTENT},
+                    {"role": "assistant", "content": "handoff"},
+                ]
             return [{"role": "user", "content": "hello"}]
 
         async def load_messages(self):
@@ -909,6 +1003,7 @@ async def test_context_length_recovery_hard_limit_is_turn_local():
             return None
 
         async def persist_compaction(self, record):
+            self.compacted = True
             return dict(record)
 
         async def persist_sampling_usage(self, usage):
@@ -956,6 +1051,9 @@ def main() -> int:
     asyncio.run(test_async_turn_runner_mid_turn_compact_does_not_preserve_raw_tail())
     test_compact_continuation_boundary_rejects_system_assistant_only()
     test_compact_continuation_boundary_accepts_user_assistant_handoff()
+    test_model_boundary_rejects_naked_tool()
+    test_model_boundary_rejects_incomplete_tool_call_tail()
+    test_model_boundary_accepts_completed_tool_call()
     asyncio.run(test_context_length_recovery_hard_limit_is_turn_local())
     print("Async runtime tests passed.")
     return 0

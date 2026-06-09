@@ -105,6 +105,10 @@ class AsyncSessionStore(Protocol):
         """Get current auto compact window metadata."""
         ...
 
+    async def get_compact_generation(self) -> int:
+        """Get the current compact generation counter."""
+        ...
+
     async def update_auto_compact_window_from_usage(self, usage: dict[str, Any]) -> None:
         """Seed the auto compact window baseline from provider usage."""
         ...

@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.application.runtime.cancellation import CancellationToken
 from agent.application.runtime.message_stream_parser import MessageStreamParser
-from agent.application.services import normalize_sampling_usage
+from agent.application.services import attach_context_anchor, normalize_sampling_usage
 from agent.domain import ParsedToolCall
 from agent.domain.events import AssistantDeltaEvent, RuntimeEvent, TokenStatsUpdatedEvent, event_meta
 
@@ -45,7 +45,11 @@ async def pump_model_stream_events(
             result.content = content
             result.tool_calls = list(calls)
 
-            normalized_usage = _normalize_usage(usage, context_stats)
+            normalized_usage = _normalize_usage(
+                usage,
+                context_stats,
+                model=getattr(session, "model", None),
+            )
             if normalized_usage:
                 await persist_sampling_usage(session, normalized_usage)
                 await event_queue.put(TokenStatsUpdatedEvent(**event_meta(session, turn_id), stats=normalized_usage))
@@ -88,16 +92,27 @@ def _normalize_parsed_stream_result(parsed: Any) -> tuple[str, list[ParsedToolCa
     return str(content or ""), list(calls or []), usage
 
 
-def _normalize_usage(usage: Any, context_stats: dict[str, Any]) -> dict[str, Any]:
+def _normalize_usage(usage: Any, context_stats: dict[str, Any], model: str | None = None) -> dict[str, Any]:
     if usage is None:
         return {}
-    return normalize_sampling_usage(
+    normalized = normalize_sampling_usage(
         usage,
         sampling_kind="assistant",
         context_window_tokens=_positive_int_or_default(context_stats.get("context_window_tokens"), 258400),
         effective_context_window_tokens=_positive_int_or_default(
             context_stats.get("effective_context_window_tokens"),
             245480,
+        ),
+    )
+    if not normalized:
+        return {}
+    return attach_context_anchor(
+        normalized,
+        context_stats=context_stats,
+        model=model,
+        compact_generation=_positive_int_or_default(
+            context_stats.get("auto_compact_compact_generation"),
+            1,
         ),
     )
 

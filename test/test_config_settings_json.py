@@ -98,7 +98,10 @@ def test_config_get_async_client_uses_loaded_settings(tmp_path, monkeypatch):
     kwargs = mock_async_openai.call_args.kwargs
     assert kwargs["api_key"] == "settings-key"
     assert kwargs["base_url"] == "https://example.com/v1"
-    assert kwargs["default_headers"] == {"User-Agent": "codex_cli_rs/0.0.0"}
+    user_agent = kwargs["default_headers"]["User-Agent"]
+    assert user_agent.startswith("chainpeer/0.1.1 (")
+    assert "; " in user_agent
+    assert ") " in user_agent
 
 
 def test_config_set_model_updates_settings_json(tmp_path, monkeypatch):

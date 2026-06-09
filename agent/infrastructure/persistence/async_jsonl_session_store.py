@@ -489,6 +489,12 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
     async def get_auto_compact_window(self) -> dict[str, Any]:
         return await asyncio.to_thread(self._auto_compact_window_sync)
 
+    async def get_compact_generation(self) -> int:
+        def _get():
+            return int(self._auto_compact_window_sync().get("ordinal") or 1)
+
+        return await asyncio.to_thread(_get)
+
     async def update_auto_compact_window_from_usage(self, usage: dict[str, Any]) -> None:
         async with self._write_lock:
             def _persist():
@@ -558,6 +564,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
                         "prefill_input_tokens": None,
                         "prefill_source": None,
                     }
+                    self._session_meta.pop("latest_assistant_sampling_usage", None)
                 self._persist_meta_sync()
                 return record
 

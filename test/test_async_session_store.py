@@ -612,6 +612,12 @@ async def test_sampling_usage_and_auto_compact_window_meta(temp_session_dir):
         "total_tokens": 125,
         "context_usage_percent": 0.1,
         "effective_context_window_tokens": 1000,
+        "anchor": {
+            "local_estimated_input_tokens": 130,
+            "local_estimated_chars": 520,
+            "context_message_count": 3,
+            "compact_generation": 1,
+        },
     }
     await store.persist_sampling_usage(usage)
     await store.update_auto_compact_window_from_usage(usage)
@@ -622,16 +628,20 @@ async def test_sampling_usage_and_auto_compact_window_meta(temp_session_dir):
 
     assert latest["input_tokens"] == 100
     assert latest_assistant["input_tokens"] == 100
+    assert latest_assistant["anchor"]["local_estimated_input_tokens"] == 130
     assert latest["cached_input_tokens"] == 40
     assert window["ordinal"] == 1
     assert window["prefill_input_tokens"] == 100
     assert window["prefill_source"] == "server"
+    assert await store.get_compact_generation() == 1
 
     await store.persist_compaction({"handoff_message": {"role": "assistant", "content": "handoff"}})
     next_window = await store.get_auto_compact_window()
 
     assert next_window["ordinal"] == 2
     assert next_window["prefill_input_tokens"] is None
+    assert await store.get_compact_generation() == 2
+    assert await store.get_latest_assistant_sampling_usage() is None
 
     await store.update_auto_compact_window_from_estimate(35)
     estimated_window = await store.get_auto_compact_window()
@@ -655,6 +665,12 @@ async def test_sampling_usage_keeps_latest_assistant_usage_when_compact_usage_ar
         "total_tokens": 125,
         "context_usage_percent": 0.1,
         "effective_context_window_tokens": 1000,
+        "anchor": {
+            "local_estimated_input_tokens": 130,
+            "local_estimated_chars": 520,
+            "context_message_count": 3,
+            "compact_generation": 1,
+        },
     }
     compact_usage = {
         "sampling_kind": "compact",
