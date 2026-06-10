@@ -57,6 +57,18 @@ def assert_error(payload: dict, error_type: str) -> dict:
     return payload
 
 
+def assert_update_snapshot(payload: dict) -> tuple[dict, dict]:
+    data = payload.get("data") or {}
+    if set(data.keys()) != {"updated_step", "plan_snapshot"}:
+        raise AssertionError(f"Unexpected update payload keys: {data}")
+    updated = data.get("updated_step") or {}
+    snapshot = data.get("plan_snapshot") or {}
+    for forbidden in ("summary", "steps", "goal", "objectives", "constraints", "note", "acceptance", "description"):
+        if forbidden in data or forbidden in updated or forbidden in snapshot:
+            raise AssertionError(f"Unexpected field {forbidden!r} in update payload: {data}")
+    return updated, snapshot
+
+
 def _steps() -> list[dict]:
     return [
         {"step_id": "s1", "title": "analyze", "priority": 5},
@@ -106,17 +118,37 @@ def dependency_and_blocked(version: int) -> int:
     payload = parse_payload(plan_update_step("s1", {"status": "blocked"}, expected_version=version))
     assert_error(payload, "ValidationError")
 
-    blocked = assert_ok(
+    blocked_payload = assert_ok(
         parse_payload(plan_update_step("s1", {"status": "blocked", "blocked_reason": "need input"}, expected_version=version))
-    ).get("meta")
+    )
+    updated, snapshot = assert_update_snapshot(blocked_payload)
+    if updated != {
+        "step_id": "s1",
+        "title": "analyze",
+        "status": "blocked",
+        "depends_on": [],
+        "priority": 5,
+        "blocked_reason": "need input",
+    }:
+        raise AssertionError(f"Unexpected updated step snapshot: {updated}")
+    if snapshot.get("counts", {}).get("blocked") != 1:
+        raise AssertionError(f"Expected blocked count, got: {snapshot}")
+    if snapshot.get("focus", {}).get("step_id") != "s3":
+        raise AssertionError(f"Expected focus s3 after blocking s1, got: {snapshot}")
+    blocked = blocked_payload.get("meta")
     return int(blocked["version"])
 
 
 def version_conflict(version: int) -> int:
     ok = assert_ok(parse_payload(plan_update_step("s1", {"status": "pending"}, expected_version=version)))
+    updated, snapshot = assert_update_snapshot(ok)
+    if updated.get("status") != "pending" or snapshot.get("version") != (ok.get("meta") or {}).get("version"):
+        raise AssertionError(f"Unexpected pending update snapshot: {ok}")
     new_version = int((ok.get("meta") or {}).get("version"))
     conflict = parse_payload(plan_update_step("s3", {"status": "in_progress"}, expected_version=version))
     assert_error(conflict, "VersionConflict")
+    if "plan_snapshot" in (conflict.get("data") or {}):
+        raise AssertionError(f"Did not expect snapshot on failed update: {conflict}")
     return new_version
 
 
@@ -131,8 +163,17 @@ def reorder_link_and_close(version: int) -> None:
     assert_error(cannot_close, "DependencyViolation")
 
     payload = assert_ok(parse_payload(plan_update_step("s1", {"status": "in_progress"}, expected_version=version)))
+    updated, snapshot = assert_update_snapshot(payload)
+    if updated.get("status") != "in_progress" or snapshot.get("focus") is not None:
+        raise AssertionError(f"Unexpected in-progress snapshot: {payload}")
     version = int((payload.get("meta") or {}).get("version"))
     payload = assert_ok(parse_payload(plan_update_step("s1", {"status": "completed"}, expected_version=version)))
+    updated, snapshot = assert_update_snapshot(payload)
+    if updated.get("status") != "completed" or snapshot.get("focus", {}).get("step_id") != "s2":
+        raise AssertionError(f"Expected s2 to become focus after s1 completion, got: {payload}")
+    ready_ids = {item.get("step_id") for item in snapshot.get("ready") or []}
+    if ready_ids != {"s2", "s3"}:
+        raise AssertionError(f"Expected ready s2/s3, got: {snapshot}")
     version = int((payload.get("meta") or {}).get("version"))
     payload = assert_ok(parse_payload(plan_update_step("s2", {"status": "in_progress"}, expected_version=version)))
     version = int((payload.get("meta") or {}).get("version"))
@@ -141,6 +182,11 @@ def reorder_link_and_close(version: int) -> None:
     payload = assert_ok(parse_payload(plan_update_step("s3", {"status": "in_progress"}, expected_version=version)))
     version = int((payload.get("meta") or {}).get("version"))
     payload = assert_ok(parse_payload(plan_update_step("s3", {"status": "completed"}, expected_version=version)))
+    updated, snapshot = assert_update_snapshot(payload)
+    if updated.get("status") != "completed" or snapshot.get("all_steps_terminal") is not True:
+        raise AssertionError(f"Expected terminal snapshot, got: {payload}")
+    if snapshot.get("focus") is not None or snapshot.get("ready") != []:
+        raise AssertionError(f"Expected no focus/ready for terminal snapshot, got: {snapshot}")
     version = int((payload.get("meta") or {}).get("version"))
 
     closed = assert_ok(parse_payload(plan_close(expected_version=version)))

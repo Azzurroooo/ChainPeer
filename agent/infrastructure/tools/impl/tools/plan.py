@@ -35,10 +35,14 @@ def plan_get(plan_id: str | None = None) -> str:
 def plan_update_step(step_id: str, patch: dict[str, Any], expected_version: int) -> str:
     try:
         step = ops.update_step(step_id, patch, expected_version)
+        plan = ops.get_plan()
         return tool_ok(
             "plan_update_step",
-            step,
-            meta={"plan_id": _plan_id(), "version": _version_from_result(step), "step_id": step_id},
+            {
+                "updated_step": scheduler.updated_step_snapshot(step),
+                "plan_snapshot": scheduler.plan_snapshot(plan),
+            },
+            meta={"plan_id": plan.get("plan_id"), "version": plan.get("version"), "step_id": step_id},
         )
     except Exception as exc:
         return _tool_exception("plan_update_step", exc)
@@ -137,10 +141,6 @@ def _plan_id() -> str | None:
         return str(value) if value else None
     except Exception:
         return None
-
-
-def _version_from_result(step: dict[str, Any]) -> int | None:
-    return _current_version() if isinstance(step, dict) else None
 
 
 def _tool_exception(tool_name: str, exc: Exception) -> str:

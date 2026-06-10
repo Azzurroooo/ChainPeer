@@ -6,7 +6,40 @@ from typing import Any
 
 from .helpers import dependency_depth
 from .model import TERMINAL_STEP_STATUS, all_deps_completed, assert_expected_version, ensure_plan_defaults, step_map
+from .state_summary import step_counts
 from .store import load_plan
+
+
+def plan_snapshot(plan: dict[str, Any]) -> dict[str, Any]:
+    ensure_plan_defaults(plan)
+    step_by_id = step_map(plan)
+    ordered = sorted(step_by_id.values(), key=lambda item: int(item.get("order", 0)))
+    ready = [step for step in ordered if step.get("status") == "pending" and all_deps_completed(step, step_by_id)]
+    focus = _focus_step(ready, step_by_id) if ready else None
+    return {
+        "plan_id": plan.get("plan_id"),
+        "version": plan.get("version"),
+        "status": plan.get("status"),
+        "counts": step_counts(plan),
+        "focus": _step_brief(focus),
+        "ready": [_step_brief(step) for step in ready],
+        "blocked": _blocked_report(ordered, step_by_id),
+        "all_steps_terminal": bool(ordered) and all(step.get("status") in TERMINAL_STEP_STATUS for step in ordered),
+    }
+
+
+def updated_step_snapshot(step: dict[str, Any]) -> dict[str, Any]:
+    data = {
+        "step_id": step.get("step_id"),
+        "title": step.get("title"),
+        "status": step.get("status"),
+        "depends_on": step.get("depends_on") or [],
+        "priority": int(step.get("priority", 0)),
+    }
+    blocked_reason = str(step.get("blocked_reason") or "").strip()
+    if blocked_reason:
+        data["blocked_reason"] = blocked_reason
+    return data
 
 
 def next_steps(mode: str, expected_version: int | None = None) -> tuple[Any, dict[str, Any]]:
@@ -57,3 +90,9 @@ def _focus_step(ready: list[dict[str, Any]], step_by_id: dict[str, dict[str, Any
             int(item.get("order", 0)),
         ),
     )[0]
+
+
+def _step_brief(step: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not step:
+        return None
+    return {"step_id": step.get("step_id"), "title": step.get("title")}
