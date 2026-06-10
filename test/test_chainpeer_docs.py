@@ -105,5 +105,22 @@ def test_chainpeer_doc_paths_use_configured_home_and_project_root(tmp_path, monk
     monkeypatch.chdir(nested)
 
     assert resolve_user_doc_path() == user_home.resolve() / "CHAINPEER.md"
-    assert resolve_project_doc_path() == project.resolve() / "CHAINPEER.md"
+    assert resolve_project_doc_path() == nested.resolve() / "CHAINPEER.md"
+
+
+def test_chainpeer_project_doc_uses_cwd_not_parent_git_root(tmp_path, monkeypatch) -> None:
+    user_home = tmp_path / "home"
+    project = _project_root(tmp_path)
+    nested = project / "src"
+    nested.mkdir()
+    monkeypatch.setenv("CHAINPEER_HOME", str(user_home))
+    monkeypatch.chdir(nested)
+    (project / "CHAINPEER.md").write_text("parent git root doc", encoding="utf-8")
+    (nested / "CHAINPEER.md").write_text("cwd doc", encoding="utf-8")
+
+    messages, _, decisions = build_chainpeer_doc_context()
+
+    assert "cwd doc" in messages[0]["content"]
+    assert "parent git root doc" not in messages[0]["content"]
+    assert decisions["chainpeer_docs_project_path"] == str(nested.resolve() / "CHAINPEER.md")
 

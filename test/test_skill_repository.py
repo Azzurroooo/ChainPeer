@@ -81,6 +81,35 @@ This skill has no frontmatter.
         raise AssertionError(f"Unexpected warnings for fallback skill: {fallback.warnings}")
 
 
+def test_skill_repository_uses_chainpeer_home_for_user_skills(tmp_path: Path, monkeypatch) -> None:
+    chainpeer_home = tmp_path / "chainpeer-home"
+    project_root = tmp_path / "project"
+    user_skill_dir = chainpeer_home / "skills"
+    project_root.mkdir()
+    (user_skill_dir / "demo").mkdir(parents=True)
+    (user_skill_dir / "demo" / "SKILL.md").write_text(
+        """---
+name: demo
+description: home demo skill
+triggers: []
+---
+
+# Demo
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("CHAINPEER_HOME", str(chainpeer_home))
+
+    repo = SkillRepository()
+    skill = repo.get_skill("demo")
+
+    if not skill or skill.source != "user":
+        raise AssertionError(f"Expected user skill from CHAINPEER_HOME, got: {skill}")
+    if Path(skill.path) != user_skill_dir / "demo" / "SKILL.md":
+        raise AssertionError(f"Unexpected skill path: {skill.path}")
+
+
 def main() -> int:
     import tempfile
 

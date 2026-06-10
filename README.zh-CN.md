@@ -75,7 +75,7 @@ pip install -r requirements-runtime.txt
 
 ### 配置
 
-ChainPeer 默认读取 `~/.chainpeer/settings.json`。也可以使用 `OPENAI_API_KEY`、`OPENAI_API_BASE`、`DEFAULT_MODEL` 等环境变量。
+ChainPeer 设置了 `CHAINPEER_HOME` 时会把用户级数据放在该目录，否则放在 `~/.chainpeer`。默认 settings 路径是 `<用户级目录>/settings.json`；sessions、user skills 和 user `CHAINPEER.md` 使用同一个用户级目录语义。也可以使用 `OPENAI_API_KEY`、`OPENAI_API_BASE`、`DEFAULT_MODEL` 等环境变量。
 
 最小 `settings.json` 示例：
 
@@ -127,6 +127,8 @@ python main.py --session <session-id>
 | `python main.py --allow-unsafe-bash` | 允许执行默认安全策略会阻止的 Shell 命令。 |
 
 在交互式 CLI 中，斜杠命令可用于诊断、会话管理、模型切换和状态查看。输入工具栏会展示当前会话、模型、工作目录和关键提示。
+
+项目级 `CHAINPEER.md` 和项目级 skills 以启动 ChainPeer 时的当前工作目录为根目录。
 
 ## 架构
 

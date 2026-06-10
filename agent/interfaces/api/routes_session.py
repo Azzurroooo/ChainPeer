@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
 from agent.application.runtime.cancellation import CancellationTokenSource
+from agent.infrastructure.paths import validate_session_id
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -21,18 +21,13 @@ from agent.interfaces.api.dependencies import get_agent_factory
 @router.post("/{session_id}/turns")
 async def run_turn(session_id: str, turn_req: TurnRequest, request: Request, factory=Depends(get_agent_factory)):
     """Run a single turn and stream the response events via SSE."""
-    
-    agent = factory(session_id=session_id)
-    # Note: agent here is AsyncRuntimeFacade, it doesn't have initialize() or session attributes directly.
-    # The facade handles session internally if we pass session_id.
-    
-    # We can skip initialize() and persist_message() here because run_turn does it, 
-    # OR we can expose them on the facade if needed.
-    # Since AsyncRuntimeFacade.run_turn takes query and persists it, we just pass the query.
-    
-    # We must ensure the session is created if it doesn't exist
-    await agent.initialize()
+    try:
+        session_id = validate_session_id(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    agent = factory(session_id=session_id)
+    await agent.initialize()
     cancel_source = CancellationTokenSource()
 
     async def event_generator():

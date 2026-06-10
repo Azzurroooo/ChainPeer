@@ -128,6 +128,7 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
             "pattern": "文件匹配模式",
             "recursive": "是否递归",
             "max_depth": "最大深度",
+            "include_hidden": "是否包含点开头的隐藏文件和目录。默认 False。",
         },
     },
     "bash": {
@@ -219,7 +220,7 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
         },
     },
     "skill_create": {
-        "description": "创建格式正确的 ChainPeer Skill。自动写入 .chainpeer/skills/<name>/SKILL.md 或用户级 ~/.chainpeer/skills/<name>/SKILL.md，并生成稳定的 frontmatter。",
+        "description": "创建格式正确的 ChainPeer Skill。自动写入当前目录 .chainpeer/skills/<name>/SKILL.md 或用户级 CHAINPEER_HOME/skills/<name>/SKILL.md，并生成稳定的 frontmatter。",
         "param_descriptions": {
             "name": "Skill 名称。只能包含字母、数字、下划线和连字符。",
             "description": "Skill 的简短说明，写入 frontmatter，用于上下文中的 skill index。",

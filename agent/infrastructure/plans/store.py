@@ -10,6 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.infrastructure.paths import resolve_session_base as resolve_checked_session_base
+from agent.infrastructure.paths import validate_session_id
+
 _ACTIVE_SESSION_ROOT: ContextVar[str | None] = ContextVar("chainpeer_plan_session_root", default=None)
 _ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("chainpeer_plan_session_id", default=None)
 
@@ -23,6 +26,7 @@ def set_active_session_context(session_root: str, session_id: str) -> None:
     sid = str(session_id or "").strip()
     if not root or not sid:
         return
+    sid = validate_session_id(sid)
     _ACTIVE_SESSION_ROOT.set(root)
     _ACTIVE_SESSION_ID.set(sid)
 
@@ -31,14 +35,15 @@ def resolve_session_base() -> tuple[Path, str]:
     context_root = _ACTIVE_SESSION_ROOT.get()
     context_id = _ACTIVE_SESSION_ID.get()
     if context_root and context_id:
-        base = Path(context_root) / context_id
+        base = resolve_checked_session_base(context_root, context_id)
         if base.is_dir():
             return base, context_id
 
     env_root = os.getenv("AGENT_SESSION_ROOT")
     env_id = os.getenv("AGENT_SESSION_ID")
     if env_root and env_id:
-        base = Path(env_root) / env_id
+        env_id = validate_session_id(env_id)
+        base = resolve_checked_session_base(env_root, env_id)
         if base.is_dir():
             return base, env_id
     raise FileNotFoundError(

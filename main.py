@@ -28,6 +28,15 @@ def main() -> int:
         print(report.text)
         return 1 if report.failures else 0
 
+    from agent.infrastructure.paths import validate_session_id
+
+    if args.session is not None:
+        try:
+            args.session = validate_session_id(args.session)
+        except ValueError as exc:
+            print(f"Session error: {exc}", file=sys.stderr)
+            return 1
+
     from agent.bootstrap import build_basic_agent_dependencies
     from agent.infrastructure.config import Config
 

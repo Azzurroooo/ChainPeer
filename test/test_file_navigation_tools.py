@@ -12,6 +12,7 @@ from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.infrastructure.tools.impl import TOOL_SCHEMAS
 from agent.infrastructure.tools.impl.tools.file_ops import glob as glob_tool
 from agent.infrastructure.tools.impl.tools.file_ops import grep, list_files, read_file
+from agent.infrastructure.tools.impl.tools.pdf_ops import read_pdf
 
 
 def parse_payload(raw: str) -> dict:
@@ -159,6 +160,33 @@ def test_list_files_recursive_applies_pattern(tmp_path: Path) -> None:
         raise AssertionError(f"Did not expect non-matching text file, got: {payload}")
 
 
+def test_list_files_can_include_hidden_entries(tmp_path: Path) -> None:
+    write(tmp_path / ".docs" / "audit.md", "notes\n")
+    write(tmp_path / "visible.txt", "visible\n")
+
+    hidden_default = assert_ok(list_files(str(tmp_path), recursive=False)).get("data") or ""
+    if ".docs" in hidden_default:
+        raise AssertionError(f"Did not expect hidden directory by default, got: {hidden_default}")
+
+    included = assert_ok(list_files(str(tmp_path), recursive=False, include_hidden=True))
+    data = included.get("data") or ""
+    meta = included.get("meta") or {}
+    if ".docs" not in data or "visible.txt" not in data:
+        raise AssertionError(f"Expected hidden and visible entries, got: {included}")
+    if meta.get("include_hidden") is not True:
+        raise AssertionError(f"Expected include_hidden metadata, got: {meta}")
+
+
+def test_read_pdf_expands_user_home_before_format_validation(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    write(home / "sample.txt", "not a pdf\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+    assert_error(read_pdf("~/sample.txt"), "InvalidFormat")
+
+
 def test_schema_includes_glob_and_grep_output_mode_enum() -> None:
     schemas = {item["function"]["name"]: item["function"] for item in TOOL_SCHEMAS}
     if "glob" not in schemas:
@@ -166,6 +194,9 @@ def test_schema_includes_glob_and_grep_output_mode_enum() -> None:
     output_mode = schemas["grep"]["parameters"]["properties"].get("output_mode") or {}
     if output_mode.get("enum") != ["files_with_matches", "content", "count"]:
         raise AssertionError(f"Expected grep output_mode enum, got: {output_mode}")
+    include_hidden = schemas["list_files"]["parameters"]["properties"].get("include_hidden") or {}
+    if include_hidden.get("type") != "boolean":
+        raise AssertionError(f"Expected list_files include_hidden boolean, got: {include_hidden}")
 
 
 def test_schema_includes_ask_user_question_with_only_question_required() -> None:
@@ -202,6 +233,8 @@ def main() -> int:
         test_sync_file_tools_return_cancelled_payload(Path(temp_dir))
     with tempfile.TemporaryDirectory() as temp_dir:
         test_list_files_recursive_applies_pattern(Path(temp_dir))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        test_list_files_can_include_hidden_entries(Path(temp_dir))
     test_schema_includes_glob_and_grep_output_mode_enum()
     test_schema_includes_ask_user_question_with_only_question_required()
     print("File navigation tool tests passed.")

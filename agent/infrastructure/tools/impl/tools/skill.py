@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from agent.domain import tool_error, tool_ok
+from agent.infrastructure.paths import resolve_chainpeer_home, resolve_project_root
 
 _SKILL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -49,7 +50,11 @@ def skill_create(
             return tool_error("skill_create", "body cannot be empty.", "ValidationError")
 
         normalized_triggers = _normalize_triggers(triggers)
-        root = Path.cwd() / ".chainpeer" / "skills" if normalized_scope == "project" else Path.home() / ".chainpeer" / "skills"
+        root = (
+            resolve_project_root() / ".chainpeer" / "skills"
+            if normalized_scope == "project"
+            else resolve_chainpeer_home() / "skills"
+        )
         skill_dir = (root / normalized_name).resolve()
         skill_file = skill_dir / "SKILL.md"
 

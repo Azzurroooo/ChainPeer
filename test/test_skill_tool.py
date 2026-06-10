@@ -49,6 +49,33 @@ def test_skill_create_project_scope(tmp_path: Path, monkeypatch) -> None:
         raise AssertionError(f"Unexpected parsed triggers: {parsed.triggers}")
 
 
+def test_skill_create_project_scope_uses_cwd_not_parent_git_root(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    nested = project / "src"
+    nested.mkdir(parents=True)
+    (project / ".git").mkdir()
+    monkeypatch.chdir(nested)
+
+    result = _payload(
+        skill_create(
+            name="cwd-skill",
+            description="Cwd skill.",
+            body="# Cwd\nUse current directory.",
+        )
+    )
+
+    skill_file = nested / ".chainpeer" / "skills" / "cwd-skill" / "SKILL.md"
+    parent_skill_file = project / ".chainpeer" / "skills" / "cwd-skill" / "SKILL.md"
+    if not result.get("ok"):
+        raise AssertionError(f"Expected success, got: {result}")
+    if Path(result["data"]["path"]) != skill_file:
+        raise AssertionError(f"Unexpected project skill path: {result}")
+    if not skill_file.exists():
+        raise AssertionError(f"Expected cwd skill file to exist: {skill_file}")
+    if parent_skill_file.exists():
+        raise AssertionError(f"Did not expect parent git-root skill file: {parent_skill_file}")
+
+
 def test_skill_create_user_scope(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     workspace = tmp_path / "workspace"
@@ -71,6 +98,31 @@ def test_skill_create_user_scope(tmp_path: Path, monkeypatch) -> None:
         raise AssertionError(f"Expected success, got: {result}")
     if Path(result["data"]["path"]) != skill_file:
         raise AssertionError(f"Unexpected user skill path: {result}")
+    if not skill_file.exists():
+        raise AssertionError(f"Expected user skill file to exist: {skill_file}")
+
+
+def test_skill_create_user_scope_uses_chainpeer_home(tmp_path: Path, monkeypatch) -> None:
+    chainpeer_home = tmp_path / "chainpeer-home"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("CHAINPEER_HOME", str(chainpeer_home))
+
+    result = _payload(
+        skill_create(
+            name="portable_skill",
+            description="Portable skill.",
+            body="# Portable\nUse this globally.",
+            scope="user",
+        )
+    )
+
+    skill_file = chainpeer_home / "skills" / "portable_skill" / "SKILL.md"
+    if not result.get("ok"):
+        raise AssertionError(f"Expected success, got: {result}")
+    if Path(result["data"]["path"]) != skill_file:
+        raise AssertionError(f"Unexpected CHAINPEER_HOME skill path: {result}")
     if not skill_file.exists():
         raise AssertionError(f"Expected user skill file to exist: {skill_file}")
 
@@ -157,7 +209,9 @@ def main() -> int:
 
     tests = [
         test_skill_create_project_scope,
+        test_skill_create_project_scope_uses_cwd_not_parent_git_root,
         test_skill_create_user_scope,
+        test_skill_create_user_scope_uses_chainpeer_home,
         test_skill_create_rejects_invalid_inputs,
         test_skill_create_overwrite_policy,
     ]

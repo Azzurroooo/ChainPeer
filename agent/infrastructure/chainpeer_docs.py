@@ -2,31 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from agent.infrastructure.paths import resolve_chainpeer_home, resolve_project_root
 
 
 CHAINPEER_DOC_NAME = "CHAINPEER.md"
 CHAINPEER_DOC_BYTE_LIMIT = 32 * 1024
-
-
-def resolve_chainpeer_home() -> Path:
-    override = os.getenv("CHAINPEER_HOME", "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
-    return (Path.home() / ".chainpeer").resolve()
-
-
-def resolve_project_root(cwd: Path | None = None) -> Path:
-    current = (cwd or Path.cwd()).resolve()
-    while True:
-        git_marker = current / ".git"
-        if git_marker.is_dir() or git_marker.is_file():
-            return current
-        parent = current.parent
-        if parent == current:
-            return (cwd or Path.cwd()).resolve()
-        current = parent
 
 
 def resolve_user_doc_path() -> Path:

@@ -35,6 +35,14 @@ def test_system_prompt_contains_chainpeer_doc_rules():
     assert "not automatically updated memory" in text
 
 
+def test_system_prompt_describes_path_roots():
+    text = prompts.SYSTEM_PROMPT
+
+    assert "cd` commands affect subsequent `bash` calls only" in text
+    assert "file tools still resolve relative paths from the Current Working Directory" in text
+    assert "Project-level `CHAINPEER.md` and project skills are rooted at the Current Working Directory" in text
+
+
 def test_chainpeer_init_prompt_scopes_project_file():
     prompt = prompts.build_chainpeer_init_prompt("project", r"C:\repo\CHAINPEER.md")
 

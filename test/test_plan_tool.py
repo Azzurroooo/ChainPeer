@@ -233,6 +233,30 @@ def test_plan_schema_excludes_observation_and_metrics() -> None:
         raise AssertionError(f"plan_close schema should not contain summary: {close_props}")
 
 
+def test_plan_rejects_invalid_session_id_from_env(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "sessions"
+    root.mkdir()
+    monkeypatch.setenv("AGENT_SESSION_ROOT", str(root))
+    monkeypatch.setenv("AGENT_SESSION_ID", "../escape")
+
+    payload = parse_payload(plan_create("Bad", "goal", [{"step_id": "s1", "title": "one"}]))
+
+    assert_error(payload, "ValidationError")
+    if (tmp_path / "escape" / "plan.json").exists():
+        raise AssertionError("Plan path escaped the session root.")
+
+
+def test_plan_rejects_invalid_session_id_from_active_context(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    root.mkdir()
+
+    with pytest.raises(ValueError, match="Invalid session id"):
+        plan_store.set_active_session_context(str(root), "../escape")
+
+    if (tmp_path / "escape" / "plan.json").exists():
+        raise AssertionError("Plan path escaped the session root.")
+
+
 def test_plan_next_all_steps_terminal() -> None:
     payload = assert_ok(parse_payload(plan_create("Terminal", "goal", [{"step_id": "s1", "title": "one"}])))
     version = int(payload["data"]["version"])

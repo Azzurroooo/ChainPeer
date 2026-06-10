@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 import uuid
 
+from agent.infrastructure.paths import resolve_chainpeer_home
 from agent.version import __version__
 
 
@@ -95,7 +96,7 @@ def default_settings_path() -> Path:
     override = os.getenv("CHAINPEER_SETTINGS_PATH", "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".chainpeer" / "settings.json"
+    return resolve_chainpeer_home() / "settings.json"
 
 
 def load_settings(path: str | Path | None = None) -> AppSettings:
