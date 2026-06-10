@@ -75,7 +75,7 @@ pip install -r requirements-runtime.txt
 
 ### Configure
 
-ChainPeer reads configuration from `~/.chainpeer/settings.json` by default. You can also use environment variables such as `OPENAI_API_KEY`, `OPENAI_API_BASE`, and `DEFAULT_MODEL`.
+ChainPeer stores user-level data under `CHAINPEER_HOME` when set, otherwise under `~/.chainpeer`. The default settings path is `<user-dir>/settings.json`; sessions, user skills, and user `CHAINPEER.md` live in the same user-level directory. You can also use environment variables such as `OPENAI_API_KEY`, `OPENAI_API_BASE`, and `DEFAULT_MODEL`.
 
 Minimal `settings.json` example:
 
@@ -127,6 +127,8 @@ python main.py --session <session-id>
 | `python main.py --allow-unsafe-bash` | Allow shell commands that are blocked by the default safety policy. |
 
 Inside the CLI, slash commands provide local controls for diagnostics, sessions, model selection, and status inspection. The input toolbar shows the active session, model, working directory, and key hints.
+
+Project-level `CHAINPEER.md` and project skills are resolved from the current working directory where ChainPeer is launched.
 
 ## Architecture
 

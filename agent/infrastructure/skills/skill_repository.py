@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from agent.domain.skills import Skill, parse_skill_markdown
+from agent.infrastructure.paths import resolve_chainpeer_home, resolve_project_root
 
 
 class SkillRepository:
@@ -18,10 +18,10 @@ class SkillRepository:
         project_skill_dir: str | None = None,
         user_skill_dir: str | None = None,
     ):
-        self._project_root = Path(project_root or os.getcwd()).resolve()
-        self._user_home = Path(user_home or os.path.expanduser("~")).expanduser().resolve()
-        self._project_skill_dir = Path(project_skill_dir).expanduser().resolve() if project_skill_dir else self._project_root / ".chainpeer" / "skills"
-        self._user_skill_dir = Path(user_skill_dir).expanduser().resolve() if user_skill_dir else self._user_home / ".chainpeer" / "skills"
+        project_base = Path(project_root).expanduser().resolve() if project_root else resolve_project_root()
+        user_base = Path(user_home).expanduser().resolve() / ".chainpeer" if user_home else resolve_chainpeer_home()
+        self._project_skill_dir = Path(project_skill_dir).expanduser().resolve() if project_skill_dir else project_base / ".chainpeer" / "skills"
+        self._user_skill_dir = Path(user_skill_dir).expanduser().resolve() if user_skill_dir else user_base / "skills"
 
     def list_skills(self) -> list[Skill]:
         skills_by_name: dict[str, Skill] = {}

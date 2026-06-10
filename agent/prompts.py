@@ -91,7 +91,7 @@ You are autonomous, efficient, and capable of solving complex programming tasks 
 3. **System Execution**
    - `bash`: Execute shell commands (e.g., `git`, `python`, `pip`, `ls`, `mkdir`).
    - `kill_shell`: Reset the shell session if it becomes unresponsive or cluttered.
-   - Note: The shell session is persistent. `cd` commands affect subsequent calls.
+   - Note: The shell session is persistent. `cd` commands affect subsequent `bash` calls only; file tools still resolve relative paths from the Current Working Directory.
 
 4. **Internet Access**
    - `search_web`: Search the internet for documentation, libraries, or solutions to errors.
@@ -119,6 +119,7 @@ You are autonomous, efficient, and capable of solving complex programming tasks 
 1. **Path Resolution**
    - The user's "root directory" is the **Current Working Directory** (`{os.getcwd()}`).
    - ALWAYS refer to it as `.` (dot) in commands.
+   - Project-level `CHAINPEER.md` and project skills are rooted at the Current Working Directory, not a parent Git root.
    - **Windows warning**: in Git Bash, `/` may map to Git installation root, not project root.
    - Avoid `ls /` and `cd /` unless system-level inspection is explicitly needed.
 

@@ -479,21 +479,31 @@ def _finalize_grep_record(record: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _build_tree(path: Path, prefix: str = "", depth: int = 0, max_depth: int = 2, pattern: str = "*") -> tuple:
+def _build_tree(
+    path: Path,
+    prefix: str = "",
+    depth: int = 0,
+    max_depth: int = 2,
+    pattern: str = "*",
+    include_hidden: bool = False,
+) -> tuple:
     try:
-        items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+        items = [
+            item
+            for item in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            if include_hidden or not item.name.startswith(".")
+        ]
     except PermissionError:
         return [f"{prefix}└── [权限拒绝]"], 0, 0
     lines, files, dirs = [], 0, 0
     for i, item in enumerate(items):
-        if item.name.startswith('.'): continue
         is_last = i == len(items) - 1
         conn = "└── " if is_last else "├── "
         ext = "    " if is_last else "│   "
         if item.is_dir():
             lines.append(f"{prefix}{conn}📁 {item.name}/")
             if depth < max_depth - 1:
-                sub, f, d = _build_tree(item, prefix + ext, depth + 1, max_depth, pattern)
+                sub, f, d = _build_tree(item, prefix + ext, depth + 1, max_depth, pattern, include_hidden)
                 lines.extend(sub)
                 dirs += 1 + d
                 files += f
@@ -506,9 +516,15 @@ def _build_tree(path: Path, prefix: str = "", depth: int = 0, max_depth: int = 2
             files += 1
     return lines, files, dirs
 
-def list_files(directory: str = ".", pattern: str = "*", recursive: bool = True, max_depth: int = 2) -> str:
+def list_files(
+    directory: str = ".",
+    pattern: str = "*",
+    recursive: bool = True,
+    max_depth: int = 2,
+    include_hidden: bool = False,
+) -> str:
     try:
-        path = Path(directory).resolve()
+        path = Path(directory).expanduser().resolve()
         if not path.exists():
             return tool_error("list_files", f"目录不存在: {directory}", "NotFound")
         if not path.is_dir():
@@ -516,15 +532,16 @@ def list_files(directory: str = ".", pattern: str = "*", recursive: bool = True,
         if not recursive:
             result = []
             for f in sorted(path.glob(pattern)):
-                if f.name.startswith('.'): continue
+                if f.name.startswith(".") and not include_hidden:
+                    continue
                 if f.is_file(): result.append(f"📄 {f.name} ({_format_size(f.stat().st_size)})")
                 else: result.append(f"📁 {f.name}/")
-            return tool_ok("list_files", "\n".join(result) or "没有找到文件", meta={"directory": str(path), "recursive": False, "pattern": pattern})
-        lines, f, d = _build_tree(path, max_depth=max_depth, pattern=pattern)
+            return tool_ok("list_files", "\n".join(result) or "没有找到文件", meta={"directory": str(path), "recursive": False, "pattern": pattern, "include_hidden": bool(include_hidden)})
+        lines, f, d = _build_tree(path, max_depth=max_depth, pattern=pattern, include_hidden=bool(include_hidden))
         return tool_ok(
             "list_files",
             "\n".join([f"📁 {path}/"] + lines + ["", f"总计: {d} 个文件夹, {f} 个文件"]),
-            meta={"directory": str(path), "recursive": True, "pattern": pattern},
+            meta={"directory": str(path), "recursive": True, "pattern": pattern, "include_hidden": bool(include_hidden)},
         )
     except Exception as e:
         return tool_error("list_files", f"错误: {e}", type(e).__name__)

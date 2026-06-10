@@ -93,6 +93,42 @@ def test_doctor_reports_invalid_settings_json(tmp_path) -> None:
         raise AssertionError(f"Expected friendly diagnostics, got: {result.stderr}")
 
 
+def test_session_rejects_invalid_id_before_config_validation(tmp_path) -> None:
+    bad_settings = tmp_path / "settings.json"
+    bad_settings.write_text("{", encoding="utf-8")
+    env = os.environ.copy()
+    env["CHAINPEER_SETTINGS_PATH"] = str(bad_settings)
+
+    result = subprocess.run(
+        [sys.executable, "main.py", "--session", "../escape"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 1:
+        raise AssertionError(f"Expected invalid session id to fail, got: {result.returncode}")
+    if "Session error: Invalid session id." not in result.stderr:
+        raise AssertionError(f"Expected session validation error, got: {result.stderr}")
+    if "Configuration error:" in result.stderr:
+        raise AssertionError(f"Expected session validation before config validation, got: {result.stderr}")
+
+
+def test_session_rejects_empty_id_before_startup() -> None:
+    result = subprocess.run(
+        [sys.executable, "main.py", "--session", ""],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 1:
+        raise AssertionError(f"Expected empty session id to fail, got: {result.returncode}")
+    if "Session error: Invalid session id." not in result.stderr:
+        raise AssertionError(f"Expected session validation error, got: {result.stderr}")
+
+
 def test_main_returns_130_on_keyboard_interrupt() -> None:
     import main as main_module
 
@@ -121,6 +157,9 @@ def main() -> int:
         test_doctor_runs_without_api_key(Path(temp_dir))
     with tempfile.TemporaryDirectory() as temp_dir:
         test_doctor_reports_invalid_settings_json(Path(temp_dir))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        test_session_rejects_invalid_id_before_config_validation(Path(temp_dir))
+    test_session_rejects_empty_id_before_startup()
     test_main_returns_130_on_keyboard_interrupt()
     print("Main CLI arg tests passed.")
     return 0

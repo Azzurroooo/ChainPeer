@@ -83,6 +83,7 @@ def test_load_settings_empty_reasoning_effort_does_not_fallback_to_env(tmp_path,
 def test_ensure_user_settings_template_creates_neutral_template(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.delenv("CHAINPEER_SETTINGS_PATH", raising=False)
+    monkeypatch.delenv("CHAINPEER_HOME", raising=False)
 
     path = ensure_user_settings_template()
 
@@ -91,6 +92,17 @@ def test_ensure_user_settings_template_creates_neutral_template(tmp_path, monkey
     assert data["apiKey"] == ""
     assert data["baseUrl"] == ""
     assert data["reasoningEffort"] == "xhigh"
+
+
+def test_default_settings_path_uses_chainpeer_home(tmp_path, monkeypatch):
+    chainpeer_home = tmp_path / "portable-home"
+    monkeypatch.setenv("CHAINPEER_HOME", str(chainpeer_home))
+    monkeypatch.delenv("CHAINPEER_SETTINGS_PATH", raising=False)
+
+    path = ensure_user_settings_template()
+
+    assert path == chainpeer_home / "settings.json"
+    assert path.exists()
 
 
 def test_ensure_user_settings_template_skips_custom_settings_path(tmp_path, monkeypatch):

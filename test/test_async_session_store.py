@@ -82,6 +82,74 @@ def test_resolve_session_root_uses_explicit_session_dir(tmp_path):
     assert root == os.path.abspath(str(session_dir))
 
 
+@pytest.mark.asyncio
+async def test_session_store_rejects_invalid_session_ids(temp_session_dir, tmp_path):
+    invalid_ids = ["../escape", r"a\b", "a/b", "bad id", "C:drive", "..", ""]
+
+    for session_id in invalid_ids:
+        store = AsyncJsonlSessionStore(session_dir=temp_session_dir, session_id=session_id)
+        with pytest.raises(ValueError, match="Invalid session id"):
+            await store.initialize()
+
+    assert not (Path(temp_session_dir).parent / "escape").exists()
+
+
+@pytest.mark.asyncio
+async def test_session_workspace_root_uses_cwd_not_parent_git_root(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    nested = project / "src"
+    session_root = tmp_path / "sessions"
+    nested.mkdir(parents=True)
+    (project / ".git").mkdir()
+    monkeypatch.chdir(nested)
+
+    store = AsyncJsonlSessionStore(session_dir=str(session_root))
+    await store.initialize()
+
+    meta_path = session_root / store.session_id / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["workspace_root"] == os.path.normcase(os.path.realpath(str(nested.resolve())))
+    assert meta["workspace_root"] != os.path.normcase(os.path.realpath(str(project.resolve())))
+
+
+@pytest.mark.asyncio
+async def test_resume_latest_and_recent_sessions_ignore_invalid_index_ids(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session_root = tmp_path / "sessions"
+    store = AsyncJsonlSessionStore(session_dir=str(session_root), session_id="valid_session")
+    await store.initialize()
+
+    meta = json.loads((session_root / "valid_session" / "meta.json").read_text(encoding="utf-8"))
+    index_path = session_root / "index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "sessions": [
+                    {
+                        "id": "../escape",
+                        "updated_at": "2099-01-01T00:00:00+00:00",
+                        "workspace_root": meta["workspace_root"],
+                    },
+                    {
+                        "id": "valid_session",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                        "workspace_root": meta["workspace_root"],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resumed = AsyncJsonlSessionStore(session_dir=str(session_root), resume_latest=True)
+    await resumed.initialize()
+    recent = await resumed.list_recent_sessions(limit=10)
+
+    assert resumed.session_id == "valid_session"
+    assert [item["id"] for item in recent] == ["valid_session"]
+    assert not (tmp_path / "escape").exists()
+
+
 def test_session_files_read_jsonl_waits_for_active_writer(tmp_path):
     path = tmp_path / "messages.jsonl"
     files = SessionFiles()

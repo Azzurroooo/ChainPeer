@@ -45,15 +45,15 @@ def read_pdf(
     try:
         if cancelled := _cancelled(_cancellation_token):
             return cancelled
-        import pymupdf
-
-        path = Path(file_path)
+        path = Path(file_path).expanduser().resolve()
         if not path.exists():
             return tool_error("read_pdf", f"文件不存在: {file_path}", "NotFound")
         if not path.is_file():
             return tool_error("read_pdf", f"路径不是文件: {file_path}", "NotAFile")
         if path.suffix.lower() != ".pdf":
             return tool_error("read_pdf", f"仅支持PDF文件, 收到: {path.suffix}", "InvalidFormat")
+
+        import pymupdf
 
         with pymupdf.open(str(path)) as doc:
             total_pages = len(doc)

@@ -246,7 +246,7 @@ async def handle_draft(context: SlashCommandContext, args: list[str]) -> str | S
 
 
 async def handle_login(context: SlashCommandContext, args: list[str]) -> str:
-    return "Login/config setup is not implemented yet.\nCreate settings.json under your user .chainpeer directory for now."
+    return "Login/config setup is not implemented yet.\nCreate settings.json under CHAINPEER_HOME, or ~/.chainpeer when CHAINPEER_HOME is unset."
 
 
 async def handle_config(context: SlashCommandContext, args: list[str]) -> str:

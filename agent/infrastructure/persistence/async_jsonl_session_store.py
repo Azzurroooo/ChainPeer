@@ -24,7 +24,23 @@ from agent.infrastructure.persistence.session_meta import (
     positive_int_or_none,
     sync_session_counts,
 )
+from agent.infrastructure.paths import (
+    resolve_chainpeer_home,
+    resolve_project_root,
+    resolve_session_base,
+    validate_session_id,
+)
 from agent.domain import looks_like_tool_payload
+
+
+def _valid_session_id_value(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        validate_session_id(value)
+    except ValueError:
+        return False
+    return True
 
 
 class AsyncJsonlSessionStore(AsyncSessionStore):
@@ -80,10 +96,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
 
     @classmethod
     def default_chainpeer_home(cls) -> str:
-        custom_home = os.getenv("CHAINPEER_HOME")
-        if custom_home:
-            return os.path.abspath(os.path.expanduser(custom_home))
-        return os.path.abspath(os.path.join(os.path.expanduser("~"), ".chainpeer"))
+        return str(resolve_chainpeer_home())
 
     @classmethod
     def resolve_session_root(cls, session_dir: str | None = None) -> str:
@@ -92,15 +105,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         return os.path.join(cls.default_chainpeer_home(), "sessions")
 
     def _resolve_workspace_root(self) -> str:
-        current = os.path.normcase(os.path.realpath(os.path.abspath(os.getcwd())))
-        while True:
-            git_marker = os.path.join(current, ".git")
-            if os.path.isdir(git_marker) or os.path.isfile(git_marker):
-                return current
-            parent = os.path.dirname(current)
-            if parent == current:
-                return os.path.normcase(os.path.realpath(os.path.abspath(os.getcwd())))
-            current = parent
+        return os.path.normcase(os.path.realpath(str(resolve_project_root())))
 
     def _setup_paths(self):
         self._session_root = self.resolve_session_root(self._session_dir)
@@ -116,7 +121,7 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         self._index_repo = SessionIndexRepository(self._files, self._index_path)
 
     def _get_session_paths(self, session_id: str) -> dict:
-        base = os.path.join(self._session_root, session_id)
+        base = str(resolve_session_base(self._session_root, session_id))
         return {
             "base": base,
             "meta": os.path.join(base, "meta.json"),
@@ -214,7 +219,10 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
         return scoped[-1].get("id")
 
     def _is_supported_session_id(self, session_id: str) -> bool:
-        meta_path = os.path.join(self._session_root, session_id, "meta.json")
+        try:
+            meta_path = self._get_session_paths(validate_session_id(session_id))["meta"]
+        except ValueError:
+            return False
         meta = self._files.load_json(meta_path)
         return isinstance(meta, dict) and str(meta.get("schema_version") or "") == "2.0"
 
@@ -285,18 +293,18 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
     def _ensure_session_sync(self):
         self._setup_paths()
         
-        if self._session_id:
-            if os.path.isdir(os.path.join(self._session_root, self._session_id)):
-                self._load_session(self._session_id)
+        if self._session_id is not None:
+            session_id = validate_session_id(self._session_id)
+            session_paths = self._get_session_paths(session_id)
+            if os.path.isdir(session_paths["base"]):
+                self._load_session(session_id)
                 return
-            # If a session ID is requested but not found, we create it with that ID
-            # This allows the API to initiate new sessions dynamically by ID
-            self._create_session(self._session_id)
+            self._create_session(session_id)
             return
 
         if self._resume_latest:
             latest_id = self._find_latest_session_id()
-            if latest_id and os.path.isdir(os.path.join(self._session_root, latest_id)):
+            if latest_id and os.path.isdir(self._get_session_paths(latest_id)["base"]):
                 self._load_session(latest_id)
                 return
             raise ValueError("No existing session found to resume.")
@@ -436,7 +444,11 @@ class AsyncJsonlSessionStore(AsyncSessionStore):
             self._setup_paths()
             index_data = self._index_repo.load_index() if self._index_repo else {"sessions": []}
             sessions = index_data.get("sessions", [])
-            sessions = [s for s in sessions if isinstance(s, dict) and s.get("updated_at")]
+            sessions = [
+                s
+                for s in sessions
+                if isinstance(s, dict) and s.get("updated_at") and _valid_session_id_value(s.get("id"))
+            ]
             sessions.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
             return sessions[:limit]
         return await asyncio.to_thread(_list)

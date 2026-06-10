@@ -414,6 +414,14 @@ async def test_config_does_not_leak_api_key(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_login_mentions_chainpeer_home() -> None:
+    result = await SlashCommandRouter().execute("/login", _context())
+
+    assert "CHAINPEER_HOME" in result.text
+    assert "~/.chainpeer" in result.text
+
+
+@pytest.mark.asyncio
 async def test_doctor_reports_setup_without_leaking_api_key(monkeypatch, tmp_path) -> None:
     class SessionWithRoot(FakeSession):
         _session_root = tmp_path / "sessions"
@@ -611,6 +619,53 @@ async def test_skill_lists_project_skill(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_lists_user_skill_from_chainpeer_home(tmp_path, monkeypatch) -> None:
+    chainpeer_home = tmp_path / "chainpeer-home"
+    workspace = tmp_path / "workspace"
+    skill_dir = chainpeer_home / "skills" / "demo"
+    workspace.mkdir()
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: User demo skill\ntriggers: []\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("CHAINPEER_HOME", str(chainpeer_home))
+
+    result = await SlashCommandRouter().execute("/skill", _context())
+
+    assert "demo [user]" in result.text
+    assert "User demo skill" in result.text
+    assert str(skill_dir / "SKILL.md") in result.text
+
+
+@pytest.mark.asyncio
+async def test_skill_lists_project_skill_from_cwd_not_parent_git_root(tmp_path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    nested = project / "src"
+    nested_skill_dir = nested / ".chainpeer" / "skills" / "nested"
+    parent_skill_dir = project / ".chainpeer" / "skills" / "parent"
+    nested_skill_dir.mkdir(parents=True)
+    parent_skill_dir.mkdir(parents=True)
+    (project / ".git").mkdir()
+    (nested_skill_dir / "SKILL.md").write_text(
+        "---\nname: nested\ndescription: Nested skill\ntriggers: []\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+    (parent_skill_dir / "SKILL.md").write_text(
+        "---\nname: parent\ndescription: Parent skill\ntriggers: []\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(nested)
+
+    result = await SlashCommandRouter().execute("/skill", _context())
+
+    assert "nested [project]" in result.text
+    assert "Nested skill" in result.text
+    assert "parent [project]" not in result.text
+
+
+@pytest.mark.asyncio
 async def test_init_project_returns_turn_payload(tmp_path, monkeypatch) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -627,6 +682,22 @@ async def test_init_project_returns_turn_payload(tmp_path, monkeypatch) -> None:
     assert "project-level ChainPeer context document" in prompt
     assert str(project / "CHAINPEER.md") in prompt
     assert "Do not modify the other CHAINPEER.md level." in prompt
+
+
+@pytest.mark.asyncio
+async def test_init_project_uses_cwd_not_parent_git_root(tmp_path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    nested = project / "src"
+    nested.mkdir(parents=True)
+    (project / ".git").mkdir()
+    monkeypatch.chdir(nested)
+
+    result = await SlashCommandRouter().execute("/init project", _context())
+
+    assert str(nested / "CHAINPEER.md") in result.run_turn_input
+    assert str(project / "CHAINPEER.md") not in result.run_turn_input
+    prompt = result.transient_system_messages[0]["content"]
+    assert str(nested / "CHAINPEER.md") in prompt
 
 
 @pytest.mark.asyncio
