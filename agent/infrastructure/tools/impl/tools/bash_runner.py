@@ -261,6 +261,7 @@ class BashRunner:
             shell_cmd = self._build_shell_cmd(command, state)
             process = await asyncio.create_subprocess_exec(
                 *shell_cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=state.cwd,
@@ -351,6 +352,7 @@ class BashRunner:
         shell_cmd = self._build_shell_cmd(command, state)
         process = await asyncio.create_subprocess_exec(
             *shell_cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=state.cwd,

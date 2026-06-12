@@ -1,0 +1,12 @@
+{
+  "name": "chainpeer-frontend-cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "chainpeer": "bin/chainpeer.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+

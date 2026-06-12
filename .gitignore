@@ -6,6 +6,7 @@ venv/
 env/
 .venv-build/
 .env
+node_modules/
 
 # Project specific
 # Runtime data defaults to CHAINPEER_HOME or ~/.chainpeer; keep legacy project-local artifacts ignored too.
