@@ -292,9 +292,11 @@ function resumePreviewText(value) {
 }
 
 function resumePreviewLine(line) {
-  const message = line.match(/^(user|assistant):\s*(.*)$/i);
+  const message = line.match(/^-?\s*(user|assistant):\s*(.*)$/i);
   if (message) {
-    return `${dim("  ↳")} ${message[1].toLowerCase()} · ${clipSingleLine(message[2], 72)}`;
+    const role = message[1].toLowerCase();
+    const marker = role === "user" ? cyan("›") : dim("•");
+    return `${marker} ${role} ${dim("·")} ${clipSingleLine(message[2], 72)}`;
   }
   return dim(`  ${clipSingleLine(line, 78)}`);
 }

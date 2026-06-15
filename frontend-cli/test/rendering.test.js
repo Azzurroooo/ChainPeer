@@ -35,7 +35,7 @@ test("startupText includes resume preview when provided", () => {
       model: "m1",
       session_id: "s1",
       cwd: "E:\\project",
-      resume_preview: "Resumed session s1\nuser: hello\nassistant: hi",
+      resume_preview: "Resumed session s1\n- user: hello\n- assistant: hi",
     }),
     [
       `┌${"─".repeat(78)}┐`,
@@ -45,8 +45,8 @@ test("startupText includes resume preview when provided", () => {
       `└${"─".repeat(78)}┘`,
       "",
       "  Resumed session s1",
-      "  ↳ user · hello",
-      "  ↳ assistant · hi",
+      "› user · hello",
+      "• assistant · hi",
     ].join("\n"),
   );
 });
@@ -56,7 +56,7 @@ test("startupText clips long resume preview lines", () => {
     resume_preview: `user: ${"x".repeat(120)}`,
   });
 
-  assert.match(text, /\u21b3 user · x{69}\.\.\./);
+  assert.match(text, /› user · x{69}\.\.\./);
 });
 
 test("startupText clips long cwd in the middle", () => {
