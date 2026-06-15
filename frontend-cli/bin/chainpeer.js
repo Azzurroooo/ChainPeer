@@ -14,6 +14,7 @@ import {
   cancelledText,
   commandResultText,
   errorLine,
+  helpText,
   interruptText,
   optionLine,
   promptText,
@@ -123,10 +124,18 @@ async function promptLoop() {
 }
 
 async function handleCommand(text) {
+  if (text === "?") {
+    console.log(helpText());
+    return true;
+  }
   if (!text.startsWith("/")) {
     return false;
   }
   const [command, ...args] = text.slice(1).split(/\s+/);
+  if (command === "help" || command === "?") {
+    console.log(helpText());
+    return true;
+  }
   if (command === "exit" || command === "quit") {
     await shutdownRuntime();
     process.exit(0);

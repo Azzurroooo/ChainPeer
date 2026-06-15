@@ -9,6 +9,20 @@ export function promptText() {
   return `\n${bold("›")} Ask ChainPeer to do anything\n${inputFooter()}\n${bold("›")} `;
 }
 
+export function helpText() {
+  return [
+    dim("  Shortcuts"),
+    "  ↑ / ↓      history",
+    "  ctrl+c     interrupt or exit",
+    "",
+    dim("  Commands"),
+    "  /compact   compact context",
+    "  /model set <model>",
+    "  /clear",
+    "  /exit",
+  ].join("\n");
+}
+
 export function answerPromptText() {
   return `\n${bold("›")} Answer\n${bold("›")} `;
 }
@@ -117,7 +131,7 @@ function statusLine(info) {
 }
 
 function inputFooter() {
-  return dim("  ↑ history · /compact · /model set <model> · ctrl+c to exit");
+  return dim("  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit");
 }
 
 function styled(text, code) {
