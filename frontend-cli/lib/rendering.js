@@ -1,6 +1,6 @@
 export function startupText(info) {
   const header = `${bold("ChainPeer")} ${dim(info.model || "unknown")} ${dim(`session ${info.session_id || "unknown"}`)}`;
-  const preview = String(info.resume_preview || "").trim();
+  const preview = resumePreviewText(info.resume_preview);
   const footer = statusLine(info);
   return preview ? `${header}\n\n${preview}\n\n${footer}` : `${header}\n\n${footer}`;
 }
@@ -128,6 +128,19 @@ function formatDuration(durationMs) {
 function statusLine(info) {
   const parts = [info.model || "unknown", process.cwd()];
   return dim(`  ${parts.join(" · ")} · ctrl+c to exit`);
+}
+
+function resumePreviewText(value) {
+  const lines = String(value || "").trim().split(/\r?\n/).filter(Boolean);
+  return lines.map(resumePreviewLine).join("\n");
+}
+
+function resumePreviewLine(line) {
+  const message = line.match(/^(user|assistant):\s*(.*)$/i);
+  if (message) {
+    return `${dim("  ↳")} ${message[1].toLowerCase()} · ${message[2]}`;
+  }
+  return dim(`  ${line}`);
 }
 
 function inputFooter() {

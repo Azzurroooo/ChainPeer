@@ -24,9 +24,9 @@ test("startupText includes resume preview when provided", () => {
     startupText({
       model: "m1",
       session_id: "s1",
-      resume_preview: "Resumed session s1",
+      resume_preview: "Resumed session s1\nuser: hello\nassistant: hi",
     }),
-    `ChainPeer m1 session s1\n\nResumed session s1\n\n  m1 · ${process.cwd()} · ctrl+c to exit`,
+    `ChainPeer m1 session s1\n\n  Resumed session s1\n  ↳ user · hello\n  ↳ assistant · hi\n\n  m1 · ${process.cwd()} · ctrl+c to exit`,
   );
 });
 
