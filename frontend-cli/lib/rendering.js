@@ -49,6 +49,10 @@ export function commandResultText(text) {
   return `${dim("  ")}${text}`;
 }
 
+export function modelUsageText() {
+  return dim("  Usage: /model set <model>");
+}
+
 export function contextBuiltLine(event) {
   const decisions = event.decisions && typeof event.decisions === "object" ? event.decisions : {};
   if (!decisions.chainpeer_docs_truncated) {

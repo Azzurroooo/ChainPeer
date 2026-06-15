@@ -17,6 +17,7 @@ import {
   errorLine,
   helpText,
   interruptText,
+  modelUsageText,
   optionLine,
   promptText,
   questionHeader,
@@ -158,6 +159,10 @@ async function handleCommand(text) {
   if (command === "model" && args[0] === "set" && args[1]) {
     await request("model.set", { model: args[1] });
     console.log(commandResultText(`Model updated: ${args[1]}`));
+    return true;
+  }
+  if (command === "model") {
+    console.log(modelUsageText());
     return true;
   }
   console.log(unknownCommandText());

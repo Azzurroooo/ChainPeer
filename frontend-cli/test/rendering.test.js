@@ -9,6 +9,7 @@ import {
   errorLine,
   helpText,
   interruptText,
+  modelUsageText,
   optionLine,
   promptText,
   questionHeader,
@@ -65,6 +66,10 @@ test("helpText renders compact shortcuts and commands", () => {
 
 test("unknownCommandText points to shortcuts help", () => {
   assert.equal(unknownCommandText(), "  Unknown command. Type ? for shortcuts.");
+});
+
+test("modelUsageText renders concrete model command usage", () => {
+  assert.equal(modelUsageText(), "  Usage: /model set <model>");
 });
 
 test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
