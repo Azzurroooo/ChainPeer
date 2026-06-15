@@ -1,9 +1,8 @@
-export function startupText(info) {
-  const header = [
-    `${bold("ChainPeer")} ${dim("agent runtime")}`,
-    dim(`  ${info.model || "unknown"} · session ${info.session_id || "unknown"}`),
-    dim(`  ${middleClip(info.cwd || process.cwd(), 76)}`),
-  ].join("\n");
+const STARTUP_BANNER_WIDTH = 80;
+const STARTUP_BANNER_INNER_WIDTH = STARTUP_BANNER_WIDTH - 4;
+
+export function startupText(info = {}) {
+  const header = startupBannerText(info);
   const preview = resumePreviewText(info.resume_preview);
   return preview ? `${header}\n\n${preview}` : header;
 }
@@ -252,6 +251,33 @@ function resumePreviewLine(line) {
     return `${dim("  ↳")} ${message[1].toLowerCase()} · ${clipSingleLine(message[2], 72)}`;
   }
   return dim(`  ${clipSingleLine(line, 78)}`);
+}
+
+function startupBannerText(info) {
+  const modelLine = `${singleLine(info.model) || "unknown"} · session ${singleLine(info.session_id) || "unknown"}`;
+  const cwdPrefix = "◇───◇  ";
+  const cwd = middleClip(info.cwd || process.cwd(), STARTUP_BANNER_INNER_WIDTH - cwdPrefix.length - 1);
+  return [
+    startupBannerTop(),
+    startupBannerLine("  ◇    agent runtime"),
+    startupBannerLine(` ╱ ╲   ${modelLine}`),
+    startupBannerLine(` ${cwdPrefix}${cwd}`),
+    dim(`╰${"─".repeat(STARTUP_BANNER_WIDTH - 2)}╯`),
+  ].join("\n");
+}
+
+function startupBannerTop() {
+  const prefix = "╭─ ChainPeer ";
+  return dim(`${prefix}${"─".repeat(STARTUP_BANNER_WIDTH - prefix.length - 1)}╮`);
+}
+
+function startupBannerLine(text) {
+  const clean = String(text || "").replace(/[\r\n\t]+/g, " ").trimEnd();
+  const content =
+    clean.length <= STARTUP_BANNER_INNER_WIDTH
+      ? clean
+      : `${clean.slice(0, Math.max(0, STARTUP_BANNER_INNER_WIDTH - 3))}...`;
+  return `${dim("│")} ${content.padEnd(STARTUP_BANNER_INNER_WIDTH)} ${dim("│")}`;
 }
 
 function inputFooter() {

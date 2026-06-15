@@ -30,13 +30,25 @@ import {
 } from "../lib/rendering.js";
 
 test("startupText includes resume preview when provided", () => {
+  const bannerLine = (text) => `│ ${text.padEnd(76)} │`;
   assert.equal(
     startupText({
       model: "m1",
       session_id: "s1",
+      cwd: "E:\\project",
       resume_preview: "Resumed session s1\nuser: hello\nassistant: hi",
     }),
-    `ChainPeer agent runtime\n  m1 · session s1\n  ${process.cwd()}\n\n  Resumed session s1\n  ↳ user · hello\n  ↳ assistant · hi`,
+    [
+      "╭─ ChainPeer ──────────────────────────────────────────────────────────────────╮",
+      bannerLine("  ◇    agent runtime"),
+      bannerLine(" ╱ ╲   m1 · session s1"),
+      bannerLine(" ◇───◇  E:\\project"),
+      "╰──────────────────────────────────────────────────────────────────────────────╯",
+      "",
+      "  Resumed session s1",
+      "  ↳ user · hello",
+      "  ↳ assistant · hi",
+    ].join("\n"),
   );
 });
 
@@ -55,10 +67,10 @@ test("startupText clips long cwd in the middle", () => {
     session_id: "s1",
     cwd,
   });
-  const cwdLine = text.split("\n")[2].trim();
+  const cwdLine = text.split("\n")[3].replace(/[│ ]/g, "");
 
-  assert.ok(cwdLine.length <= 76);
-  assert.ok(cwdLine.startsWith("E:\\deep"));
+  assert.ok(cwdLine.length <= 68 + "◇───◇".length);
+  assert.ok(cwdLine.startsWith("◇───◇E:\\deep"));
   assert.ok(cwdLine.endsWith("\\project"));
   assert.ok(cwdLine.includes("..."));
   assert.notEqual(cwdLine, cwd);
