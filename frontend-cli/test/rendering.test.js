@@ -210,7 +210,8 @@ test("status helpers render question, skill, and errors", () => {
   assert.equal(answerHintText(["A", "B"]), "  Type a number or enter a custom answer");
   assert.equal(answerHintText([]), "");
   assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
-  assert.equal(errorLine("failed"), "× failed");
+  assert.equal(errorLine("failed"), "× Turn failed\n  └ failed");
+  assert.equal(errorLine(""), "× Turn failed");
 });
 
 test("AssistantRenderer removes markdown markers at message boundary", () => {

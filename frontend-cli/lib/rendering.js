@@ -113,7 +113,8 @@ export function skillLine(event) {
 }
 
 export function errorLine(error) {
-  return `${red("×")} ${error || "Turn failed"}`;
+  const detail = clipSingleLine(error, 120);
+  return detail ? `${red("×")} Turn failed\n${dim(`  └ ${detail}`)}` : `${red("×")} Turn failed`;
 }
 
 export function questionHeader(question) {
