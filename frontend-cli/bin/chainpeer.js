@@ -110,9 +110,8 @@ try {
   input.on("SIGINT", handleSigint);
   emitKeypressEvents(process.stdin, input);
   process.stdin.on("keypress", handleKeypress);
-  if (!process.stdin.isTTY) {
-    process.stdin.on("data", handleStdinData);
-  }
+  process.stdin.on("data", handleStdinData);
+  resumeInput();
   console.log(startupText(info));
   await promptLoop();
 } catch (error) {
@@ -140,6 +139,7 @@ async function promptLoop() {
     activeTurn = true;
     resetTurnTools();
     console.log(turnStartText());
+    resumeInput();
     try {
       await request("turn.start", { input: text });
     } finally {
@@ -365,6 +365,7 @@ function askLine(prompt) {
       if (cancelActiveInput === onCancel) {
         cancelActiveInput = null;
       }
+      resumeInput();
     };
     const onClose = () => {
       cleanup();
@@ -395,6 +396,7 @@ function askLineWithHint(prompt, placeholder) {
       if (cancelActiveInput === onCancel) {
         cancelActiveInput = null;
       }
+      resumeInput();
     };
     const onLine = (answer) => {
       cleanup(true);
@@ -523,6 +525,18 @@ function isCtrlC(key) {
 function exitFromSignal() {
   forceCloseRuntime();
   scheduleProcessExit(0, 0);
+}
+
+function resumeInput() {
+  if (runtimeClosing) {
+    return;
+  }
+  try {
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+  } catch {
+    // Ignore stdin implementations that cannot be resumed after close.
+  }
 }
 
 function closeAssistant() {
