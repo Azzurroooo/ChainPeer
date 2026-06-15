@@ -4,6 +4,7 @@ import test from "node:test";
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import {
   answerPromptText,
+  answerPlaceholderText,
   cancelledText,
   contextBuiltLine,
   errorLine,
@@ -12,6 +13,7 @@ import {
   modelUsageText,
   optionLine,
   promptText,
+  promptPlaceholderText,
   questionHeader,
   skillLine,
   startupText,
@@ -55,9 +57,11 @@ test("startupText clips long cwd in the middle", () => {
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n╭─ input\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › Ask ChainPeer to do anything ",
+    "\n╭─ input\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › ",
   );
-  assert.equal(answerPromptText(), "\n╭─ answer\n╰─ › Answer ");
+  assert.equal(promptPlaceholderText(), "Ask ChainPeer to do anything");
+  assert.equal(answerPromptText(), "\n╭─ answer\n╰─ › ");
+  assert.equal(answerPlaceholderText(), "Answer");
   assert.equal(turnStartText(), "  Working... ctrl+c to interrupt, ctrl+c again to quit\n");
   assert.equal(interruptText(), "  interrupt requested; ctrl+c again to quit");
   assert.equal(cancelledText(), "  Interrupted. Session state preserved; resume with -c.");

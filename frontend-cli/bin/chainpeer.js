@@ -11,6 +11,7 @@ import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
 import {
   answerPromptText,
+  answerPlaceholderText,
   cancelledText,
   commandResultText,
   contextBuiltLine,
@@ -19,6 +20,7 @@ import {
   interruptText,
   modelUsageText,
   optionLine,
+  promptPlaceholderText,
   promptText,
   questionHeader,
   skillLine,
@@ -110,7 +112,7 @@ try {
 
 async function promptLoop() {
   while (true) {
-    const text = (await ask(promptText())).trim();
+    const text = (await ask(promptText(), promptPlaceholderText())).trim();
     if (!text) {
       continue;
     }
@@ -293,7 +295,7 @@ async function answerQuestion(event) {
   for (const [index, option] of (event.options || []).entries()) {
     console.log(optionLine(option, index, event.recommended));
   }
-  const raw = (await ask(answerPromptText())).trim();
+  const raw = (await ask(answerPromptText(), answerPlaceholderText())).trim();
   const answer = selectAnswer(raw, event.options || []);
   await request("user_question.respond", {
     tool_call_id: event.tool_call_id,
@@ -309,10 +311,17 @@ function selectAnswer(raw, options) {
   return raw;
 }
 
-function ask(prompt) {
+function ask(prompt, placeholder = "") {
   if (!input) {
     return Promise.reject(new Error("Input is not available"));
   }
+  if (!placeholder || !process.stdout.isTTY) {
+    return askLine(prompt);
+  }
+  return askLineWithHint(prompt, placeholder);
+}
+
+function askLine(prompt) {
   return new Promise((resolve, reject) => {
     const onClose = () => reject(new Error("Input closed"));
     input.once("close", onClose);
@@ -321,6 +330,73 @@ function ask(prompt) {
       resolve(answer);
     });
   });
+}
+
+function askLineWithHint(prompt, placeholder) {
+  const line = splitPromptLine(prompt);
+  const hint = createInputHint(input, line.prefix, placeholder);
+  process.stdout.write(line.leading);
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      hint.stop();
+      input.off("line", onLine);
+      input.off("close", onClose);
+    };
+    const onLine = (answer) => {
+      cleanup();
+      resolve(answer);
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("Input closed"));
+    };
+    input.once("line", onLine);
+    input.once("close", onClose);
+    hint.start();
+  });
+}
+
+function createInputHint(readline, prefix, placeholder) {
+  const emptyPrompt = `${prefix}${placeholder} `;
+  let empty = true;
+  let active = false;
+  const update = () => {
+    if (!active) {
+      return;
+    }
+    const nextEmpty = !readline.line;
+    if (nextEmpty === empty) {
+      return;
+    }
+    empty = nextEmpty;
+    readline.setPrompt(empty ? emptyPrompt : prefix);
+    readline.prompt(true);
+  };
+  const onKeypress = () => setImmediate(update);
+  return {
+    start() {
+      active = true;
+      readline.setPrompt(emptyPrompt);
+      readline.prompt();
+      readline.input.on("keypress", onKeypress);
+    },
+    stop() {
+      active = false;
+      readline.input.off("keypress", onKeypress);
+      readline.setPrompt(prefix);
+    },
+  };
+}
+
+function splitPromptLine(prompt) {
+  const index = prompt.lastIndexOf("\n");
+  if (index === -1) {
+    return { leading: "", prefix: prompt };
+  }
+  return {
+    leading: prompt.slice(0, index + 1),
+    prefix: prompt.slice(index + 1),
+  };
 }
 
 function handleSigint() {

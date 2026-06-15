@@ -9,10 +9,10 @@ export function startupText(info) {
 }
 
 export function promptText() {
-  return inputPromptFrame("input", inputFooter(), promptPlaceholderText());
+  return inputPromptFrame("input", inputFooter());
 }
 
-function promptPlaceholderText() {
+export function promptPlaceholderText() {
   return dim("Ask ChainPeer to do anything");
 }
 
@@ -31,10 +31,10 @@ export function helpText() {
 }
 
 export function answerPromptText() {
-  return inputPromptFrame("answer", "", answerPlaceholderText());
+  return inputPromptFrame("answer");
 }
 
-function answerPlaceholderText() {
+export function answerPlaceholderText() {
   return dim("Answer");
 }
 
@@ -260,13 +260,12 @@ function inputFooter() {
   return dim("  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit");
 }
 
-function inputPromptFrame(title, body = "", placeholder = "") {
+function inputPromptFrame(title, body = "") {
   const lines = [`\n${dim(`╭─ ${title}`)}`];
   if (body) {
     lines.push(body);
   }
-  const hint = placeholder ? `${placeholder} ` : "";
-  lines.push(`${dim("╰─")} ${bold("›")} ${hint}`);
+  lines.push(`${dim("╰─")} ${bold("›")} `);
   return lines.join("\n");
 }
 
