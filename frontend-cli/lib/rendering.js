@@ -18,15 +18,8 @@ export function promptPlaceholderText() {
 
 export function helpText() {
   return [
-    dim("  Shortcuts"),
-    "  ↑ / ↓      history",
-    "  ctrl+c     interrupt or exit",
-    "",
-    dim("  Commands"),
-    "  /compact   compact context",
-    "  /model set <model>",
-    "  /clear",
-    "  /exit",
+    dim("  Shortcuts: ↑/↓ history · ctrl+c interrupt or exit"),
+    dim("  Commands: /compact · /model set <model> · /clear · /exit"),
   ].join("\n");
 }
 

@@ -82,15 +82,8 @@ test("helpText renders compact shortcuts and commands", () => {
   assert.equal(
     helpText(),
     [
-      "  Shortcuts",
-      "  ↑ / ↓      history",
-      "  ctrl+c     interrupt or exit",
-      "",
-      "  Commands",
-      "  /compact   compact context",
-      "  /model set <model>",
-      "  /clear",
-      "  /exit",
+      "  Shortcuts: ↑/↓ history · ctrl+c interrupt or exit",
+      "  Commands: /compact · /model set <model> · /clear · /exit",
     ].join("\n"),
   );
 });
