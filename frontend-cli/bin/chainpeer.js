@@ -10,6 +10,7 @@ import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
 import {
+  answerHintText,
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
@@ -299,6 +300,10 @@ async function answerQuestion(event) {
   console.log(questionHeader(event.question));
   for (const [index, option] of (event.options || []).entries()) {
     console.log(optionLine(option, index, event.recommended));
+  }
+  const hint = answerHintText(event.options || []);
+  if (hint) {
+    console.log(hint);
   }
   const raw = (await ask(answerPromptText(), answerPlaceholderText())).trim();
   const answer = selectAnswer(raw, event.options || []);

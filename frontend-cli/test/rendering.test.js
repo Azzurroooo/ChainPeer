@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import {
+  answerHintText,
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
@@ -203,7 +204,10 @@ test("turnCompletedLine renders duration and tool summary", () => {
 
 test("status helpers render question, skill, and errors", () => {
   assert.equal(questionHeader("Pick one"), "? Pick one");
-  assert.equal(optionLine("A", 0, "A"), "  1. A recommended");
+  assert.equal(optionLine("A", 0, "A"), "› 1. A recommended");
+  assert.equal(optionLine("B", 1, "A"), "  2. B");
+  assert.equal(answerHintText(["A", "B"]), "  Type a number or enter a custom answer");
+  assert.equal(answerHintText([]), "");
   assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
   assert.equal(errorLine("failed"), "× failed");
 });

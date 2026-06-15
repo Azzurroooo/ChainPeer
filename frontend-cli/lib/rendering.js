@@ -129,8 +129,13 @@ export function questionHeader(question) {
 }
 
 export function optionLine(option, index, recommended) {
+  const marker = option === recommended ? bold("›") : " ";
   const suffix = option === recommended ? dim(" recommended") : "";
-  return `  ${index + 1}. ${option}${suffix}`;
+  return `${marker} ${index + 1}. ${option}${suffix}`;
+}
+
+export function answerHintText(options) {
+  return Array.isArray(options) && options.length ? dim("  Type a number or enter a custom answer") : "";
 }
 
 function toolDetail(name, args) {
