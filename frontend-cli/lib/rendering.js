@@ -62,8 +62,10 @@ export function cancelledText() {
   return `${yellow("•")} Interrupted ${dim("session state preserved; resume with -c")}`;
 }
 
-export function commandResultText(text) {
-  return `${green("✓")} ${text}`;
+export function commandResultText(text, detail = "") {
+  const line = `${green("✓")} ${clipSingleLine(text, 96)}`;
+  const extra = clipSingleLine(detail, 96);
+  return extra ? `${line}\n${dim(`  └ ${extra}`)}` : line;
 }
 
 export function modelUsageText() {

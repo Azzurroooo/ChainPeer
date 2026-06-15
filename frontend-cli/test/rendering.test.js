@@ -138,6 +138,8 @@ test("modelUsageText renders concrete model command usage", () => {
 
 test("commandResultText renders a compact success line", () => {
   assert.equal(commandResultText("Model updated: glm-5.1"), "✓ Model updated: glm-5.1");
+  assert.equal(commandResultText("Compact complete", "id abc123"), "✓ Compact complete\n  └ id abc123");
+  assert.match(commandResultText("x".repeat(120), "y".repeat(120)), /^✓ x{93}\.\.\.\n  └ y{93}\.\.\.$/);
 });
 
 test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {

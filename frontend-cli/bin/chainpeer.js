@@ -159,7 +159,7 @@ async function handleCommand(text) {
   }
   if (command === "compact") {
     const result = await request("compact");
-    console.log(commandResultText(`Compact complete: ${result.id || "unknown"}`));
+    console.log(commandResultText("Compact complete", `id ${result.id || "unknown"}`));
     return true;
   }
   if (command === "model" && args[0] === "set" && args[1]) {
