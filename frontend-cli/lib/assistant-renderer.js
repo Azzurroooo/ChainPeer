@@ -74,7 +74,7 @@ export class AssistantRenderer {
     const opening = !this.inCodeBlock;
     this.inCodeBlock = opening;
     const label = opening ? line.trim().slice(3).trim().slice(0, 32) : "";
-    this.writeStyled(dim(opening ? codeOpenLabel(label) : "  end code", this.color), newline);
+    this.writeStyled(dim(opening ? codeOpenLabel(label) : "  └ end", this.color), newline);
   }
 
   writePlain(text, newline) {
@@ -148,7 +148,7 @@ function parseTableRow(line) {
 }
 
 function codeOpenLabel(label) {
-  return label ? `  code ${label}` : "  code";
+  return label ? `  ┌ code ${label}` : "  ┌ code";
 }
 
 function styled(text, color, style) {

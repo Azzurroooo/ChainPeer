@@ -245,7 +245,7 @@ test("AssistantRenderer renders code fences as compact labels", () => {
   renderer.append("```sh\necho hi\n```\n");
   renderer.finish();
 
-  assert.equal(output, "  code sh\necho hi\n  end code\n");
+  assert.equal(output, "  ┌ code sh\necho hi\n  └ end\n");
 });
 
 test("AssistantRenderer applies ansi styles when color is enabled", () => {
