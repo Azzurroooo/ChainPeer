@@ -38,11 +38,11 @@ test("startupText includes resume preview when provided", () => {
       resume_preview: "Resumed session s1\nuser: hello\nassistant: hi",
     }),
     [
-      "ChainPeer",
-      "─".repeat(80),
-      "  agent runtime",
-      "  m1 · session s1",
-      "  E:\\project",
+      `┌${"─".repeat(78)}┐`,
+      "│ ChainPeer agent runtime                                                      │",
+      "│ m1 · session s1                                                              │",
+      "│ E:\\project                                                                   │",
+      `└${"─".repeat(78)}┘`,
       "",
       "  Resumed session s1",
       "  ↳ user · hello",
@@ -66,7 +66,7 @@ test("startupText clips long cwd in the middle", () => {
     session_id: "s1",
     cwd,
   });
-  const cwdLine = text.split("\n")[4].trim();
+  const cwdLine = text.split("\n")[3].slice(2, -2).trim();
 
   assert.ok(cwdLine.length <= 78);
   assert.ok(cwdLine.startsWith("E:\\deep"));
@@ -78,11 +78,11 @@ test("startupText clips long cwd in the middle", () => {
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n  ? shortcuts · ↑/↓ history · ctrl+c quit\n\n  › ",
+    "\n  enter to send | ? shortcuts | ctrl+c quit\n\n  › ",
   );
   assert.equal(promptPlaceholderText(), "Ask ChainPeer to do anything");
   assert.equal(answerPromptText(), "\n  › ");
-  assert.equal(answerPlaceholderText(), "Answer");
+  assert.equal(answerPlaceholderText(), "Type your answer");
   assert.equal(inputHintText("Ask ChainPeer to do anything"), "\x1b[sAsk ChainPeer to do anything\x1b[u");
   assert.equal(clearInputHintText(), "\x1b[K");
   assert.equal(turnStartText(), "• Working · ctrl+c to interrupt\n");
@@ -95,7 +95,7 @@ test("promptText includes compact session status when available", () => {
     promptText({ model: "glm-5.1", cwd: "E:\\code\\agent\\agent_base-ts-cli-process-split" }, {
       context_usage_percent: 0.125,
     }),
-    "\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  ? shortcuts · ↑/↓ history · ctrl+c quit\n\n  › ",
+    "\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  enter to send | ? shortcuts | ctrl+c quit\n\n  › ",
   );
 });
 
@@ -275,7 +275,7 @@ test("status helpers render question, skill, and errors", () => {
       "  Pick one",
       "  › 1. A recommended",
       "    2. B",
-      "  enter number or custom answer · ctrl+c interrupt",
+      "  enter number or custom answer | ctrl+c interrupt",
     ].join("\n"),
   );
   assert.equal(
@@ -283,7 +283,7 @@ test("status helpers render question, skill, and errors", () => {
     [
       "• Question (answer required)",
       "  Explain",
-      "  enter answer · ctrl+c interrupt",
+      "  enter to submit answer | ctrl+c interrupt",
     ].join("\n"),
   );
   assert.match(questionText({ question: "q".repeat(120) }), /\n  q{73}\.\.\.\n/);

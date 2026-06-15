@@ -35,7 +35,7 @@ export function answerPromptText() {
 }
 
 export function answerPlaceholderText() {
-  return "Answer";
+  return "Type your answer";
 }
 
 export function inputHintText(placeholder) {
@@ -285,23 +285,28 @@ function resumePreviewLine(line) {
 
 function startupBannerText(info) {
   const modelLine = `${singleLine(info.model) || "unknown"} · session ${singleLine(info.session_id) || "unknown"}`;
-  const cwd = middleClip(info.cwd || process.cwd(), STARTUP_BANNER_WIDTH - 2);
+  const cwd = middleClip(info.cwd || process.cwd(), STARTUP_BANNER_WIDTH - 4);
   return [
-    bold("ChainPeer"),
-    dim("─".repeat(STARTUP_BANNER_WIDTH)),
-    startupBannerLine("agent runtime"),
+    startupBannerBorder("┌", "┐"),
+    startupBannerLine(`${bold("ChainPeer")} ${dim("agent runtime")}`),
     startupBannerLine(modelLine),
     startupBannerLine(cwd),
+    startupBannerBorder("└", "┘"),
   ].join("\n");
+}
+
+function startupBannerBorder(left, right) {
+  return dim(`${left}${"─".repeat(STARTUP_BANNER_WIDTH - 2)}${right}`);
 }
 
 function startupBannerLine(text) {
   const clean = String(text || "").replace(/[\r\n\t]+/g, " ").trimEnd();
+  const width = STARTUP_BANNER_WIDTH - 4;
   const content =
-    clean.length <= STARTUP_BANNER_WIDTH - 2
+    visibleLength(clean) <= width
       ? clean
-      : `${clean.slice(0, Math.max(0, STARTUP_BANNER_WIDTH - 5))}...`;
-  return `  ${content}`;
+      : `${clean.slice(0, Math.max(0, width - 3))}...`;
+  return `${dim("│")} ${padRight(content, width)} ${dim("│")}`;
 }
 
 function questionOptionLine(option, index, recommended) {
@@ -312,12 +317,12 @@ function questionOptionLine(option, index, recommended) {
 
 function questionFooter(options) {
   return options.length
-    ? "  enter number or custom answer · ctrl+c interrupt"
-    : "  enter answer · ctrl+c interrupt";
+    ? "  enter number or custom answer | ctrl+c interrupt"
+    : "  enter to submit answer | ctrl+c interrupt";
 }
 
 function inputFooter() {
-  return dim("  ? shortcuts · ↑/↓ history · ctrl+c quit");
+  return dim("  enter to send | ? shortcuts | ctrl+c quit");
 }
 
 function inputPromptFrame(body = []) {
@@ -327,8 +332,16 @@ function inputPromptFrame(body = []) {
   if (content.length) {
     lines.push("");
   }
-  lines.push(`  ${bold("›")} `);
+  lines.push(`  ${cyan("›")} `);
   return lines.join("\n");
+}
+
+function padRight(text, width) {
+  return `${text}${" ".repeat(Math.max(0, width - visibleLength(text)))}`;
+}
+
+function visibleLength(text) {
+  return String(text).replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
 function promptStatusLine(info, stats) {
