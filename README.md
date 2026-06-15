@@ -36,7 +36,7 @@ The project takes a restrained position: an agent should not become a large fram
 ## Capabilities
 
 - Interactive coding-agent CLI with streaming output, slash commands, session resume, status rendering, and setup diagnostics.
-- OpenAI-compatible async chat client with configurable model, base URL, reasoning effort, and context window.
+- OpenAI-compatible async chat client with configurable model, base URL, and reasoning effort.
 - Append-only JSONL session storage for messages, tool calls, compactions, and session metadata.
 - Runtime context management with budget estimation, automatic compaction, context-length rescue, and normalized tool outputs.
 - DAG-based planning tool for tracking dependent work items across turns.
@@ -84,10 +84,7 @@ Minimal `settings.json` example:
   "model": "your-model-name",
   "apiKey": "your-api-key",
   "baseUrl": "https://api.openai.com/v1",
-  "reasoningEffort": "high",
-  "contextWindow": 258400,
-  "effectiveContextWindowPercent": 95,
-  "autoCompactEnabled": true
+  "reasoningEffort": "high"
 }
 ```
 

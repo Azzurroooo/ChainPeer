@@ -14,21 +14,17 @@ from agent.infrastructure.config.settings import Config
 
 @pytest.fixture(autouse=True)
 def restore_config():
-    attrs = {
-        "SETTINGS": Config.SETTINGS,
-        "SETTINGS_PATH": Config.SETTINGS_PATH,
-        "SETTINGS_EXISTS": Config.SETTINGS_EXISTS,
-        "OPENAI_API_KEY": Config.OPENAI_API_KEY,
-        "OPENAI_API_BASE": Config.OPENAI_API_BASE,
-        "OPENAI_USER_AGENT": Config.OPENAI_USER_AGENT,
-        "DEFAULT_MODEL": Config.DEFAULT_MODEL,
-        "MODEL_REASONING_EFFORT": Config.MODEL_REASONING_EFFORT,
-        "CONTEXT_WINDOW_TOKENS": Config.CONTEXT_WINDOW_TOKENS,
-        "EFFECTIVE_CONTEXT_WINDOW_PERCENT": Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-        "AUTO_COMPACT_TOKEN_LIMIT": Config.AUTO_COMPACT_TOKEN_LIMIT,
-        "AUTO_COMPACT_TOKEN_LIMIT_SCOPE": Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
-        "AUTO_COMPACT_ENABLED": Config.AUTO_COMPACT_ENABLED,
-    }
+    tracked_names = (
+        "SETTINGS",
+        "SETTINGS_PATH",
+        "SETTINGS_EXISTS",
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE",
+        "OPENAI_USER_AGENT",
+        "DEFAULT_MODEL",
+        "MODEL_REASONING_EFFORT",
+    )
+    attrs = {name: getattr(Config, name) for name in tracked_names if hasattr(Config, name)}
     yield
     for key, value in attrs.items():
         setattr(Config, key, value)
@@ -62,11 +58,33 @@ def test_config_reload_reads_settings_json(tmp_path, monkeypatch):
     assert Config.OPENAI_API_BASE == "https://openai945.cn/"
     assert Config.DEFAULT_MODEL == "gpt-5.5"
     assert Config.MODEL_REASONING_EFFORT == "xhigh"
-    assert Config.CONTEXT_WINDOW_TOKENS == 128000
-    assert Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT == 90
-    assert Config.AUTO_COMPACT_TOKEN_LIMIT == 100000
-    assert Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE == "body_after_prefix"
-    assert Config.AUTO_COMPACT_ENABLED is False
+
+
+def test_config_does_not_expose_internal_budget_settings(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "model": "gpt-5.5",
+                "apiKey": "settings-key",
+                "contextWindow": 128000,
+                "effectiveContextWindowPercent": 90,
+                "autoCompactTokenLimit": 100000,
+                "autoCompactTokenLimitScope": "body_after_prefix",
+                "autoCompactEnabled": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+
+    Config.reload()
+
+    assert not hasattr(Config, "CONTEXT_WINDOW_TOKENS")
+    assert not hasattr(Config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT")
+    assert not hasattr(Config, "AUTO_COMPACT_TOKEN_LIMIT")
+    assert not hasattr(Config, "AUTO_COMPACT_TOKEN_LIMIT_SCOPE")
+    assert not hasattr(Config, "AUTO_COMPACT_ENABLED")
 
 
 def test_config_validate_reports_settings_path_when_api_key_missing(tmp_path, monkeypatch):
@@ -99,7 +117,7 @@ def test_config_get_async_client_uses_loaded_settings(tmp_path, monkeypatch):
     assert kwargs["api_key"] == "settings-key"
     assert kwargs["base_url"] == "https://example.com/v1"
     user_agent = kwargs["default_headers"]["User-Agent"]
-    assert user_agent.startswith("chainpeer/0.1.1 (")
+    assert user_agent.startswith("chainpeer/0.2.0 (")
     assert "; " in user_agent
     assert ") " in user_agent
 

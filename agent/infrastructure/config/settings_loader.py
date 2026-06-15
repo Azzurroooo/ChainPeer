@@ -61,18 +61,11 @@ def _sanitize_header_segment(value: str) -> str:
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_USER_AGENT = build_default_user_agent()
-DEFAULT_CONTEXT_WINDOW = 258400
-DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95
 DEFAULT_SETTINGS_TEMPLATE = {
     "model": "gpt-5.5",
     "apiKey": "",
     "baseUrl": "",
     "reasoningEffort": "xhigh",
-    "contextWindow": DEFAULT_CONTEXT_WINDOW,
-    "effectiveContextWindowPercent": DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-    "autoCompactTokenLimit": None,
-    "autoCompactTokenLimitScope": "total",
-    "autoCompactEnabled": True,
 }
 
 
@@ -84,11 +77,6 @@ class AppSettings:
     api_key: str
     base_url: str
     reasoning_effort: str
-    context_window: int
-    effective_context_window_percent: int
-    auto_compact_token_limit: int | None
-    auto_compact_token_limit_scope: str
-    auto_compact_enabled: bool
     user_agent: str = DEFAULT_USER_AGENT
 
 
@@ -110,24 +98,6 @@ def load_settings(path: str | Path | None = None) -> AppSettings:
         api_key=_configured_or_env(data, "apiKey", "OPENAI_API_KEY"),
         base_url=_string(data, "baseUrl") or os.getenv("OPENAI_API_BASE", "").strip() or DEFAULT_BASE_URL,
         reasoning_effort=_configured_or_env(data, "reasoningEffort", "MODEL_REASONING_EFFORT"),
-        context_window=_int_configured_or_env(data, "contextWindow", "MODEL_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW),
-        effective_context_window_percent=_int_configured_or_env(
-            data,
-            "effectiveContextWindowPercent",
-            "EFFECTIVE_CONTEXT_WINDOW_PERCENT",
-            DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-        ),
-        auto_compact_token_limit=_optional_int_configured_or_env(
-            data,
-            "autoCompactTokenLimit",
-            "MODEL_AUTO_COMPACT_TOKEN_LIMIT",
-        ),
-        auto_compact_token_limit_scope=(
-            _string(data, "autoCompactTokenLimitScope")
-            or os.getenv("MODEL_AUTO_COMPACT_TOKEN_LIMIT_SCOPE", "").strip()
-            or "total"
-        ),
-        auto_compact_enabled=_bool_configured_or_env(data, "autoCompactEnabled", "AUTO_COMPACT_ENABLED", True),
         user_agent=DEFAULT_USER_AGENT,
     )
 
@@ -187,37 +157,3 @@ def _configured_or_env(data: dict[str, Any], key: str, env_key: str) -> str:
     if key in data:
         return _string(data, key)
     return os.getenv(env_key, "").strip()
-
-
-def _int_configured_or_env(data: dict[str, Any], key: str, env_key: str, default: int) -> int:
-    value = data.get(key) if key in data else os.getenv(env_key, "").strip()
-    if value in {None, ""}:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _optional_int_configured_or_env(data: dict[str, Any], key: str, env_key: str) -> int | None:
-    value = data.get(key) if key in data else os.getenv(env_key, "").strip()
-    if value in {None, ""}:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _bool_configured_or_env(data: dict[str, Any], key: str, env_key: str, default: bool) -> bool:
-    value = data.get(key) if key in data else os.getenv(env_key, "").strip()
-    if value in {None, ""}:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on"}:
-        return True
-    if text in {"0", "false", "no", "off"}:
-        return False
-    return default

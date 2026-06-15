@@ -276,7 +276,7 @@ async def test_async_tool_processor_limits_repeated_empty_bash_output() -> None:
     session = FakeSession()
     calls = [
         ParsedToolCall(call_id=f"call_{idx}", name="bash_output", raw_args='{"bg_id":"bg_123"}')
-        for idx in range(4)
+        for idx in range(7)
     ]
 
     events = [
@@ -289,13 +289,19 @@ async def test_async_tool_processor_limits_repeated_empty_bash_output() -> None:
     ]
 
     result_events = [event for event in events if isinstance(event, ToolResultEvent)]
-    if executor.calls != 3:
-        raise AssertionError(f"Expected the 4th poll to be blocked before execution, got calls={executor.calls}")
-    if len(result_events) != 4:
-        raise AssertionError(f"Expected four result events, got: {events}")
+    if executor.calls != 6:
+        raise AssertionError(f"Expected the 7th poll to be blocked before execution, got calls={executor.calls}")
+    if len(result_events) != 7:
+        raise AssertionError(f"Expected seven result events, got: {events}")
     blocked = json.loads(result_events[-1].result)
     if blocked.get("ok") is not False or blocked.get("error_type") != "RepeatedEmptyPoll":
         raise AssertionError(f"Expected RepeatedEmptyPoll error, got: {blocked}")
+    meta = blocked.get("meta", {})
+    if meta.get("empty_observation_count") != 7 or meta.get("suggested_next_wait_ms") != 300000:
+        raise AssertionError(f"Expected 7th empty poll metadata with 300000ms wait, got: {blocked}")
+    error = blocked.get("error", "")
+    if "bg_123" not in error or "Stop calling bash_output" not in error or "user" not in error:
+        raise AssertionError(f"Expected blocked poll to tell the model to stop and return bg_id, got: {blocked}")
     if result_events[-1].status != "failed":
         raise AssertionError(f"Expected failed result event for blocked poll, got: {result_events[-1]}")
 

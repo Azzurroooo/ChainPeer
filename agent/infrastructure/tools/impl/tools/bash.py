@@ -58,7 +58,7 @@ async def bash(
 async def bash_output(
     bg_id: str,
     kill: bool = False,
-    wait_ms: int = 5000,
+    wait_ms: int = 15000,
     max_output_chars: int = 20000,
     _cancellation_token: CancellationToken | None = None,
 ) -> str:

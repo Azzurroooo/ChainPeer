@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 
-from agent.interfaces.cli.formatting import safe_int, tail_clip_text
+from agent.interfaces.cli.formatting import tail_clip_text
 
 from .router import SlashCommandContext
 
@@ -63,7 +63,6 @@ def _build_checks(context: SlashCommandContext) -> list[DoctorCheck]:
         _settings_check(config_status),
         _api_key_check(config_status),
         _model_check(config_status),
-        _context_window_check(config_status),
         _session_store_check(context),
         _shell_check(),
     ]
@@ -132,19 +131,6 @@ def _model_check(status: ConfigStatus) -> DoctorCheck:
     if model:
         return DoctorCheck("ok", "Model", model)
     return DoctorCheck("fail", "Model", "unset")
-
-
-def _context_window_check(status: ConfigStatus) -> DoctorCheck:
-    config = status.config
-    if not config:
-        return DoctorCheck("warn", "Context window", "not checked because settings are invalid")
-    window = safe_int(getattr(config, "CONTEXT_WINDOW_TOKENS", None))
-    percent = safe_int(getattr(config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", None))
-    if window <= 0:
-        return DoctorCheck("warn", "Context window", "unset")
-    if percent <= 0 or percent > 100:
-        return DoctorCheck("warn", "Context window", f"{window} tokens, invalid effective percent {percent}")
-    return DoctorCheck("ok", "Context window", f"{window} tokens at {percent}% effective budget")
 
 
 def _session_store_check(context: SlashCommandContext) -> DoctorCheck:

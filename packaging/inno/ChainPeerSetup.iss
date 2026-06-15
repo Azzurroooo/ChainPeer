@@ -3,7 +3,7 @@
 #define MyAppPublisher "ChainPeer"
 #define MyAppVersion GetEnv("CHAINPEER_VERSION")
 #if MyAppVersion == ""
-  #define MyAppVersion "0.1.1"
+  #define MyAppVersion "0.2.0"
 #endif
 #define GitInstallerUrl GetEnv("CHAINPEER_GIT_INSTALLER_URL")
 

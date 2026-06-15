@@ -132,18 +132,55 @@ async def test_bash_output_wait_no_new_output() -> None:
     sid = session_id("no_output")
     bg_id = ""
     try:
-        bg = await start_background(sid, "import time; time.sleep(5)")
+        bg = await start_background(sid, "import time; time.sleep(10)")
         bg_id = bg["bg_id"]
         started = time.monotonic()
         data = assert_ok(await bash_output(bg_id, wait_ms=1500))
         elapsed = time.monotonic() - started
 
-        assert elapsed >= 1.0
+        assert elapsed >= 4.5
+        assert data.get("wait_ms") == 5000
         assert data.get("status") == "running"
         assert data.get("no_new_output") is True
         assert data.get("stdout") == ""
         assert data.get("stderr") == ""
-        assert data.get("suggested_next_wait_ms") >= 5000
+        assert data.get("suggested_next_wait_ms") == 120000
+    finally:
+        if bg_id:
+            await bash_output(bg_id, kill=True)
+        cleanup_session(sid)
+
+
+@pytest.mark.asyncio
+async def test_bash_output_clamps_short_wait_to_minimum() -> None:
+    sid = session_id("short_wait_clamp")
+    bg_id = ""
+    try:
+        bg = await start_background(sid, "import time; time.sleep(1.4); print('ready', flush=True); time.sleep(10)")
+        bg_id = bg["bg_id"]
+        data = assert_ok(await bash_output(bg_id, wait_ms=1))
+
+        assert data.get("wait_ms") == 5000
+        assert "ready" in (data.get("stdout") or "")
+        assert data.get("no_new_output") is False
+    finally:
+        if bg_id:
+            await bash_output(bg_id, kill=True)
+        cleanup_session(sid)
+
+
+@pytest.mark.asyncio
+async def test_bash_output_clamps_large_wait_to_maximum_without_long_sleep() -> None:
+    sid = session_id("large_wait_clamp")
+    bg_id = ""
+    try:
+        bg = await start_background(sid, "import time; time.sleep(1.4); print('ready', flush=True); time.sleep(10)")
+        bg_id = bg["bg_id"]
+        data = assert_ok(await bash_output(bg_id, wait_ms=999999))
+
+        assert data.get("wait_ms") == 300000
+        assert "ready" in (data.get("stdout") or "")
+        assert data.get("no_new_output") is False
     finally:
         if bg_id:
             await bash_output(bg_id, kill=True)
@@ -287,6 +324,8 @@ def main() -> int:
         await test_bash_foreground_ignores_wait_ms()
         await test_bash_output_wait_returns_when_new_output_arrives()
         await test_bash_output_wait_no_new_output()
+        await test_bash_output_clamps_short_wait_to_minimum()
+        await test_bash_output_clamps_large_wait_to_maximum_without_long_sleep()
         await test_bash_output_returns_delta_only()
         await test_bash_output_reports_done_and_exit_code()
         await test_bash_output_reports_not_found()

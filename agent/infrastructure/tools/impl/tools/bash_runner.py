@@ -51,6 +51,9 @@ class BashRunner:
         self.TAIL_LIMIT = 10000
         self.MIN_WAIT_MS = 1000
         self.MAX_WAIT_MS = 60000
+        self.BACKGROUND_OUTPUT_MIN_WAIT_MS = 5000
+        self.BACKGROUND_OUTPUT_MAX_WAIT_MS = 300000
+        self.BACKGROUND_OUTPUT_DEFAULT_WAIT_MS = 15000
         self.MAX_OUTPUT_CHARS = 40000
         self._bg: dict[str, _BgProc] = {}
 
@@ -156,6 +159,16 @@ class BashRunner:
             value = default
         return max(self.MIN_WAIT_MS, min(value, self.MAX_WAIT_MS))
 
+    def _clamp_background_output_wait_ms(self, wait_ms: int | float | str | None) -> int:
+        try:
+            value = int(wait_ms if wait_ms is not None else self.BACKGROUND_OUTPUT_DEFAULT_WAIT_MS)
+        except (TypeError, ValueError):
+            value = self.BACKGROUND_OUTPUT_DEFAULT_WAIT_MS
+        return max(
+            self.BACKGROUND_OUTPUT_MIN_WAIT_MS,
+            min(value, self.BACKGROUND_OUTPUT_MAX_WAIT_MS),
+        )
+
     def _clamp_output_chars(self, max_output_chars: int | float | str | None, default: int = 20000) -> int:
         try:
             value = int(max_output_chars if max_output_chars is not None else default)
@@ -164,13 +177,9 @@ class BashRunner:
         return max(1, min(value, self.MAX_OUTPUT_CHARS))
 
     def _suggested_next_wait_ms(self, empty_count: int) -> int:
-        if empty_count <= 1:
-            return 5000
         if empty_count <= 3:
-            return 15000
-        if empty_count <= 6:
-            return 30000
-        return 60000
+            return 120000
+        return 300000
 
     def _delta_since(self, text: str, cursor: int, max_chars: int) -> tuple[str, int, bool]:
         next_cursor = len(text)
@@ -571,7 +580,7 @@ class BashRunner:
     async def read_background_wait(
         self,
         bg_id: str,
-        wait_ms: int = 5000,
+        wait_ms: int = 15000,
         max_output_chars: int = 20000,
         cancellation_token: CancellationToken | None = None,
     ) -> ToolExecutionResult:
@@ -580,7 +589,7 @@ class BashRunner:
         if not bg:
             return ToolExecutionResult(status="error", error_msg=f"No background process: {bg_id}", error_type="NotFound")
 
-        wait_ms = self._clamp_wait_ms(wait_ms, 5000)
+        wait_ms = self._clamp_background_output_wait_ms(wait_ms)
         max_output_chars = self._clamp_output_chars(max_output_chars)
         started = time.monotonic()
         stdout, stderr, truncated = self._delta_output(bg, max_output_chars)

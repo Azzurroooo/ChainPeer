@@ -16,11 +16,6 @@ class Config:
     OPENAI_USER_AGENT = _SETTINGS.user_agent
     DEFAULT_MODEL = _SETTINGS.model
     MODEL_REASONING_EFFORT = _SETTINGS.reasoning_effort
-    CONTEXT_WINDOW_TOKENS = _SETTINGS.context_window
-    EFFECTIVE_CONTEXT_WINDOW_PERCENT = _SETTINGS.effective_context_window_percent
-    AUTO_COMPACT_TOKEN_LIMIT = _SETTINGS.auto_compact_token_limit
-    AUTO_COMPACT_TOKEN_LIMIT_SCOPE = _SETTINGS.auto_compact_token_limit_scope
-    AUTO_COMPACT_ENABLED = _SETTINGS.auto_compact_enabled
     TEMPERATURE = 0.7
     MAX_TOKENS = 2000
 
@@ -45,11 +40,6 @@ class Config:
         cls.OPENAI_USER_AGENT = settings.user_agent
         cls.DEFAULT_MODEL = settings.model
         cls.MODEL_REASONING_EFFORT = settings.reasoning_effort
-        cls.CONTEXT_WINDOW_TOKENS = settings.context_window
-        cls.EFFECTIVE_CONTEXT_WINDOW_PERCENT = settings.effective_context_window_percent
-        cls.AUTO_COMPACT_TOKEN_LIMIT = settings.auto_compact_token_limit
-        cls.AUTO_COMPACT_TOKEN_LIMIT_SCOPE = settings.auto_compact_token_limit_scope
-        cls.AUTO_COMPACT_ENABLED = settings.auto_compact_enabled
         return settings
 
     @classmethod

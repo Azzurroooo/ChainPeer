@@ -325,7 +325,7 @@ class AsyncToolCallProcessor:
         if tool_name != "bash_output":
             return None
         bg_id = str(parsed_args.get("bg_id") or "")
-        if not bg_id or counts.get(bg_id, 0) < 3:
+        if not bg_id or counts.get(bg_id, 0) < 6:
             return None
         counts[bg_id] = counts.get(bg_id, 0) + 1
         return self._repeated_empty_poll_error(bg_id, counts[bg_id])
@@ -364,7 +364,7 @@ class AsyncToolCallProcessor:
     def _repeated_empty_poll_error(self, bg_id: str, count: int) -> str:
         return tool_error(
             "bash_output",
-            f"Repeated empty bash_output polling for {bg_id}. Wait longer before checking again, or continue independent work.",
+            f"Background task {bg_id} is still running with no new output. Stop calling bash_output for this task now; return this bg_id to the user and tell them they can ask to check it again later.",
             "RepeatedEmptyPoll",
             meta={
                 "bg_id": bg_id,
@@ -374,10 +374,6 @@ class AsyncToolCallProcessor:
         )
 
     def _suggested_wait_ms_for_empty_count(self, count: int) -> int:
-        if count <= 1:
-            return 5000
         if count <= 3:
-            return 15000
-        if count <= 6:
-            return 30000
-        return 60000
+            return 120000
+        return 300000

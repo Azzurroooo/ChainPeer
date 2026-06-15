@@ -22,21 +22,17 @@ from agent.infrastructure.config import Config
 
 @pytest.fixture(autouse=True)
 def restore_config_state():
-    attrs = {
-        "SETTINGS": Config.SETTINGS,
-        "SETTINGS_PATH": Config.SETTINGS_PATH,
-        "SETTINGS_EXISTS": Config.SETTINGS_EXISTS,
-        "OPENAI_API_KEY": Config.OPENAI_API_KEY,
-        "OPENAI_API_BASE": Config.OPENAI_API_BASE,
-        "OPENAI_USER_AGENT": Config.OPENAI_USER_AGENT,
-        "DEFAULT_MODEL": Config.DEFAULT_MODEL,
-        "MODEL_REASONING_EFFORT": Config.MODEL_REASONING_EFFORT,
-        "CONTEXT_WINDOW_TOKENS": Config.CONTEXT_WINDOW_TOKENS,
-        "EFFECTIVE_CONTEXT_WINDOW_PERCENT": Config.EFFECTIVE_CONTEXT_WINDOW_PERCENT,
-        "AUTO_COMPACT_TOKEN_LIMIT": Config.AUTO_COMPACT_TOKEN_LIMIT,
-        "AUTO_COMPACT_TOKEN_LIMIT_SCOPE": Config.AUTO_COMPACT_TOKEN_LIMIT_SCOPE,
-        "AUTO_COMPACT_ENABLED": Config.AUTO_COMPACT_ENABLED,
-    }
+    tracked_names = (
+        "SETTINGS",
+        "SETTINGS_PATH",
+        "SETTINGS_EXISTS",
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE",
+        "OPENAI_USER_AGENT",
+        "DEFAULT_MODEL",
+        "MODEL_REASONING_EFFORT",
+    )
+    attrs = {name: getattr(Config, name) for name in tracked_names if hasattr(Config, name)}
     yield
     for key, value in attrs.items():
         setattr(Config, key, value)
@@ -431,8 +427,6 @@ async def test_doctor_reports_setup_without_leaking_api_key(monkeypatch, tmp_pat
     monkeypatch.setattr(Config, "DEFAULT_MODEL", "test-model")
     monkeypatch.setattr(Config, "SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setattr(Config, "SETTINGS_EXISTS", True)
-    monkeypatch.setattr(Config, "CONTEXT_WINDOW_TOKENS", 100000)
-    monkeypatch.setattr(Config, "EFFECTIVE_CONTEXT_WINDOW_PERCENT", 90)
 
     result = await SlashCommandRouter().execute("/doctor", _context(session=SessionWithRoot()))
 
@@ -440,6 +434,7 @@ async def test_doctor_reports_setup_without_leaking_api_key(monkeypatch, tmp_pat
     assert "API key: set" in result.text
     assert "Model: test-model" in result.text
     assert "Session store:" in result.text
+    assert "Context window" not in result.text
     assert "secret-value" not in result.text
 
 

@@ -140,11 +140,11 @@ _TOOL_SCHEMA_META: dict[str, dict[str, Any]] = {
         },
     },
     "bash_output": {
-        "description": "等待并读取后台进程的增量输出，或终止它。默认等待 wait_ms 直到有新 stdout/stderr、进程完成或超时；no_new_output=true 表示没有新信息，不应立即重复调用。",
+        "description": "阻塞等待并读取后台进程的增量输出，或终止它。默认等待 wait_ms 直到有新 stdout/stderr、进程完成或超时；no_new_output=true 表示没有新信息，应按 suggested_next_wait_ms 再查。若返回 RepeatedEmptyPoll，应停止继续轮询并把 bg_id 告诉用户，提示稍后可继续查看。",
         "param_descriptions": {
             "bg_id": "后台进程 ID（bash 返回的 bg_id）",
             "kill": "设为 true 可终止该进程。默认 False（仅读取输出）。",
-            "wait_ms": "等待新输出或完成的最长毫秒数，默认 5000，范围 1000-60000。连续无输出时应使用返回的 suggested_next_wait_ms 或继续其他独立任务。",
+            "wait_ms": "阻塞等待新输出或完成的最长毫秒数，默认 15000，范围 5000-300000。连续无输出时建议等待 120000 或 300000。",
             "max_output_chars": "单次返回 stdout/stderr 增量的最大字符数，默认 20000，最大 40000。",
         },
     },
