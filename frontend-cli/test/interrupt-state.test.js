@@ -3,9 +3,9 @@ import test from "node:test";
 
 import { sigintAction } from "../lib/interrupt-state.js";
 
-test("sigintAction interrupts active turn once", () => {
+test("sigintAction interrupts active turn first and shuts down on repeat", () => {
   assert.equal(sigintAction({ activeTurn: true, interruptRequested: false }), "interrupt");
-  assert.equal(sigintAction({ activeTurn: true, interruptRequested: true }), "ignore");
+  assert.equal(sigintAction({ activeTurn: true, interruptRequested: true }), "force-shutdown");
 });
 
 test("sigintAction shuts down outside active turn", () => {

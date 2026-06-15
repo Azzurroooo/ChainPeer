@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
-import { startupText, toolRequestedLine, toolResultLine } from "../lib/rendering.js";
+import {
+  cancelledText,
+  errorLine,
+  interruptText,
+  optionLine,
+  promptText,
+  questionHeader,
+  skillLine,
+  startupText,
+  toolRequestedLine,
+  toolResultLine,
+  turnStartText,
+} from "../lib/rendering.js";
 
 test("startupText includes resume preview when provided", () => {
   assert.equal(
@@ -11,8 +23,15 @@ test("startupText includes resume preview when provided", () => {
       session_id: "s1",
       resume_preview: "Resumed session s1",
     }),
-    "ChainPeer m1 session s1\n\nResumed session s1",
+    `ChainPeer m1 session s1\n\nResumed session s1\n\n  m1 · ${process.cwd()} · ctrl+c to exit`,
   );
+});
+
+test("prompt and turn status copy match the compact terminal UI", () => {
+  assert.equal(promptText(), "\n› Ask ChainPeer to do anything\n");
+  assert.equal(turnStartText(), "  Working... ctrl+c to interrupt, ctrl+c again to quit\n");
+  assert.equal(interruptText(), "  interrupt requested; ctrl+c again to quit");
+  assert.equal(cancelledText(), "  Interrupted. Session state preserved; resume with -c.");
 });
 
 test("toolRequestedLine shows bash command", () => {
@@ -21,19 +40,26 @@ test("toolRequestedLine shows bash command", () => {
       tool_name: "bash",
       args_preview: '{"command":"date"}',
     }),
-    "Running bash: date",
+    "• Running bash: date",
   );
 });
 
-test("toolResultLine matches Python CLI wording", () => {
+test("toolResultLine renders compact success state", () => {
   assert.equal(
     toolResultLine({
       tool_name: "bash",
       status: "completed",
       duration_ms: 1250,
     }),
-    "Tool: bash completed in 1.25s",
+    "✓ bash completed in 1.25s",
   );
+});
+
+test("status helpers render question, skill, and errors", () => {
+  assert.equal(questionHeader("Pick one"), "? Pick one");
+  assert.equal(optionLine("A", 0, "A"), "  1. A recommended");
+  assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
+  assert.equal(errorLine("failed"), "× failed");
 });
 
 test("AssistantRenderer removes markdown markers at message boundary", () => {

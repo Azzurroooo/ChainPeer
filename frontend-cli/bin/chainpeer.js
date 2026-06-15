@@ -9,7 +9,21 @@ import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
-import { startupText, toolRequestedLine, toolResultLine } from "../lib/rendering.js";
+import {
+  cancelledText,
+  commandResultText,
+  errorLine,
+  interruptText,
+  optionLine,
+  promptText,
+  questionHeader,
+  skillLine,
+  startupText,
+  toolRequestedLine,
+  toolResultLine,
+  turnStartText,
+  unknownCommandText,
+} from "../lib/rendering.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..");
@@ -85,7 +99,7 @@ try {
 
 async function promptLoop() {
   while (true) {
-    const text = (await ask("\nYou > ")).trim();
+    const text = (await ask(promptText())).trim();
     if (!text) {
       continue;
     }
@@ -93,7 +107,7 @@ async function promptLoop() {
       continue;
     }
     activeTurn = true;
-    console.log("\nAgent:");
+    console.log(turnStartText());
     try {
       await request("turn.start", { input: text });
     } finally {
@@ -119,15 +133,15 @@ async function handleCommand(text) {
   }
   if (command === "compact") {
     const result = await request("compact");
-    console.log(`Compact complete: ${result.id || "unknown"}`);
+    console.log(commandResultText(`Compact complete: ${result.id || "unknown"}`));
     return true;
   }
   if (command === "model" && args[0] === "set" && args[1]) {
     await request("model.set", { model: args[1] });
-    console.log(`Model updated: ${args[1]}`);
+    console.log(commandResultText(`Model updated: ${args[1]}`));
     return true;
   }
-  console.log("Unknown command.");
+  console.log(unknownCommandText());
   return true;
 }
 
@@ -193,18 +207,18 @@ async function renderEvent(event) {
       return;
     case "skill_activated":
       closeAssistant();
-      console.log(`[skill] ${event.skill_name}`);
+      console.log(skillLine(event));
       return;
     case "user_question_requested":
       await answerQuestion(event);
       return;
     case "turn_failed":
       closeAssistant();
-      console.log(`[error] ${event.error}`);
+      console.log(errorLine(event.error));
       return;
     case "turn_cancelled":
       closeAssistant();
-      console.log("[User Interrupted: Session state preserved. You can resume later.]");
+      console.log(cancelledText());
       return;
     case "turn_completed":
       closeAssistant();
@@ -216,12 +230,11 @@ async function renderEvent(event) {
 
 async function answerQuestion(event) {
   closeAssistant();
-  console.log(event.question || "Input required");
+  console.log(questionHeader(event.question));
   for (const [index, option] of (event.options || []).entries()) {
-    const suffix = option === event.recommended ? " (recommended)" : "";
-    console.log(`${index + 1}. ${option}${suffix}`);
+    console.log(optionLine(option, index, event.recommended));
   }
-  const raw = (await ask("Answer > ")).trim();
+  const raw = (await ask("\n› Answer\n")).trim();
   const answer = selectAnswer(raw, event.options || []);
   await request("user_question.respond", {
     tool_call_id: event.tool_call_id,
@@ -256,12 +269,15 @@ function handleSigint() {
   if (action === "interrupt") {
     interruptRequested = true;
     closeAssistant();
-    console.log("\n[User Interrupted: cancelling turn...]");
+    console.log(`\n${interruptText()}`);
     void request("turn.interrupt").catch(() => {});
     return;
   }
   if (action === "shutdown") {
     closeRuntime();
+  }
+  if (action === "force-shutdown") {
+    forceCloseRuntime();
   }
 }
 
@@ -280,6 +296,13 @@ function closeRuntime() {
   if (input) {
     input.close();
   }
+}
+
+function forceCloseRuntime() {
+  if (!runtime.killed && runtime.exitCode === null) {
+    runtime.kill();
+  }
+  closeRuntime();
 }
 
 async function shutdownRuntime() {
