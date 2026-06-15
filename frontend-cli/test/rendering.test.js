@@ -191,7 +191,7 @@ test("tokenStatsLine renders compact context status", () => {
         output_tokens: 2100,
       },
     }),
-    "• Context 121.3k/245.5k (49.4%) · cache 81.4% · output 2.1k",
+    "• Context 49% used · cache 81.4% · output 2.1k",
   );
 });
 

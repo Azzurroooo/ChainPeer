@@ -101,12 +101,10 @@ export function toolProgressLine(event) {
 
 export function tokenStatsLine(event) {
   const stats = event.stats && typeof event.stats === "object" ? event.stats : {};
-  const input = formatCount(stats.input_tokens);
-  const window = formatCount(stats.effective_context_window_tokens);
-  const context = formatPercent(stats.context_usage_percent);
+  const context = contextUsed(stats);
   const cache = formatPercent(stats.cache_hit_rate);
   const output = formatCount(stats.output_tokens);
-  return `${cyan("•")} Context ${input}/${window} (${context}) · cache ${cache} · output ${output}`;
+  return `${cyan("•")} Context ${context} used · cache ${cache} · output ${output}`;
 }
 
 export function skillLine(event) {
@@ -281,6 +279,16 @@ function contextLeft(stats) {
   }
   const left = Math.max(0, Math.min(1, 1 - usage));
   return `${(left * 100).toFixed(0)}% context left`;
+}
+
+function contextUsed(stats) {
+  const usage = Number(stats?.context_usage_percent);
+  if (Number.isFinite(usage)) {
+    return `${Math.max(0, Math.min(100, usage * 100)).toFixed(0)}%`;
+  }
+  const input = formatCount(stats.input_tokens);
+  const window = formatCount(stats.effective_context_window_tokens);
+  return `${input}/${window}`;
 }
 
 function styled(text, code) {
