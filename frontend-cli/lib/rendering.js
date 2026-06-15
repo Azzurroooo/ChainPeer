@@ -40,6 +40,10 @@ export function inputHintText(placeholder) {
   return text ? `${dim(text)}\x1b[${text.length}D` : "";
 }
 
+export function clearInputHintText() {
+  return "\x1b[K";
+}
+
 export function turnStartText() {
   return `${cyan("•")} Working ${dim("(ctrl+c to interrupt)")}\n`;
 }

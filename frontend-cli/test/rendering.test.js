@@ -6,6 +6,7 @@ import {
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
+  clearInputHintText,
   commandResultText,
   contextBuiltLine,
   errorLine,
@@ -84,6 +85,7 @@ test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(answerPromptText(), "\n› ");
   assert.equal(answerPlaceholderText(), "Answer");
   assert.equal(inputHintText("Ask ChainPeer to do anything"), "Ask ChainPeer to do anything\x1b[28D");
+  assert.equal(clearInputHintText(), "\x1b[K");
   assert.equal(turnStartText(), "• Working (ctrl+c to interrupt)\n");
   assert.equal(interruptText(), "• Interrupt requested (ctrl+c again to quit)");
   assert.equal(cancelledText(), "• Interrupted session state preserved; resume with -c");

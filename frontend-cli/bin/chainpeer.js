@@ -13,6 +13,7 @@ import {
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
+  clearInputHintText,
   commandResultText,
   contextBuiltLine,
   errorLine,
@@ -403,6 +404,7 @@ function createInputHint(readline, prefix, placeholder) {
 
   function clearInputHint(readline, prefix) {
     shown = false;
+    readline.output.write(clearInputHintText());
     readline.setPrompt(prefix);
     readline.prompt(true);
   }
