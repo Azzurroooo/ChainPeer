@@ -121,18 +121,17 @@ export function errorLine(error) {
   return detail ? `${red("×")} Turn failed\n${dim(`  └ ${detail}`)}` : `${red("×")} Turn failed`;
 }
 
-export function questionHeader(question) {
-  return `${cyan("?")} ${clipSingleLine(question || "Input required", 96)}`;
-}
-
-export function optionLine(option, index, recommended) {
-  const marker = option === recommended ? bold("›") : " ";
-  const suffix = option === recommended ? dim(" recommended") : "";
-  return `${marker} ${index + 1}. ${clipSingleLine(option, 88)}${suffix}`;
-}
-
-export function answerHintText(options) {
-  return Array.isArray(options) && options.length ? dim("  Type a number or enter a custom answer") : "";
+export function questionText(event = {}) {
+  const options = Array.isArray(event.options) ? event.options : [];
+  const lines = [
+    `${cyan("•")} Question · ${dim("answer required")}`,
+    `  ${clipSingleLine(event.question || "Input required", 76)}`,
+  ];
+  for (const [index, option] of options.entries()) {
+    lines.push(questionOptionLine(option, index, event.recommended));
+  }
+  lines.push(dim(options.length ? "  Enter a number or type a custom answer" : "  Type an answer"));
+  return lines.join("\n");
 }
 
 function toolDetail(name, args) {
@@ -282,6 +281,12 @@ function startupBannerLine(text) {
       ? clean
       : `${clean.slice(0, Math.max(0, STARTUP_BANNER_INNER_WIDTH - 3))}...`;
   return `${dim("│")} ${content.padEnd(STARTUP_BANNER_INNER_WIDTH)} ${dim("│")}`;
+}
+
+function questionOptionLine(option, index, recommended) {
+  const marker = option === recommended ? bold("›") : " ";
+  const suffix = option === recommended ? dim(" recommended") : "";
+  return `  ${marker} ${index + 1}. ${clipSingleLine(option, 70)}${suffix}`;
 }
 
 function inputFooter() {

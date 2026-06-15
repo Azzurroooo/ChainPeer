@@ -10,7 +10,6 @@ import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
 import {
-  answerHintText,
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
@@ -21,10 +20,9 @@ import {
   inputHintText,
   interruptText,
   modelUsageText,
-  optionLine,
   promptPlaceholderText,
   promptText,
-  questionHeader,
+  questionText,
   skillLine,
   startupText,
   tokenStatsLine,
@@ -298,14 +296,7 @@ function resetTurnTools() {
 
 async function answerQuestion(event) {
   closeAssistant();
-  console.log(questionHeader(event.question));
-  for (const [index, option] of (event.options || []).entries()) {
-    console.log(optionLine(option, index, event.recommended));
-  }
-  const hint = answerHintText(event.options || []);
-  if (hint) {
-    console.log(hint);
-  }
+  console.log(questionText(event));
   const raw = (await ask(answerPromptText(), answerPlaceholderText())).trim();
   const answer = selectAnswer(raw, event.options || []);
   await request("user_question.respond", {

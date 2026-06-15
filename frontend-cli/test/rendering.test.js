@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import {
-  answerHintText,
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
@@ -14,10 +13,9 @@ import {
   inputHintText,
   interruptText,
   modelUsageText,
-  optionLine,
   promptText,
   promptPlaceholderText,
-  questionHeader,
+  questionText,
   skillLine,
   startupText,
   tokenStatsLine,
@@ -231,13 +229,26 @@ test("turnCompletedLine renders duration and tool summary", () => {
 });
 
 test("status helpers render question, skill, and errors", () => {
-  assert.equal(questionHeader("Pick one"), "? Pick one");
-  assert.equal(optionLine("A", 0, "A"), "› 1. A recommended");
-  assert.equal(optionLine("B", 1, "A"), "  2. B");
-  assert.match(questionHeader("q".repeat(120)), /^\? q{93}\.\.\.$/);
-  assert.match(optionLine("x".repeat(120), 2, ""), /^  3\. x{85}\.\.\.$/);
-  assert.equal(answerHintText(["A", "B"]), "  Type a number or enter a custom answer");
-  assert.equal(answerHintText([]), "");
+  assert.equal(
+    questionText({ question: "Pick one", options: ["A", "B"], recommended: "A" }),
+    [
+      "• Question · answer required",
+      "  Pick one",
+      "  › 1. A recommended",
+      "    2. B",
+      "  Enter a number or type a custom answer",
+    ].join("\n"),
+  );
+  assert.equal(
+    questionText({ question: "Explain" }),
+    [
+      "• Question · answer required",
+      "  Explain",
+      "  Type an answer",
+    ].join("\n"),
+  );
+  assert.match(questionText({ question: "q".repeat(120) }), /\n  q{73}\.\.\.\n/);
+  assert.match(questionText({ question: "Pick", options: ["x".repeat(120)] }), /\n    1\. x{67}\.\.\.\n/);
   assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
   assert.equal(errorLine("failed"), "× Turn failed\n  └ failed");
   assert.equal(errorLine(""), "× Turn failed");
