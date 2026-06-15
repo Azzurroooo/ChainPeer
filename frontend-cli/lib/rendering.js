@@ -31,6 +31,12 @@ export function turnStartText() {
   return `${dim("  Working... ctrl+c to interrupt, ctrl+c again to quit")}\n`;
 }
 
+export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
+  const duration = formatDuration(event.duration_ms);
+  const summary = toolSummary(tools);
+  return summary ? `${green("✓")} Done in ${duration} · ${summary}` : `${green("✓")} Done in ${duration}`;
+}
+
 export function interruptText() {
   return `${dim("  interrupt requested; ctrl+c again to quit")}`;
 }
@@ -166,6 +172,19 @@ function formatDuration(durationMs) {
     return `${Math.trunc(value)}ms`;
   }
   return `${(value / 1000).toFixed(2)}s`;
+}
+
+function toolSummary(tools) {
+  const completed = Number(tools.completed || 0);
+  const failed = Number(tools.failed || 0);
+  const parts = [];
+  if (completed > 0) {
+    parts.push(`${completed} tool${completed === 1 ? "" : "s"}`);
+  }
+  if (failed > 0) {
+    parts.push(`${failed} failed`);
+  }
+  return parts.join(", ");
 }
 
 function formatCount(value) {

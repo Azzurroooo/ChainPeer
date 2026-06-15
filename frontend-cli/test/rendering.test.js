@@ -18,6 +18,7 @@ import {
   toolRequestedLine,
   toolResultLine,
   toolStartedLine,
+  turnCompletedLine,
   turnStartText,
 } from "../lib/rendering.js";
 
@@ -122,6 +123,14 @@ test("tokenStatsLine renders compact context status", () => {
     }),
     "• Context 121.3k/245.5k (49.4%) · cache 81.4% · output 2.1k",
   );
+});
+
+test("turnCompletedLine renders duration and tool summary", () => {
+  assert.equal(
+    turnCompletedLine({ duration_ms: 2000 }, { completed: 2, failed: 1 }),
+    "✓ Done in 2.00s · 2 tools, 1 failed",
+  );
+  assert.equal(turnCompletedLine({ duration_ms: 0 }), "✓ Done in 0ms");
 });
 
 test("status helpers render question, skill, and errors", () => {

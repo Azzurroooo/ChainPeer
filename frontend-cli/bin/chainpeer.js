@@ -26,6 +26,7 @@ import {
   toolRequestedLine,
   toolResultLine,
   toolStartedLine,
+  turnCompletedLine,
   turnStartText,
   unknownCommandText,
 } from "../lib/rendering.js";
@@ -41,6 +42,7 @@ let input = null;
 let runtimeClosing = false;
 const pending = new Map();
 const announcedTools = new Set();
+let turnTools = { completed: 0, failed: 0 };
 const assistantRenderer = new AssistantRenderer((text) => process.stdout.write(text));
 let runtimeStdoutBuffer = "";
 
@@ -114,6 +116,7 @@ async function promptLoop() {
       continue;
     }
     activeTurn = true;
+    resetTurnTools();
     console.log(turnStartText());
     try {
       await request("turn.start", { input: text });
@@ -218,6 +221,7 @@ async function renderEvent(event) {
       return;
     case "tool_result":
       closeAssistant();
+      recordToolResult(event);
       console.log(toolResultLine(event));
       return;
     case "tool_progress": {
@@ -249,10 +253,24 @@ async function renderEvent(event) {
       return;
     case "turn_completed":
       closeAssistant();
+      console.log(turnCompletedLine(event, turnTools));
+      resetTurnTools();
       return;
     default:
       return;
   }
+}
+
+function recordToolResult(event) {
+  if (event.status === "failed") {
+    turnTools.failed += 1;
+    return;
+  }
+  turnTools.completed += 1;
+}
+
+function resetTurnTools() {
+  turnTools = { completed: 0, failed: 0 };
 }
 
 async function answerQuestion(event) {
