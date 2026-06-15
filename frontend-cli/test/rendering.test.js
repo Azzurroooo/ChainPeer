@@ -32,14 +32,14 @@ test("startupText includes resume preview when provided", () => {
       session_id: "s1",
       resume_preview: "Resumed session s1\nuser: hello\nassistant: hi",
     }),
-    `ChainPeer m1 session s1\n\n  Resumed session s1\n  ↳ user · hello\n  ↳ assistant · hi\n\n  m1 · ${process.cwd()} · ctrl+c to exit`,
+    `ChainPeer agent runtime\n  m1 · session s1\n  ${process.cwd()}\n\n  Resumed session s1\n  ↳ user · hello\n  ↳ assistant · hi`,
   );
 });
 
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n› Ask ChainPeer to do anything\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n› ",
+    "\n╭─ input\n› Ask ChainPeer to do anything\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › ",
   );
   assert.equal(answerPromptText(), "\n› Answer\n› ");
   assert.equal(turnStartText(), "  Working... ctrl+c to interrupt, ctrl+c again to quit\n");
@@ -93,6 +93,16 @@ test("toolRequestedLine shows bash command", () => {
     }),
     "• Running bash: date",
   );
+});
+
+test("toolRequestedLine clips long details", () => {
+  const line = toolRequestedLine({
+    tool_name: "bash",
+    args_preview: JSON.stringify({ command: `echo ${"x".repeat(140)}` }),
+  });
+
+  assert.equal(line.length, "• Running bash: ".length + 96);
+  assert.match(line, /\.\.\.$/);
 });
 
 test("toolStartedLine renders fallback running state", () => {

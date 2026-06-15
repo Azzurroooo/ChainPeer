@@ -1,12 +1,15 @@
 export function startupText(info) {
-  const header = `${bold("ChainPeer")} ${dim(info.model || "unknown")} ${dim(`session ${info.session_id || "unknown"}`)}`;
+  const header = [
+    `${bold("ChainPeer")} ${dim("agent runtime")}`,
+    dim(`  ${info.model || "unknown"} · session ${info.session_id || "unknown"}`),
+    dim(`  ${process.cwd()}`),
+  ].join("\n");
   const preview = resumePreviewText(info.resume_preview);
-  const footer = statusLine(info);
-  return preview ? `${header}\n\n${preview}\n\n${footer}` : `${header}\n\n${footer}`;
+  return preview ? `${header}\n\n${preview}` : header;
 }
 
 export function promptText() {
-  return `\n${bold("›")} Ask ChainPeer to do anything\n${inputFooter()}\n${bold("›")} `;
+  return `\n${dim("╭─ input")}\n${bold("›")} Ask ChainPeer to do anything\n${inputFooter()}\n${dim("╰─")} ${bold("›")} `;
 }
 
 export function helpText() {
@@ -124,14 +127,14 @@ export function optionLine(option, index, recommended) {
 
 function toolDetail(name, args) {
   if (name === "bash") {
-    return singleLine(args.command);
+    return clipSingleLine(args.command, 96);
   }
   if (name === "bash_output") {
-    const bgId = singleLine(args.bg_id);
+    const bgId = clipSingleLine(args.bg_id, 96);
     return bgId ? `bg ${bgId}` : "";
   }
   for (const key of ["file_path", "path", "query", "url", "command"]) {
-    const value = singleLine(args[key]);
+    const value = clipSingleLine(args[key], 96);
     if (value) {
       return value;
     }
@@ -219,11 +222,6 @@ function formatPercent(value) {
     return "0.0%";
   }
   return `${(number * 100).toFixed(1)}%`;
-}
-
-function statusLine(info) {
-  const parts = [info.model || "unknown", process.cwd()];
-  return dim(`  ${parts.join(" · ")} · ctrl+c to exit`);
 }
 
 function resumePreviewText(value) {
