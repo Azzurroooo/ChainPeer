@@ -2,7 +2,7 @@ export function startupText(info) {
   const header = [
     `${bold("ChainPeer")} ${dim("agent runtime")}`,
     dim(`  ${info.model || "unknown"} · session ${info.session_id || "unknown"}`),
-    dim(`  ${process.cwd()}`),
+    dim(`  ${middleClip(info.cwd || process.cwd(), 76)}`),
   ].join("\n");
   const preview = resumePreviewText(info.resume_preview);
   return preview ? `${header}\n\n${preview}` : header;
@@ -175,6 +175,17 @@ function clipSingleLine(value, maxLength) {
     return text;
   }
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function middleClip(value, maxLength) {
+  const text = singleLine(value);
+  if (text.length <= maxLength) {
+    return text;
+  }
+  const keep = Math.max(0, maxLength - 3);
+  const head = Math.ceil(keep / 2);
+  const tail = Math.floor(keep / 2);
+  return `${text.slice(0, head)}...${text.slice(text.length - tail)}`;
 }
 
 function singleLine(value) {

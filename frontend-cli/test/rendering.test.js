@@ -36,6 +36,22 @@ test("startupText includes resume preview when provided", () => {
   );
 });
 
+test("startupText clips long cwd in the middle", () => {
+  const cwd = `E:\\${"deep\\".repeat(20)}project`;
+  const text = startupText({
+    model: "m1",
+    session_id: "s1",
+    cwd,
+  });
+  const cwdLine = text.split("\n")[2].trim();
+
+  assert.ok(cwdLine.length <= 76);
+  assert.ok(cwdLine.startsWith("E:\\deep"));
+  assert.ok(cwdLine.endsWith("\\project"));
+  assert.ok(cwdLine.includes("..."));
+  assert.notEqual(cwdLine, cwd);
+});
+
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
