@@ -61,7 +61,7 @@ export function contextBuiltLine(event) {
 }
 
 export function unknownCommandText() {
-  return dim("  Unknown command.");
+  return dim("  Unknown command. Type ? for shortcuts.");
 }
 
 export function toolRequestedLine(event) {

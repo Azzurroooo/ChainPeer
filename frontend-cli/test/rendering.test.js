@@ -21,6 +21,7 @@ import {
   toolStartedLine,
   turnCompletedLine,
   turnStartText,
+  unknownCommandText,
 } from "../lib/rendering.js";
 
 test("startupText includes resume preview when provided", () => {
@@ -60,6 +61,10 @@ test("helpText renders compact shortcuts and commands", () => {
       "  /exit",
     ].join("\n"),
   );
+});
+
+test("unknownCommandText points to shortcuts help", () => {
+  assert.equal(unknownCommandText(), "  Unknown command. Type ? for shortcuts.");
 });
 
 test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
