@@ -78,14 +78,14 @@ test("startupText clips long cwd in the middle", () => {
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n  ? shortcuts · ↑/↓ history · /compact · ctrl+c interrupt/exit\n\n  › ",
+    "\n  ? shortcuts · ↑/↓ history · ctrl+c quit\n\n  › ",
   );
   assert.equal(promptPlaceholderText(), "Ask ChainPeer to do anything");
   assert.equal(answerPromptText(), "\n  › ");
   assert.equal(answerPlaceholderText(), "Answer");
   assert.equal(inputHintText("Ask ChainPeer to do anything"), "\x1b[sAsk ChainPeer to do anything\x1b[u");
   assert.equal(clearInputHintText(), "\x1b[K");
-  assert.equal(turnStartText(), "• Working (ctrl+c to interrupt)\n");
+  assert.equal(turnStartText(), "• Working · ctrl+c to interrupt\n");
   assert.equal(interruptText(), "• Interrupt requested (ctrl+c again to quit)");
   assert.equal(cancelledText(), "• Interrupted session state preserved; resume with -c");
 });
@@ -95,7 +95,7 @@ test("promptText includes compact session status when available", () => {
     promptText({ model: "glm-5.1", cwd: "E:\\code\\agent\\agent_base-ts-cli-process-split" }, {
       context_usage_percent: 0.125,
     }),
-    "\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  ? shortcuts · ↑/↓ history · /compact · ctrl+c interrupt/exit\n\n  › ",
+    "\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  ? shortcuts · ↑/↓ history · ctrl+c quit\n\n  › ",
   );
 });
 

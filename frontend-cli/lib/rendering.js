@@ -44,7 +44,7 @@ export function clearInputHintText() {
 }
 
 export function turnStartText() {
-  return `${cyan("•")} Working ${dim("(ctrl+c to interrupt)")}\n`;
+  return `${cyan("•")} Working ${dim("· ctrl+c to interrupt")}\n`;
 }
 
 export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
@@ -307,7 +307,7 @@ function questionOptionLine(option, index, recommended) {
 }
 
 function inputFooter() {
-  return dim("  ? shortcuts · ↑/↓ history · /compact · ctrl+c interrupt/exit");
+  return dim("  ? shortcuts · ↑/↓ history · ctrl+c quit");
 }
 
 function inputPromptFrame(body = []) {
