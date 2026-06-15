@@ -115,7 +115,7 @@ function renderInline(text, color, baseStyle = "") {
       return `${renderInline(link[1], color, baseStyle)} ${dim(`(${link[2]})`, color)}`;
     }
     if (token.startsWith("`") && token.endsWith("`")) {
-      return boldCyan(token.slice(1, -1), color);
+      return styled(token.slice(1, -1), color, "bold");
     }
     if (token.startsWith("**") && token.endsWith("**")) {
       return styled(token.slice(2, -2), color, baseStyle ? `${baseStyle}Bold` : "bold");
@@ -166,10 +166,6 @@ function styled(text, color, style) {
   };
   const code = codes[style] || codes.bold;
   return `\x1b[${code}m${text}\x1b[0m`;
-}
-
-function boldCyan(text, color) {
-  return styled(text, color, "boldCyan");
 }
 
 function dim(text, color) {

@@ -352,7 +352,7 @@ test("AssistantRenderer applies ansi styles when color is enabled", () => {
   renderer.finish();
 
   assert.match(output, /\x1b\[1m重点\x1b\[0m/);
-  assert.match(output, /\x1b\[1;36mcode\x1b\[0m/);
+  assert.match(output, /\x1b\[1mcode\x1b\[0m/);
 });
 
 test("AssistantRenderer keeps markdown structure markers dim", () => {
