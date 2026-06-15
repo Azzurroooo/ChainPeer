@@ -111,7 +111,19 @@ test("AssistantRenderer renders headings and lists without raw markdown prefixes
   renderer.append("## 标题\n- **重点** 项\n");
   renderer.finish();
 
-  assert.equal(output, "标题\n- 重点 项\n");
+  assert.equal(output, "标题\n• 重点 项\n");
+});
+
+test("AssistantRenderer renders code fences as compact labels", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("```sh\necho hi\n```\n");
+  renderer.finish();
+
+  assert.equal(output, "  code sh\necho hi\n  end code\n");
 });
 
 test("AssistantRenderer applies ansi styles when color is enabled", () => {

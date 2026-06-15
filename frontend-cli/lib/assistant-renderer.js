@@ -74,7 +74,7 @@ export class AssistantRenderer {
     const opening = !this.inCodeBlock;
     this.inCodeBlock = opening;
     const label = opening ? line.trim().slice(3).trim().slice(0, 32) : "";
-    this.writeStyled(dim(label ? `\`\`\` ${label}` : "```", this.color), newline);
+    this.writeStyled(dim(opening ? codeOpenLabel(label) : "  end code", this.color), newline);
   }
 
   writePlain(text, newline) {
@@ -101,7 +101,8 @@ function renderMarkdownishLine(line, color) {
 
   const list = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
   if (list) {
-    return `${list[1]}${yellow(`${list[2]} `, color)}${renderInline(list[3], color)}`;
+    const marker = /^\d+\.$/.test(list[2]) ? list[2] : "•";
+    return `${list[1]}${yellow(`${marker} `, color)}${renderInline(list[3], color)}`;
   }
 
   return renderInline(line, color);
@@ -144,6 +145,10 @@ function parseTableRow(line) {
     stripped = stripped.slice(0, -1);
   }
   return stripped.split("|").map((cell) => cell.trim());
+}
+
+function codeOpenLabel(label) {
+  return label ? `  code ${label}` : "  code";
 }
 
 function styled(text, color, style) {
