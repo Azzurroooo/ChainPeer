@@ -1,5 +1,5 @@
-const INLINE_TOKEN_RE = /(`[^`]+`|\*\*[^*]+\*\*)/g;
-const PLAIN_TEXT_RE = /[`*#>|]/;
+const INLINE_TOKEN_RE = /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*)/g;
+const PLAIN_TEXT_RE = /[`*#>|\[]/;
 
 export class AssistantRenderer {
   constructor(write, options = {}) {
@@ -110,6 +110,10 @@ function renderMarkdownishLine(line, color) {
 
 function renderInline(text, color, baseStyle = "") {
   return String(text || "").replace(INLINE_TOKEN_RE, (token) => {
+    const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (link) {
+      return `${renderInline(link[1], color, baseStyle)} ${dim(`(${link[2]})`, color)}`;
+    }
     if (token.startsWith("`") && token.endsWith("`")) {
       return boldCyan(token.slice(1, -1), color);
     }

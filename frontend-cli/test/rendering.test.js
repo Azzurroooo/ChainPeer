@@ -329,6 +329,18 @@ test("AssistantRenderer renders code fences as compact labels", () => {
   assert.equal(output, "  ┌ code sh\necho hi\n  └ end\n");
 });
 
+test("AssistantRenderer renders markdown links as readable text", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("See [docs](https://example.com) and [**guide**](file.md).\n");
+  renderer.finish();
+
+  assert.equal(output, "See docs (https://example.com) and guide (file.md).\n");
+});
+
 test("AssistantRenderer applies ansi styles when color is enabled", () => {
   let output = "";
   const renderer = new AssistantRenderer((text) => {
