@@ -48,7 +48,7 @@ let runtimeClosing = false;
 let runtimeKillTimer = null;
 let processExitTimer = null;
 let cancelActiveInput = null;
-let lastSigintAt = 0;
+let handlingSigint = false;
 const pending = new Map();
 const announcedTools = new Set();
 let sessionInfo = {};
@@ -110,7 +110,9 @@ try {
   input.on("SIGINT", handleSigint);
   emitKeypressEvents(process.stdin, input);
   process.stdin.on("keypress", handleKeypress);
-  process.stdin.on("data", handleStdinData);
+  if (!process.stdin.isTTY) {
+    process.stdin.on("data", handleStdinData);
+  }
   console.log(startupText(info));
   await promptLoop();
 } catch (error) {
@@ -432,11 +434,7 @@ function createInputHint(readline, prefix, placeholder) {
       clearInputHint(readline, prefix);
     }
   };
-  const onKeypress = (text, key) => {
-    if (isCtrlC(key)) {
-      handleSigint();
-      return;
-    }
+  const onKeypress = () => {
     setImmediate(update);
   };
   return {
@@ -482,24 +480,28 @@ function splitPromptLine(prompt) {
 }
 
 function handleSigint() {
-  if (isDuplicateSigint()) {
+  if (handlingSigint) {
     return;
   }
+  handlingSigint = true;
+  setImmediate(() => {
+    handlingSigint = false;
+  });
+
   const action = sigintAction({ activeTurn, interruptRequested, runtimeClosing });
   if (action === "interrupt") {
-    interruptRequested = true;
-    cancelActiveInput?.();
-    closeAssistant();
-    console.log(`\n${interruptText()}`);
-    void request("turn.interrupt").catch(() => {});
-    return;
-  }
-  if (action === "shutdown") {
+    interruptTurn();
+  } else {
     exitFromSignal();
   }
-  if (action === "force-shutdown") {
-    exitFromSignal();
-  }
+}
+
+function interruptTurn() {
+  interruptRequested = true;
+  cancelInput();
+  closeAssistant();
+  console.log(`\n${interruptText()}`);
+  void request("turn.interrupt").catch(() => {});
 }
 
 function handleKeypress(text, key) {
@@ -518,18 +520,9 @@ function isCtrlC(key) {
   return Boolean(key?.ctrl && key.name === "c");
 }
 
-function isDuplicateSigint() {
-  const now = Date.now();
-  if (now - lastSigintAt < 200) {
-    return true;
-  }
-  lastSigintAt = now;
-  return false;
-}
-
 function exitFromSignal() {
   forceCloseRuntime();
-  scheduleProcessExit(0, 50);
+  scheduleProcessExit(0, 0);
 }
 
 function closeAssistant() {
@@ -553,11 +546,25 @@ function closeRuntime() {
 function forceCloseRuntime() {
   runtimeClosing = true;
   clearRuntimeKillTimer();
-  cancelActiveInput?.();
-  if (!runtime.killed && runtime.exitCode === null) {
-    runtime.kill("SIGKILL");
-  }
   closeInput();
+  killRuntime();
+}
+
+function cancelInput() {
+  const cancel = cancelActiveInput;
+  cancelActiveInput = null;
+  cancel?.();
+}
+
+function killRuntime() {
+  if (runtime.killed || runtime.exitCode !== null) {
+    return;
+  }
+  try {
+    runtime.kill("SIGKILL");
+  } catch {
+    // Ignore kill races; the process may already be exiting.
+  }
 }
 
 async function shutdownRuntime() {
@@ -569,9 +576,8 @@ async function shutdownRuntime() {
   try {
     await request("shutdown");
   } catch {
-    runtime.kill("SIGKILL");
+    killRuntime();
   } finally {
-    clearRuntimeKillTimer();
     if (runtime.stdin.writable) {
       runtime.stdin.end();
     }
@@ -582,9 +588,7 @@ async function shutdownRuntime() {
 function scheduleRuntimeKill() {
   clearRuntimeKillTimer();
   runtimeKillTimer = setTimeout(() => {
-    if (!runtime.killed && runtime.exitCode === null) {
-      runtime.kill("SIGKILL");
-    }
+    killRuntime();
   }, 1500);
   runtimeKillTimer.unref?.();
 }
@@ -602,15 +606,33 @@ function scheduleProcessExit(code, delayMs) {
     return;
   }
   process.exitCode = code;
-  processExitTimer = setTimeout(() => process.exit(code), delayMs);
+  processExitTimer = setTimeout(() => {
+    try {
+      closeInput();
+    } finally {
+      process.exit(code);
+    }
+  }, delayMs);
 }
 
 function closeInput() {
-  cancelActiveInput?.();
+  cancelInput();
   process.stdin.off("keypress", handleKeypress);
   process.stdin.off("data", handleStdinData);
   if (input) {
-    input.close();
+    const current = input;
+    input = null;
+    current.off("SIGINT", handleSigint);
+    try {
+      current.close();
+    } catch {
+      // Ignore readline close races during signal shutdown.
+    }
+  }
+  try {
+    process.stdin.setRawMode?.(false);
+  } catch {
+    // Some stdin implementations expose setRawMode but reject after close.
   }
   process.stdin.pause();
 }
