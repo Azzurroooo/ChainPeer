@@ -42,10 +42,10 @@ sequenceDiagram
     Main->>Config: ensure_user_settings_template()
     Config->>Config: 检查 settings.json 是否存在
     Config-->>Main: 路径（可能创建了默认模版）
-    
+
     Main->>Config: reload()
     Config->>Config: 从 settings.json 加载配置
-    
+
     Main->>Config: validate()
     alt 验证失败
         Main->>User: 打印 Configuration error
@@ -60,7 +60,7 @@ sequenceDiagram
 
     Note over Main: 第 6 阶段：构建依赖容器 (line 54-59)
     Main->>Container: build_basic_agent_dependencies()
-    
+
     Note over Container: 初始化基础设施 (line 33-57)
     Container->>Container: AsyncJsonlSessionStore
     Container->>Container: DefaultToolRegistry
@@ -71,15 +71,15 @@ sequenceDiagram
     Container->>Container: SkillSelector
     Container->>Container: AsyncToolCallProcessor
     Container->>Container: MessageStreamParser
-    
+
     Note over Container: 初始化应用层 (line 58-81)
     Container->>Container: ContextManager (包含 ContextBudget)
     Container->>Container: AsyncTurnRunner
     Container->>Container: AsyncRuntimeFacade
-    
+
     Note over Container: 初始化接口层 (line 83)
     Container->>Container: ChatCLI
-    
+
     Container-->>Main: 返回依赖字典 { "cli": ChatCLI, ... }
 
     Note over Main: 第 7 阶段：启动 CLI (line 60)
@@ -89,9 +89,9 @@ sequenceDiagram
     loop 主聊天循环
         CLI->>User: 等待用户输入
         User->>CLI: 输入消息
-        
+
         CLI->>CLI: 执行完整回合
-        
+
         CLI->>User: 实时展示
     end
 
