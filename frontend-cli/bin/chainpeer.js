@@ -22,6 +22,7 @@ import {
   skillLine,
   startupText,
   tokenStatsLine,
+  toolProgressLine,
   toolRequestedLine,
   toolResultLine,
   toolStartedLine,
@@ -219,6 +220,14 @@ async function renderEvent(event) {
       closeAssistant();
       console.log(toolResultLine(event));
       return;
+    case "tool_progress": {
+      closeAssistant();
+      const line = toolProgressLine(event);
+      if (line) {
+        console.log(line);
+      }
+      return;
+    }
     case "token_stats_updated":
       closeAssistant();
       console.log(tokenStatsLine(event));

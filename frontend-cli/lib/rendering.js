@@ -68,6 +68,12 @@ export function toolResultLine(event) {
   return `${green("✓")} ${name} completed in ${duration}`;
 }
 
+export function toolProgressLine(event) {
+  const name = event.tool_name || "tool";
+  const message = progressMessage(event.payload);
+  return message ? `${cyan("•")} ${name} ${dim(message)}` : "";
+}
+
 export function tokenStatsLine(event) {
   const stats = event.stats && typeof event.stats === "object" ? event.stats : {};
   const input = formatCount(stats.input_tokens);
@@ -124,6 +130,19 @@ function parseJsonObject(value) {
 function toolErrorDetail(result) {
   const payload = parseJsonObject(result);
   return clipSingleLine(payload.error, 120);
+}
+
+function progressMessage(payload) {
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+  for (const key of ["message", "status", "text"]) {
+    const value = clipSingleLine(payload[key], 120);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
 }
 
 function clipSingleLine(value, maxLength) {

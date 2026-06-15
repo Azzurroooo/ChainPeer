@@ -14,6 +14,7 @@ import {
   skillLine,
   startupText,
   tokenStatsLine,
+  toolProgressLine,
   toolRequestedLine,
   toolResultLine,
   toolStartedLine,
@@ -95,6 +96,17 @@ test("toolResultLine includes compact failure detail", () => {
     }),
     "× bash failed in 50ms (Timeout): command timed out try again",
   );
+});
+
+test("toolProgressLine renders compact progress messages", () => {
+  assert.equal(
+    toolProgressLine({
+      tool_name: "bash",
+      payload: { message: "waiting\nfor output" },
+    }),
+    "• bash waiting for output",
+  );
+  assert.equal(toolProgressLine({ tool_name: "bash", payload: { stdout: "ignored" } }), "");
 });
 
 test("tokenStatsLine renders compact context status", () => {
