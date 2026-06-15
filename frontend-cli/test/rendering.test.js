@@ -67,6 +67,15 @@ test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(cancelledText(), "  Interrupted. Session state preserved; resume with -c.");
 });
 
+test("promptText includes compact session status when available", () => {
+  assert.equal(
+    promptText({ model: "glm-5.1", cwd: "E:\\code\\agent\\agent_base-ts-cli-process-split" }, {
+      context_usage_percent: 0.125,
+    }),
+    "\n╭─ input\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › ",
+  );
+});
+
 test("helpText renders compact shortcuts and commands", () => {
   assert.equal(
     helpText(),

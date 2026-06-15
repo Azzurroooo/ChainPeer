@@ -8,8 +8,8 @@ export function startupText(info) {
   return preview ? `${header}\n\n${preview}` : header;
 }
 
-export function promptText() {
-  return inputPromptFrame("input", inputFooter());
+export function promptText(info = {}, stats = {}) {
+  return inputPromptFrame("input", [promptStatusLine(info, stats), inputFooter()]);
 }
 
 export function promptPlaceholderText() {
@@ -260,13 +260,29 @@ function inputFooter() {
   return dim("  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit");
 }
 
-function inputPromptFrame(title, body = "") {
+function inputPromptFrame(title, body = []) {
   const lines = [`\n${dim(`╭─ ${title}`)}`];
-  if (body) {
-    lines.push(body);
+  for (const line of body) {
+    if (line) {
+      lines.push(line);
+    }
   }
   lines.push(`${dim("╰─")} ${bold("›")} `);
   return lines.join("\n");
+}
+
+function promptStatusLine(info, stats) {
+  const parts = [singleLine(info.model), contextLeft(stats), middleClip(info.cwd, 56)].filter(Boolean);
+  return parts.length ? dim(`  ${parts.join(" · ")}`) : "";
+}
+
+function contextLeft(stats) {
+  const usage = Number(stats?.context_usage_percent);
+  if (!Number.isFinite(usage)) {
+    return "";
+  }
+  const left = Math.max(0, Math.min(1, 1 - usage));
+  return `${(left * 100).toFixed(0)}% context left`;
 }
 
 function styled(text, code) {

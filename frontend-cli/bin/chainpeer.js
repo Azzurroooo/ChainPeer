@@ -46,6 +46,8 @@ let input = null;
 let runtimeClosing = false;
 const pending = new Map();
 const announcedTools = new Set();
+let sessionInfo = {};
+let latestStats = {};
 let turnTools = { completed: 0, failed: 0 };
 const assistantRenderer = new AssistantRenderer((text) => process.stdout.write(text));
 let runtimeStdoutBuffer = "";
@@ -91,6 +93,7 @@ process.on("SIGINT", handleSigint);
 
 try {
   const info = await request("initialize");
+  sessionInfo = { cwd: process.cwd(), ...(info || {}) };
   input = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -112,7 +115,7 @@ try {
 
 async function promptLoop() {
   while (true) {
-    const text = (await ask(promptText(), promptPlaceholderText())).trim();
+    const text = (await ask(promptText(sessionInfo, latestStats), promptPlaceholderText())).trim();
     if (!text) {
       continue;
     }
@@ -160,6 +163,7 @@ async function handleCommand(text) {
   }
   if (command === "model" && args[0] === "set" && args[1]) {
     await request("model.set", { model: args[1] });
+    sessionInfo = { ...sessionInfo, model: args[1] };
     console.log(commandResultText(`Model updated: ${args[1]}`));
     return true;
   }
@@ -250,6 +254,7 @@ async function renderEvent(event) {
     }
     case "token_stats_updated":
       closeAssistant();
+      latestStats = event.stats && typeof event.stats === "object" ? event.stats : {};
       console.log(tokenStatsLine(event));
       return;
     case "skill_activated":
