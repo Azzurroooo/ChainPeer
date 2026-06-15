@@ -125,7 +125,7 @@ test("toolRequestedLine shows bash command", () => {
       tool_name: "bash",
       args_preview: '{"command":"date"}',
     }),
-    "• Running bash: date",
+    "• Running bash\n  └ date",
   );
 });
 
@@ -135,7 +135,7 @@ test("toolRequestedLine clips long details", () => {
     args_preview: JSON.stringify({ command: `echo ${"x".repeat(140)}` }),
   });
 
-  assert.equal(line.length, "• Running bash: ".length + 96);
+  assert.equal(line.split("\n")[1].length, "  └ ".length + 96);
   assert.match(line, /\.\.\.$/);
 });
 
@@ -173,7 +173,7 @@ test("toolProgressLine renders compact progress messages", () => {
       tool_name: "bash",
       payload: { message: "waiting\nfor output" },
     }),
-    "• bash waiting for output",
+    "• bash\n  └ waiting for output",
   );
   assert.equal(toolProgressLine({ tool_name: "bash", payload: { stdout: "ignored" } }), "");
 });

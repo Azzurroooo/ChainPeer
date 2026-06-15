@@ -82,7 +82,7 @@ export function unknownCommandText() {
 export function toolRequestedLine(event) {
   const name = event.tool_name || "unknown";
   const detail = toolDetail(name, parseJsonObject(event.args_preview));
-  return detail ? `${cyan("•")} Running ${name}: ${dim(detail)}` : `${cyan("•")} Running ${name}`;
+  return detail ? `${cyan("•")} Running ${name}\n${dim(`  └ ${detail}`)}` : `${cyan("•")} Running ${name}`;
 }
 
 export function toolStartedLine(event) {
@@ -103,7 +103,7 @@ export function toolResultLine(event) {
 export function toolProgressLine(event) {
   const name = event.tool_name || "tool";
   const message = progressMessage(event.payload);
-  return message ? `${cyan("•")} ${name} ${dim(message)}` : "";
+  return message ? `${cyan("•")} ${name}\n${dim(`  └ ${message}`)}` : "";
 }
 
 export function tokenStatsLine(event) {
