@@ -9,7 +9,11 @@ export function startupText(info) {
 }
 
 export function promptText() {
-  return `\n${dim("╭─ input")}\n${bold("›")} Ask ChainPeer to do anything\n${inputFooter()}\n${dim("╰─")} ${bold("›")} `;
+  return inputPromptFrame("input", inputFooter(), promptPlaceholderText());
+}
+
+function promptPlaceholderText() {
+  return dim("Ask ChainPeer to do anything");
 }
 
 export function helpText() {
@@ -27,7 +31,11 @@ export function helpText() {
 }
 
 export function answerPromptText() {
-  return `\n${bold("›")} Answer\n${bold("›")} `;
+  return inputPromptFrame("answer", "", answerPlaceholderText());
+}
+
+function answerPlaceholderText() {
+  return dim("Answer");
 }
 
 export function turnStartText() {
@@ -250,6 +258,16 @@ function resumePreviewLine(line) {
 
 function inputFooter() {
   return dim("  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit");
+}
+
+function inputPromptFrame(title, body = "", placeholder = "") {
+  const lines = [`\n${dim(`╭─ ${title}`)}`];
+  if (body) {
+    lines.push(body);
+  }
+  const hint = placeholder ? `${placeholder} ` : "";
+  lines.push(`${dim("╰─")} ${bold("›")} ${hint}`);
+  return lines.join("\n");
 }
 
 function styled(text, code) {

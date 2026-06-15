@@ -55,9 +55,9 @@ test("startupText clips long cwd in the middle", () => {
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n╭─ input\n› Ask ChainPeer to do anything\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › ",
+    "\n╭─ input\n  ? shortcuts · ↑ history · /compact · /model set <model> · ctrl+c to exit\n╰─ › Ask ChainPeer to do anything ",
   );
-  assert.equal(answerPromptText(), "\n› Answer\n› ");
+  assert.equal(answerPromptText(), "\n╭─ answer\n╰─ › Answer ");
   assert.equal(turnStartText(), "  Working... ctrl+c to interrupt, ctrl+c again to quit\n");
   assert.equal(interruptText(), "  interrupt requested; ctrl+c again to quit");
   assert.equal(cancelledText(), "  Interrupted. Session state preserved; resume with -c.");
