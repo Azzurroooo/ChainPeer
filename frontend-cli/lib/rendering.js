@@ -118,13 +118,13 @@ export function errorLine(error) {
 }
 
 export function questionHeader(question) {
-  return `${cyan("?")} ${question || "Input required"}`;
+  return `${cyan("?")} ${clipSingleLine(question || "Input required", 96)}`;
 }
 
 export function optionLine(option, index, recommended) {
   const marker = option === recommended ? bold("›") : " ";
   const suffix = option === recommended ? dim(" recommended") : "";
-  return `${marker} ${index + 1}. ${option}${suffix}`;
+  return `${marker} ${index + 1}. ${clipSingleLine(option, 88)}${suffix}`;
 }
 
 export function answerHintText(options) {

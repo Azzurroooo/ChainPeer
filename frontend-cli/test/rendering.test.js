@@ -207,6 +207,8 @@ test("status helpers render question, skill, and errors", () => {
   assert.equal(questionHeader("Pick one"), "? Pick one");
   assert.equal(optionLine("A", 0, "A"), "› 1. A recommended");
   assert.equal(optionLine("B", 1, "A"), "  2. B");
+  assert.match(questionHeader("q".repeat(120)), /^\? q{93}\.\.\.$/);
+  assert.match(optionLine("x".repeat(120), 2, ""), /^  3\. x{85}\.\.\.$/);
   assert.equal(answerHintText(["A", "B"]), "  Type a number or enter a custom answer");
   assert.equal(answerHintText([]), "");
   assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
