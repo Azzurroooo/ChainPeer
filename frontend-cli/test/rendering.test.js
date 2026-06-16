@@ -127,6 +127,19 @@ test("promptText includes compact session status when available", () => {
   );
 });
 
+test("promptText shows queue hint while a turn is running", () => {
+  assert.equal(
+    promptText({}, {}, { running: true }),
+    [
+      "",
+      "  ChainPeer input",
+      "  agent running · enter queue · ctrl+c interrupt · ? shortcuts",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+    ].join("\n"),
+  );
+});
+
 test("promptText clips long session status", () => {
   const text = promptText({
     model: "glm-5.1-preview-with-a-very-long-name",

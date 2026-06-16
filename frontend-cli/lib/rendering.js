@@ -7,8 +7,8 @@ export function startupText(info = {}) {
   return preview ? `${header}\n\n${preview}` : header;
 }
 
-export function promptText(info = {}, stats = {}) {
-  return inputPromptFrame([promptStatusLine(info, stats)]);
+export function promptText(info = {}, stats = {}, state = {}) {
+  return inputPromptFrame([promptStatusLine(info, stats)], state);
 }
 
 export function promptPlaceholderText() {
@@ -409,15 +409,18 @@ function helpRow(leftKey, leftText, rightKey, rightText) {
   return dim(`  ${padRight(left, 33)} ${right}`);
 }
 
-function inputFooter() {
+function inputFooter(state = {}) {
+  if (state.running) {
+    return dim("  agent running · enter queue · ctrl+c interrupt · ? shortcuts");
+  }
   return dim("  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit");
 }
 
-function inputPromptFrame(body = []) {
+function inputPromptFrame(body = [], state = {}) {
   const lines = ["", inputPromptTitle()];
   const content = body.filter(Boolean);
   lines.push(...content);
-  lines.push(inputFooter(), inputDivider());
+  lines.push(inputFooter(state), inputDivider());
   lines.push(`  ${cyan("›")} `);
   return lines.join("\n");
 }

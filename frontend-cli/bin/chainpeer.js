@@ -152,7 +152,9 @@ async function promptLoop() {
     if (runtimeClosing) {
       return;
     }
-    const text = (await ask(promptText(sessionInfo, latestStats), promptPlaceholderText())).trim();
+    const text = (
+      await ask(promptText(sessionInfo, latestStats, inputState()), promptPlaceholderText())
+    ).trim();
     if (runtimeClosing) {
       return;
     }
@@ -214,6 +216,10 @@ function submitTurn(text, extra = {}) {
       console.error(error instanceof Error ? error.message : String(error));
     }
   });
+}
+
+function inputState() {
+  return { running: activeTurn || queuedTurns > 0 };
 }
 
 async function runQueuedTurn(text, extra = {}) {
