@@ -15,6 +15,20 @@ export function promptPlaceholderText() {
   return "Ask ChainPeer to do anything";
 }
 
+export function userInputText(text) {
+  const body = singleLine(text);
+  return body ? `${cyan("›")} ${bold("You")} ${body}` : "";
+}
+
+export function assistantHeaderText() {
+  return `${cyan("•")} ${bold("Assistant")}`;
+}
+
+export function outputBlockText(text, leading = false) {
+  const body = String(text || "").trimEnd();
+  return body ? `${leading ? "\n" : ""}${body}\n` : "";
+}
+
 export function helpText() {
   return [
     `${cyan("•")} Shortcuts`,

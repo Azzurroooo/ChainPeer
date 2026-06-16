@@ -19,8 +19,10 @@ import {
   contextBuiltLine,
   errorLine,
   helpText,
+  assistantHeaderText,
   inputHintText,
   interruptText,
+  outputBlockText,
   promptPlaceholderText,
   promptText,
   questionText,
@@ -35,6 +37,7 @@ import {
   toolStartedLine,
   turnCompletedLine,
   turnStartText,
+  userInputText,
 } from "../lib/rendering.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -71,6 +74,8 @@ let turnQueue = Promise.resolve();
 let redrawActiveInput = null;
 let suspendActiveInput = null;
 let assistantOutputLineOpen = false;
+let assistantHeaderShown = false;
+let outputStarted = false;
 const promptResumeWaiters = [];
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
 const inputHistory = createInputHistory();
@@ -228,6 +233,7 @@ async function runQueuedTurn(text, extra = {}) {
     return;
   }
   activeTurn = true;
+  assistantHeaderShown = false;
   resetTurnTools();
   logOutput(turnStartText());
   resumeInput();
@@ -261,16 +267,24 @@ function request(method, params = {}) {
 function logOutput(text) {
   withSuspendedPrompt(() => {
     closeOpenAssistantOutputLine();
-    process.stdout.write(`${text}\n`);
+    process.stdout.write(outputBlockText(text, outputStarted));
+    outputStarted = true;
   });
 }
 
 function writeOutput(text) {
   const output = String(text || "");
   withSuspendedPrompt(() => {
+    writeAssistantHeader();
     process.stdout.write(output);
     assistantOutputLineOpen = output ? !output.endsWith("\n") : assistantOutputLineOpen;
   }, { redraw: output.endsWith("\n") });
+}
+
+function writeUserInput(text) {
+  const line = userInputText(text);
+  process.stdout.write(line ? outputBlockText(line, outputStarted) : "\n");
+  outputStarted = true;
 }
 
 function withSuspendedPrompt(action, options = {}) {
@@ -294,6 +308,15 @@ function closeOpenAssistantOutputLine() {
   }
   process.stdout.write("\n");
   assistantOutputLineOpen = false;
+}
+
+function writeAssistantHeader() {
+  if (assistantHeaderShown) {
+    return;
+  }
+  process.stdout.write(outputBlockText(assistantHeaderText(), outputStarted));
+  outputStarted = true;
+  assistantHeaderShown = true;
 }
 
 function receive(line) {
@@ -568,7 +591,7 @@ function askTtyPrompt(prompt, placeholder) {
         const answer = command ? `/${command.name}` : editor.input();
         inputHistory.add(answer);
         cleanup();
-        process.stdout.write(answer ? `${line.prefix}${answer}\n` : "\n");
+        writeUserInput(answer);
         resolve(answer);
         return;
       }
@@ -746,7 +769,7 @@ function interruptTurn() {
   interruptRequested = true;
   cancelInput();
   closeAssistant();
-  logOutput(`\n${interruptText()}`);
+  logOutput(interruptText());
   void request("turn.interrupt").catch(() => {});
 }
 
@@ -785,6 +808,7 @@ function resumeInput() {
 
 function closeAssistant() {
   assistantRenderer.finish();
+  assistantHeaderShown = false;
 }
 
 function closeRuntime() {

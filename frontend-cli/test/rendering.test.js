@@ -11,9 +11,11 @@ import {
   contextBuiltLine,
   errorLine,
   helpText,
+  assistantHeaderText,
   inputHintText,
   interruptText,
   modelUsageText,
+  outputBlockText,
   promptText,
   promptPlaceholderText,
   questionText,
@@ -29,6 +31,7 @@ import {
   turnCompletedLine,
   turnStartText,
   unknownCommandText,
+  userInputText,
 } from "../lib/rendering.js";
 
 test("startupText includes resume preview when provided", () => {
@@ -109,6 +112,12 @@ test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(queuedInputText(), "• Queued follow-up input");
   assert.equal(interruptText(), "• Interrupt requested (ctrl + c again to quit)");
   assert.equal(cancelledText(), "• Interrupted session state preserved; resume with -c");
+  assert.equal(userInputText("hello"), "› You hello");
+  assert.equal(userInputText(""), "");
+  assert.equal(assistantHeaderText(), "• Assistant");
+  assert.equal(outputBlockText("• Working"), "• Working\n");
+  assert.equal(outputBlockText("• Working", true), "\n• Working\n");
+  assert.equal(outputBlockText(""), "");
 });
 
 test("promptText includes compact session status when available", () => {
