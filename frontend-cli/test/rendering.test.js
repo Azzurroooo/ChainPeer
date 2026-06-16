@@ -128,33 +128,32 @@ test("promptText clips long session status", () => {
   assert.match(statusLine, /\.\.\.$/);
 });
 
+test("promptText keeps composer away from terminal edge", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const divider = promptText().split("\n")[3];
+
+    assert.equal(divider.length, 78);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
 test("helpText renders compact shortcuts and commands", () => {
   assert.equal(
     helpText(),
     [
-      "• Help",
-      "  Commands",
-      "    /status           show session status",
-      "    /sessions         list recent sessions",
-      "    /skill            list skills",
-      "    /init             draft CHAINPEER.md",
-      "    /plan             show active plan",
-      "    /compact          compact the conversation",
-      "    /model set <name> set the model",
-      "    /draft            show saved input draft",
-      "    /doctor           run setup diagnostics",
-      "    /config           show config guidance",
-      "    /login            show login guidance",
-      "    /clear            clear the terminal",
-      "    /exit             quit ChainPeer",
-      "  Navigation",
-      "    enter             send message",
-      "    /                 show commands",
-      "    ?                 show this help",
-      "    ↑/↓               history",
-      "    ↑/↓ on / menu     choose command",
-      "  Exit",
-      "    ctrl + c          interrupt turn or quit",
+      "• Shortcuts",
+      "  enter        send message         /              open commands",
+      "  ↑ / ↓        history              ← / →          move cursor",
+      "  home / end   line edges           del / backspace edit text",
+      "  ctrl + c     interrupt or quit    ?              show shortcuts",
+      "",
+      "• Commands",
+      "  /status  /sessions  /skill  /init  /plan  /compact",
+      "  /model set <name>  /draft  /doctor  /config  /login",
+      "  /clear  /exit",
     ].join("\n"),
   );
 });

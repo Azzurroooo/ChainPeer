@@ -1,5 +1,5 @@
 const STARTUP_BANNER_WIDTH = 80;
-const COMPOSER_WIDTH = 78;
+const MAX_COMPOSER_WIDTH = 78;
 
 export function startupText(info = {}) {
   const header = startupBannerText(info);
@@ -17,29 +17,16 @@ export function promptPlaceholderText() {
 
 export function helpText() {
   return [
-    `${cyan("•")} Help`,
-    dim("  Commands"),
-    dim("    /status           show session status"),
-    dim("    /sessions         list recent sessions"),
-    dim("    /skill            list skills"),
-    dim("    /init             draft CHAINPEER.md"),
-    dim("    /plan             show active plan"),
-    dim("    /compact          compact the conversation"),
-    dim("    /model set <name> set the model"),
-    dim("    /draft            show saved input draft"),
-    dim("    /doctor           run setup diagnostics"),
-    dim("    /config           show config guidance"),
-    dim("    /login            show login guidance"),
-    dim("    /clear            clear the terminal"),
-    dim("    /exit             quit ChainPeer"),
-    dim("  Navigation"),
-    dim("    enter             send message"),
-    dim("    /                 show commands"),
-    dim("    ?                 show this help"),
-    dim("    ↑/↓               history"),
-    dim("    ↑/↓ on / menu     choose command"),
-    dim("  Exit"),
-    dim("    ctrl + c          interrupt turn or quit"),
+    `${cyan("•")} Shortcuts`,
+    helpRow("enter", "send message", "/", "open commands"),
+    helpRow("↑ / ↓", "history", "← / →", "move cursor"),
+    helpRow("home / end", "line edges", "del / backspace", "edit text"),
+    helpRow("ctrl + c", "interrupt or quit", "?", "show shortcuts"),
+    "",
+    `${cyan("•")} Commands`,
+    dim("  /status  /sessions  /skill  /init  /plan  /compact"),
+    dim("  /model set <name>  /draft  /doctor  /config  /login"),
+    dim("  /clear  /exit"),
   ].join("\n");
 }
 
@@ -407,6 +394,12 @@ function questionFooter(options) {
     : "  enter to submit answer · ctrl + c to interrupt";
 }
 
+function helpRow(leftKey, leftText, rightKey, rightText) {
+  const left = `${padRight(leftKey, 12)} ${leftText}`;
+  const right = `${padRight(rightKey, 14)} ${rightText}`;
+  return dim(`  ${padRight(left, 33)} ${right}`);
+}
+
 function inputFooter() {
   return dim("  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit");
 }
@@ -425,7 +418,7 @@ function inputPromptTitle() {
 }
 
 function inputDivider() {
-  return dim(`  ${"─".repeat(COMPOSER_WIDTH)}`);
+  return dim(`  ${"─".repeat(composerWidth())}`);
 }
 
 function padRight(text, width) {
@@ -438,7 +431,15 @@ function visibleLength(text) {
 
 function promptStatusLine(info, stats) {
   const parts = [singleLine(info.model), contextLeft(stats), middleClip(info.cwd, 56)].filter(Boolean);
-  return parts.length ? dim(`  ${clipSingleLine(parts.join(" · "), COMPOSER_WIDTH)}`) : "";
+  return parts.length ? dim(`  ${clipSingleLine(parts.join(" · "), composerWidth())}`) : "";
+}
+
+function composerWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return MAX_COMPOSER_WIDTH;
+  }
+  return Math.max(44, Math.min(MAX_COMPOSER_WIDTH, columns - 4));
 }
 
 function contextLeft(stats) {
