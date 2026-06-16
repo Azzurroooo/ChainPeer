@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
+import { createLineEditor, trailingCellWidth } from "../lib/line-editor.js";
 import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { createInputHistory } from "../lib/input-history.js";
 import { isInputClosed } from "../lib/input-errors.js";
@@ -469,7 +470,7 @@ function askLine(prompt) {
 function askTtyLine(prompt) {
   process.stdout.write(prompt);
   return new Promise((resolve) => {
-    let text = "";
+    const editor = createLineEditor();
     const cleanup = () => {
       inputActive = false;
       redrawActiveInput = null;
@@ -487,16 +488,10 @@ function askTtyLine(prompt) {
       if (key.name === "return" || key.name === "enter") {
         cleanup();
         process.stdout.write("\n");
-        resolve(text);
+        resolve(editor.input());
         return;
       }
-      if (key.name === "backspace") {
-        text = text.slice(0, -1);
-        render();
-        return;
-      }
-      if (chunk && !key.ctrl && !key.meta && String(chunk) >= " ") {
-        text += String(chunk);
+      if (editor.handleKey(chunk, key)) {
         render();
       }
     };
@@ -506,12 +501,16 @@ function askTtyLine(prompt) {
     };
     const render = () => {
       process.stdout.write("\r\x1b[K");
-      process.stdout.write(`${prompt}${text}`);
+      process.stdout.write(`${prompt}${editor.input()}`);
+      const tailWidth = trailingCellWidth(editor.input(), editor.cursor());
+      if (tailWidth) {
+        process.stdout.write(`\x1b[${tailWidth}D`);
+      }
     };
     cancelActiveInput = onCancel;
     inputActive = true;
-    redrawActiveInput = (prefill = text) => {
-      text = String(prefill || "");
+    redrawActiveInput = (prefill = editor.input()) => {
+      editor.setInput(prefill);
       render();
     };
     suspendActiveInput = () => process.stdout.write("\r\x1b[K");
@@ -524,10 +523,10 @@ function askTtyLine(prompt) {
 function askTtyPrompt(prompt, placeholder) {
   const line = splitPromptLine(prompt);
   return new Promise((resolve) => {
+    const editor = createLineEditor(pendingInputPrefill);
     const menuState = createSlashMenuState(slashCommands);
     let rendered = false;
     const promptRows = countLineBreaks(line.leading);
-    menuState.setInput(pendingInputPrefill);
     pendingInputPrefill = "";
     const cleanup = () => {
       inputActive = false;
@@ -545,26 +544,33 @@ function askTtyPrompt(prompt, placeholder) {
         return;
       }
       if (key.name === "return" || key.name === "enter") {
+        syncMenu();
         const command = menuState.selectedCommand();
-        const answer = command ? `/${command.name}` : menuState.input();
+        const answer = command ? `/${command.name}` : editor.input();
         inputHistory.add(answer);
         cleanup();
         process.stdout.write(answer ? `${line.prefix}${answer}\n` : "\n");
         resolve(answer);
         return;
       }
-      if (!menuState.matches().length && key.name === "up") {
-        menuState.setInput(inputHistory.previous(menuState.input()));
+      const menuOpen = syncMenu().length > 0;
+      if (menuOpen && menuState.handleKey("", key)) {
         renderPrompt();
         return;
       }
-      if (!menuState.matches().length && key.name === "down") {
-        menuState.setInput(inputHistory.next(menuState.input()));
+      if (!menuOpen && key.name === "up") {
+        editor.setInput(inputHistory.previous(editor.input()));
         renderPrompt();
         return;
       }
-      if (menuState.handleKey(chunk, key)) {
-        if (key.name !== "up" && key.name !== "down") {
+      if (!menuOpen && key.name === "down") {
+        editor.setInput(inputHistory.next(editor.input()));
+        renderPrompt();
+        return;
+      }
+      const editResult = editor.handleKey(chunk, key);
+      if (editResult) {
+        if (editResult === "edit") {
           inputHistory.reset();
         }
         renderPrompt();
@@ -578,8 +584,8 @@ function askTtyPrompt(prompt, placeholder) {
     process.stdin.on("keypress", onKeypress);
     cancelActiveInput = onCancel;
     inputActive = true;
-    redrawActiveInput = (prefill = menuState.input()) => {
-      menuState.setInput(prefill);
+    redrawActiveInput = (prefill = editor.input()) => {
+      editor.setInput(prefill);
       renderPrompt();
     };
     suspendActiveInput = clearPromptBlock;
@@ -608,16 +614,25 @@ function askTtyPrompt(prompt, placeholder) {
     function writeInputLine() {
       process.stdout.write("\r\x1b[K");
       process.stdout.write(line.prefix);
-      process.stdout.write(menuState.input() || inputHintText(placeholder));
+      process.stdout.write(editor.input() || inputHintText(placeholder));
+      const tailWidth = trailingCellWidth(editor.input(), editor.cursor());
+      if (tailWidth) {
+        process.stdout.write(`\x1b[${tailWidth}D`);
+      }
     }
 
     function writeMenu() {
-      const menu = slashMenuText(menuState.matches(), menuState.selectedIndex()).trimEnd();
+      const menu = slashMenuText(syncMenu(), menuState.selectedIndex()).trimEnd();
       if (!menu) {
         return;
       }
       const rows = menu.split("\n").length;
       process.stdout.write(`\r\n${menu}\x1b[${rows}A`);
+    }
+
+    function syncMenu() {
+      menuState.setInput(editor.input());
+      return menuState.matches();
     }
   });
 }

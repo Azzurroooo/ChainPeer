@@ -45,9 +45,12 @@ export function createSlashMenuState(commands) {
       return false;
     },
     setInput(value) {
-      text = String(value || "");
-      selected = 0;
-      dismissed = false;
+      const nextText = String(value || "");
+      if (nextText !== text) {
+        selected = 0;
+        dismissed = false;
+      }
+      text = nextText;
     },
   };
 }

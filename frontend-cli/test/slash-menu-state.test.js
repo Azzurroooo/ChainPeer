@@ -38,6 +38,16 @@ test("slash menu arrows select commands without changing input text", () => {
   assert.equal(state.selectedCommand().name, "status");
 });
 
+test("slash menu keeps selection when input is synced unchanged", () => {
+  const state = createSlashMenuState(commands);
+  state.setInput("/");
+  state.handleKey("", { name: "down" });
+
+  state.setInput("/");
+
+  assert.equal(state.selectedCommand().name, "sessions");
+});
+
 test("slash menu escape dismisses immediately and typing reopens it", () => {
   const state = createSlashMenuState(commands);
   state.setInput("/");
