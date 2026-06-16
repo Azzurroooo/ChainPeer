@@ -70,6 +70,7 @@ let queuedTurns = 0;
 let turnQueue = Promise.resolve();
 let redrawActiveInput = null;
 let suspendActiveInput = null;
+let assistantOutputLineOpen = false;
 const promptResumeWaiters = [];
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
 const inputHistory = createInputHistory();
@@ -253,17 +254,20 @@ function request(method, params = {}) {
 
 function logOutput(text) {
   withSuspendedPrompt(() => {
+    closeOpenAssistantOutputLine();
     process.stdout.write(`${text}\n`);
   });
 }
 
 function writeOutput(text) {
+  const output = String(text || "");
   withSuspendedPrompt(() => {
-    process.stdout.write(text);
-  });
+    process.stdout.write(output);
+    assistantOutputLineOpen = output ? !output.endsWith("\n") : assistantOutputLineOpen;
+  }, { redraw: output.endsWith("\n") });
 }
 
-function withSuspendedPrompt(action) {
+function withSuspendedPrompt(action, options = {}) {
   const shouldRedraw =
     inputActive && process.stdout.isTTY && !runtimeClosing && suspendActiveInput && redrawActiveInput;
   if (shouldRedraw) {
@@ -272,10 +276,18 @@ function withSuspendedPrompt(action) {
   try {
     action();
   } finally {
-    if (shouldRedraw) {
+    if (shouldRedraw && options.redraw !== false) {
       redrawActiveInput();
     }
   }
+}
+
+function closeOpenAssistantOutputLine() {
+  if (!assistantOutputLineOpen) {
+    return;
+  }
+  process.stdout.write("\n");
+  assistantOutputLineOpen = false;
 }
 
 function receive(line) {
@@ -500,6 +512,7 @@ function askTtyLine(prompt) {
       resolve("");
     };
     const render = () => {
+      closeOpenAssistantOutputLine();
       process.stdout.write("\r\x1b[K");
       process.stdout.write(`${prompt}${editor.input()}`);
       const tailWidth = trailingCellWidth(editor.input(), editor.cursor());
@@ -592,6 +605,7 @@ function askTtyPrompt(prompt, placeholder) {
     renderPrompt();
 
     function renderPrompt() {
+      closeOpenAssistantOutputLine();
       clearPromptBlock();
       process.stdout.write(line.leading);
       writeInputLine();
