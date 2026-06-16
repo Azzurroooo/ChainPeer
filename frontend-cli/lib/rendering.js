@@ -1,4 +1,4 @@
-const STARTUP_BANNER_WIDTH = 80;
+const MAX_STARTUP_BANNER_WIDTH = 80;
 const MAX_COMPOSER_WIDTH = 78;
 
 export function startupText(info = {}) {
@@ -357,29 +357,38 @@ function resumePreviewLine(line) {
 }
 
 function startupBannerText(info) {
+  const width = startupBannerWidth();
   const modelLine = `${singleLine(info.model) || "unknown"} · session ${singleLine(info.session_id) || "unknown"}`;
-  const cwd = middleClip(info.cwd || process.cwd(), STARTUP_BANNER_WIDTH - 4);
+  const cwd = middleClip(info.cwd || process.cwd(), width - 4);
   return [
-    startupBannerBorder("┌", "┐"),
-    startupBannerLine(`${bold("ChainPeer")} ${dim("agent runtime")}`),
-    startupBannerLine(modelLine),
-    startupBannerLine(cwd),
-    startupBannerBorder("└", "┘"),
+    startupBannerBorder("┌", "┐", width),
+    startupBannerLine(`${bold("ChainPeer")} ${dim("agent runtime")}`, width),
+    startupBannerLine(modelLine, width),
+    startupBannerLine(cwd, width),
+    startupBannerBorder("└", "┘", width),
   ].join("\n");
 }
 
-function startupBannerBorder(left, right) {
-  return dim(`${left}${"─".repeat(STARTUP_BANNER_WIDTH - 2)}${right}`);
+function startupBannerBorder(left, right, width) {
+  return dim(`${left}${"─".repeat(width - 2)}${right}`);
 }
 
-function startupBannerLine(text) {
+function startupBannerLine(text, frameWidth) {
   const clean = String(text || "").replace(/[\r\n\t]+/g, " ").trimEnd();
-  const width = STARTUP_BANNER_WIDTH - 4;
+  const width = frameWidth - 4;
   const content =
     visibleLength(clean) <= width
       ? clean
       : `${clean.slice(0, Math.max(0, width - 3))}...`;
   return `${dim("│")} ${padRight(content, width)} ${dim("│")}`;
+}
+
+function startupBannerWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return MAX_STARTUP_BANNER_WIDTH;
+  }
+  return Math.max(44, Math.min(MAX_STARTUP_BANNER_WIDTH, columns - 2));
 }
 
 function questionOptionLine(option, index, recommended) {

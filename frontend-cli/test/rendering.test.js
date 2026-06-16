@@ -77,6 +77,18 @@ test("startupText clips long cwd in the middle", () => {
   assert.notEqual(cwdLine, cwd);
 });
 
+test("startupText keeps banner away from terminal edge", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const firstLine = startupText({ model: "m1", session_id: "s1", cwd: "E:\\project" }).split("\n")[0];
+
+    assert.equal(firstLine.length, 78);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
