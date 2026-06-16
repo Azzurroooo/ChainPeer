@@ -79,7 +79,13 @@ test("startupText clips long cwd in the middle", () => {
 test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(
     promptText(),
-    "\n  ? for shortcuts · enter to send · ctrl + c to quit\n\n  › ",
+    [
+      "",
+      "  ChainPeer input",
+      "  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+    ].join("\n"),
   );
   assert.equal(promptPlaceholderText(), "Ask ChainPeer to do anything");
   assert.equal(answerPromptText(), "\n  › ");
@@ -96,7 +102,14 @@ test("promptText includes compact session status when available", () => {
     promptText({ model: "glm-5.1", cwd: "E:\\code\\agent\\agent_base-ts-cli-process-split" }, {
       context_usage_percent: 0.125,
     }),
-    "\n  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split\n  ? for shortcuts · enter to send · ctrl + c to quit\n\n  › ",
+    [
+      "",
+      "  ChainPeer input",
+      "  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split",
+      "  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+    ].join("\n"),
   );
 });
 
@@ -107,7 +120,7 @@ test("promptText clips long session status", () => {
   }, {
     context_usage_percent: 0.25,
   });
-  const statusLine = text.split("\n")[1];
+  const statusLine = text.split("\n")[2];
 
   assert.ok(statusLine.length <= 80);
   assert.match(statusLine, /\.\.\.$/);

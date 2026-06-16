@@ -520,16 +520,16 @@ function askTtyLine(prompt) {
 
 function askTtyPrompt(prompt, placeholder) {
   const line = splitPromptLine(prompt);
-  process.stdout.write(line.leading);
   return new Promise((resolve) => {
     const menuState = createSlashMenuState(slashCommands);
-    let menuRows = 0;
+    let rendered = false;
+    const promptRows = countLineBreaks(line.leading);
     menuState.setInput(pendingInputPrefill);
     pendingInputPrefill = "";
     const cleanup = () => {
       inputActive = false;
       process.stdin.off("keypress", onKeypress);
-      clearMenu();
+      clearPromptBlock();
       if (cancelActiveInput === onCancel) {
         cancelActiveInput = null;
       }
@@ -545,12 +545,12 @@ function askTtyPrompt(prompt, placeholder) {
         const command = menuState.selectedCommand();
         const answer = command ? `/${command.name}` : menuState.input();
         cleanup();
-        process.stdout.write("\n");
+        process.stdout.write(answer ? `${line.prefix}${answer}\n` : "\n");
         resolve(answer);
         return;
       }
       if (menuState.handleKey(chunk, key)) {
-        renderInput();
+        renderPrompt();
       }
     };
     const onCancel = () => {
@@ -563,29 +563,29 @@ function askTtyPrompt(prompt, placeholder) {
     inputActive = true;
     redrawActiveInput = (prefill = menuState.input()) => {
       menuState.setInput(prefill);
-      renderInput();
+      renderPrompt();
     };
-    suspendActiveInput = clearInputBlock;
-    renderInput();
+    suspendActiveInput = clearPromptBlock;
+    renderPrompt();
 
-    function renderInput() {
-      clearMenu();
+    function renderPrompt() {
+      clearPromptBlock();
+      process.stdout.write(line.leading);
       writeInputLine();
       writeMenu();
       writeInputLine();
+      rendered = true;
     }
 
-    function clearMenu() {
-      if (!menuRows) {
+    function clearPromptBlock() {
+      if (!rendered) {
         return;
       }
-      process.stdout.write("\x1b[1B\r\x1b[J\x1b[1A\r");
-      menuRows = 0;
-    }
-
-    function clearInputBlock() {
-      clearMenu();
-      process.stdout.write("\r\x1b[K");
+      if (promptRows) {
+        process.stdout.write(`\x1b[${promptRows}A`);
+      }
+      process.stdout.write("\r\x1b[J");
+      rendered = false;
     }
 
     function writeInputLine() {
@@ -599,10 +599,14 @@ function askTtyPrompt(prompt, placeholder) {
       if (!menu) {
         return;
       }
-      menuRows = menu.split("\n").length;
-      process.stdout.write(`\r\n${menu}\x1b[${menuRows}A`);
+      const rows = menu.split("\n").length;
+      process.stdout.write(`\r\n${menu}\x1b[${rows}A`);
     }
   });
+}
+
+function countLineBreaks(text) {
+  return (String(text).match(/\n/g) || []).length;
 }
 
 function normalizeSlashCommands(commands) {

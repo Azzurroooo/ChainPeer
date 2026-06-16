@@ -1,4 +1,5 @@
 const STARTUP_BANNER_WIDTH = 80;
+const COMPOSER_WIDTH = 78;
 
 export function startupText(info = {}) {
   const header = startupBannerText(info);
@@ -7,7 +8,7 @@ export function startupText(info = {}) {
 }
 
 export function promptText(info = {}, stats = {}) {
-  return inputPromptFrame([promptStatusLine(info, stats), inputFooter()]);
+  return inputPromptFrame([promptStatusLine(info, stats)]);
 }
 
 export function promptPlaceholderText() {
@@ -43,7 +44,7 @@ export function helpText() {
 }
 
 export function answerPromptText() {
-  return inputPromptFrame();
+  return `\n  ${cyan("›")} `;
 }
 
 export function answerPlaceholderText() {
@@ -402,18 +403,24 @@ function questionFooter(options) {
 }
 
 function inputFooter() {
-  return dim("  ? for shortcuts · enter to send · ctrl + c to quit");
+  return dim("  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit");
 }
 
 function inputPromptFrame(body = []) {
-  const lines = [""];
+  const lines = ["", inputPromptTitle()];
   const content = body.filter(Boolean);
   lines.push(...content);
-  if (content.length) {
-    lines.push("");
-  }
+  lines.push(inputFooter(), inputDivider());
   lines.push(`  ${cyan("›")} `);
   return lines.join("\n");
+}
+
+function inputPromptTitle() {
+  return `  ${bold("ChainPeer")} ${dim("input")}`;
+}
+
+function inputDivider() {
+  return dim(`  ${"─".repeat(COMPOSER_WIDTH)}`);
 }
 
 function padRight(text, width) {
@@ -426,7 +433,7 @@ function visibleLength(text) {
 
 function promptStatusLine(info, stats) {
   const parts = [singleLine(info.model), contextLeft(stats), middleClip(info.cwd, 56)].filter(Boolean);
-  return parts.length ? dim(`  ${clipSingleLine(parts.join(" · "), 78)}`) : "";
+  return parts.length ? dim(`  ${clipSingleLine(parts.join(" · "), COMPOSER_WIDTH)}`) : "";
 }
 
 function contextLeft(stats) {
