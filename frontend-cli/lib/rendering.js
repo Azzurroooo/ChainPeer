@@ -480,7 +480,7 @@ function promptHeaderLine(info) {
 
 function promptFooterLine(stats, state = {}) {
   const parts = state.running
-    ? ["agent running", "enter queue", "ctrl+c interrupt", "? shortcuts"]
+    ? ["enter queue follow-up", "ctrl+c interrupt", "? shortcuts"]
     : ["? shortcuts", "/ commands", "enter send", "ctrl+c quit"];
   const right = contextLeft(stats);
   const left = parts.join(" · ");

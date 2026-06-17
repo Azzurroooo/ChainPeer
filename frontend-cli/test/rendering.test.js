@@ -142,7 +142,7 @@ test("promptText shows queue hint while a turn is running", () => {
     [
       "",
       "  ChainPeer workbench",
-      "  agent running · enter queue · ctrl+c interrupt · ? shortcuts",
+      "  enter queue follow-up · ctrl+c interrupt · ? shortcuts",
       `  ${"─".repeat(78)}`,
       "  › ",
     ].join("\n"),
