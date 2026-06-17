@@ -156,7 +156,9 @@ export function toolResultLine(event) {
     const line = `${red("×")} ${bold("Tool")} ${dim("·")} ${label} failed in ${duration}${suffix}`;
     return detail ? `${line}\n${dim(detailLine(detail))}` : line;
   }
-  return `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
+  const line = `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
+  const output = toolResultOutput(event.result);
+  return output ? `${line}\n${dim(detailLine(output))}` : line;
 }
 
 export function toolProgressLine(event) {
@@ -281,6 +283,12 @@ function parseJsonObject(value) {
 function toolErrorDetail(result) {
   const payload = parseJsonObject(result);
   return clipSingleLine(payload.error, 120);
+}
+
+function toolResultOutput(result) {
+  const payload = parseJsonObject(result);
+  const data = payload.data && typeof payload.data === "object" ? payload.data : {};
+  return clipSingleLine(data.stdout || data.stderr, 120);
 }
 
 function progressMessage(payload) {

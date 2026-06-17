@@ -312,8 +312,9 @@ test("toolResultLine renders compact success state", () => {
       tool_name: "bash",
       status: "completed",
       duration_ms: 1250,
+      result: JSON.stringify({ ok: true, data: { stdout: "hello\nworld", stderr: "" } }),
     }),
-    "✓ Tool · Ran command in 1.25s",
+    "✓ Tool · Ran command in 1.25s\n  ↳ hello world",
   );
   assert.equal(
     toolResultLine({
@@ -322,6 +323,15 @@ test("toolResultLine renders compact success state", () => {
       duration_ms: 20,
     }),
     "✓ Tool · Called image in 20ms",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 25,
+      result: JSON.stringify({ ok: true, data: { stdout: "", stderr: "warning" } }),
+    }),
+    "✓ Tool · Ran command in 25ms\n  ↳ warning",
   );
 });
 
