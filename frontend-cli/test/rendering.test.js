@@ -112,7 +112,7 @@ test("prompt and turn status copy match the compact terminal UI", () => {
   assert.equal(queuedInputText(), "• Status · Queued follow-up input");
   assert.equal(interruptText(), "• Status · Interrupt requested (ctrl + c again to quit)");
   assert.equal(cancelledText(), "• Status · Interrupted session state preserved; resume with -c");
-  assert.equal(userInputText("hello"), "› You hello");
+  assert.equal(userInputText("hello"), "› You\n  hello");
   assert.equal(userInputText(""), "");
   assert.equal(assistantHeaderText(), "• Assistant");
   assert.equal(outputBlockText("• Working"), "• Working\n");

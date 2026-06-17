@@ -17,7 +17,7 @@ export function promptPlaceholderText() {
 
 export function userInputText(text) {
   const body = singleLine(text);
-  return body ? `${cyan("›")} ${bold("You")} ${body}` : "";
+  return body ? `${cyan("›")} ${bold("You")}\n  ${body}` : "";
 }
 
 export function assistantHeaderText() {
