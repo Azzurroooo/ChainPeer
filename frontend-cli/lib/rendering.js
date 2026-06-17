@@ -156,8 +156,11 @@ export function toolResultLine(event) {
     const line = `${red("×")} ${bold("Tool")} ${dim("·")} ${label} failed in ${duration}${suffix}`;
     return detail ? `${line}\n${dim(detailLine(detail))}` : line;
   }
-  const line = `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
-  const output = toolResultOutput(event.result);
+  const result = toolResultSummary(event.result);
+  const line = result.exitCode
+    ? `${red("×")} ${bold("Tool")} ${dim("·")} ${label} exited ${result.exitCode} in ${duration}`
+    : `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
+  const output = result.output;
   return output ? `${line}\n${dim(detailLine(output))}` : line;
 }
 
@@ -286,10 +289,18 @@ function toolErrorDetail(result) {
   return clipSingleLine(payload.error, 120);
 }
 
-function toolResultOutput(result) {
+function toolResultSummary(result) {
   const payload = parseJsonObject(result);
   const data = payload.data && typeof payload.data === "object" ? payload.data : {};
-  return clipSingleLine(data.stdout || data.stderr, 120);
+  return {
+    exitCode: nonZeroExitCode(data.exit_code),
+    output: clipSingleLine(data.stdout || data.stderr, 120),
+  };
+}
+
+function nonZeroExitCode(value) {
+  const code = Number(value);
+  return Number.isInteger(code) && code !== 0 ? code : 0;
 }
 
 function progressMessage(payload) {

@@ -312,7 +312,7 @@ test("toolResultLine renders compact success state", () => {
       tool_name: "bash",
       status: "completed",
       duration_ms: 1250,
-      result: JSON.stringify({ ok: true, data: { stdout: "hello\nworld", stderr: "" } }),
+      result: JSON.stringify({ ok: true, data: { stdout: "hello\nworld", stderr: "", exit_code: 0 } }),
     }),
     "✓ Tool · Ran command in 1.25s\n  ↳ hello world",
   );
@@ -332,6 +332,15 @@ test("toolResultLine renders compact success state", () => {
       result: JSON.stringify({ ok: true, data: { stdout: "", stderr: "warning" } }),
     }),
     "✓ Tool · Ran command in 25ms\n  ↳ warning",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 25,
+      result: JSON.stringify({ ok: true, data: { stdout: "", stderr: "not found", exit_code: 1 } }),
+    }),
+    "× Tool · command exited 1 in 25ms\n  ↳ not found",
   );
 });
 
