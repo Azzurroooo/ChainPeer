@@ -380,9 +380,9 @@ test("tokenStatsLine renders compact context status", () => {
 test("turnCompletedLine renders duration and tool summary", () => {
   assert.equal(
     turnCompletedLine({ duration_ms: 2000 }, { completed: 2, failed: 1 }),
-    "✓ Status · Done in 2.00s · 2 tools, 1 failed",
+    "─ Worked for 2.00s · 2 tools, 1 failed",
   );
-  assert.equal(turnCompletedLine({ duration_ms: 0 }), "✓ Status · Done in 0ms");
+  assert.equal(turnCompletedLine({ duration_ms: 0 }), "─ Worked for 0ms");
 });
 
 test("status helpers render question, skill, and errors", () => {

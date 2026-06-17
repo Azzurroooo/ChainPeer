@@ -90,8 +90,8 @@ export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
   const duration = formatDuration(event.duration_ms);
   const summary = toolSummary(tools);
   return summary
-    ? `${green("✓")} ${bold("Status")} ${dim("·")} Done in ${duration} · ${summary}`
-    : `${green("✓")} ${bold("Status")} ${dim("·")} Done in ${duration}`;
+    ? `${green("─")} ${bold("Worked for")} ${duration} ${dim(`· ${summary}`)}`
+    : `${green("─")} ${bold("Worked for")} ${duration}`;
 }
 
 export function interruptText() {
