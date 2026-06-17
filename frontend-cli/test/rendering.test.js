@@ -247,6 +247,30 @@ test("slashMenuText renders selectable command menu", () => {
   );
 });
 
+test("slashMenuText keeps the selected command visible", () => {
+  const commands = Array.from({ length: 10 }, (_, index) => ({
+    name: `cmd${index}`,
+    description: `Command ${index}`,
+  }));
+
+  assert.equal(
+    slashMenuText(commands, 9),
+    [
+      "  Command deck",
+      "  · /cmd2          Command 2",
+      "  · /cmd3          Command 3",
+      "  · /cmd4          Command 4",
+      "  · /cmd5          Command 5",
+      "  · /cmd6          Command 6",
+      "  · /cmd7          Command 7",
+      "  · /cmd8          Command 8",
+      "  › /cmd9          Command 9",
+      "    ↑↓ select · enter run · esc close · backspace edit",
+      "",
+    ].join("\n"),
+  );
+});
+
 test("unknownCommandText points to shortcuts help", () => {
   assert.equal(unknownCommandText(), "• Status · Unknown command\n  ↳ type ? for shortcuts");
 });
