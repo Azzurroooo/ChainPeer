@@ -201,7 +201,7 @@ test("helpText renders compact shortcuts and commands", () => {
       "  enter        send message         /              open commands",
       "  ↑ / ↓        history              ← / →          move cursor",
       "  home / end   line edges           del / backspace edit text",
-      "  ctrl + c     interrupt or quit    ?              show shortcuts",
+      "  ctrl+c       interrupt or quit    ?              show shortcuts",
       "",
       "• Command deck",
       "  /status  /sessions  /skill  /init  /plan  /compact",
@@ -413,7 +413,7 @@ test("status helpers render question, skill, and errors", () => {
       "  › 1. A recommended",
       "    2. B",
       "",
-      "  enter number or custom answer · ctrl + c to interrupt",
+      "  enter number or custom answer · ctrl+c to interrupt",
     ].join("\n"),
   );
   assert.equal(
@@ -423,7 +423,7 @@ test("status helpers render question, skill, and errors", () => {
       "",
       "  Explain",
       "",
-      "  enter to submit answer · ctrl + c to interrupt",
+      "  enter to submit answer · ctrl+c to interrupt",
     ].join("\n"),
   );
   assert.match(questionText({ question: "q".repeat(120) }), /\n  q{73}\.\.\.\n/);

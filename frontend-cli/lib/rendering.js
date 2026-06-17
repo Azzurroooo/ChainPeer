@@ -35,7 +35,7 @@ export function helpText() {
     helpRow("enter", "send message", "/", "open commands"),
     helpRow("↑ / ↓", "history", "← / →", "move cursor"),
     helpRow("home / end", "line edges", "del / backspace", "edit text"),
-    helpRow("ctrl + c", "interrupt or quit", "?", "show shortcuts"),
+    helpRow("ctrl+c", "interrupt or quit", "?", "show shortcuts"),
     "",
     `${accent("•")} Command deck`,
     dim("  /status  /sessions  /skill  /init  /plan  /compact"),
@@ -457,8 +457,8 @@ function questionOptionLine(option, index, recommended) {
 
 function questionFooter(options) {
   return options.length
-    ? "  enter number or custom answer · ctrl + c to interrupt"
-    : "  enter to submit answer · ctrl + c to interrupt";
+    ? "  enter number or custom answer · ctrl+c to interrupt"
+    : "  enter to submit answer · ctrl+c to interrupt";
 }
 
 function helpRow(leftKey, leftText, rightKey, rightText) {
