@@ -83,7 +83,7 @@ export function turnStartText() {
 }
 
 export function queuedInputText() {
-  return `${accent("•")} ${bold("Status")} ${dim("·")} Queued follow-up input`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Queued follow-up\n${dim("  ↳ runs after the current turn")}`;
 }
 
 export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
