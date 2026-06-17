@@ -64,7 +64,7 @@ export function slashMenuText(items, selectedIndex = 0) {
   if (!visible.items.length) {
     return "";
   }
-  const lines = [dim("  Command deck")];
+  const lines = [dim(slashMenuTitle(visible))];
   for (const [index, item] of visible.items.entries()) {
     const active = index === visible.activeIndex;
     const marker = active ? accent("›") : dim("·");
@@ -251,7 +251,7 @@ function slashMenuWindow(items, selectedIndex) {
   const entries = Array.isArray(items) ? items : [];
   const total = entries.length;
   if (!total) {
-    return { items: [], activeIndex: 0 };
+    return { items: [], activeIndex: 0, start: 0, total: 0 };
   }
   const limit = 8;
   const selected = Math.max(0, Math.min(total - 1, Number(selectedIndex) || 0));
@@ -259,7 +259,16 @@ function slashMenuWindow(items, selectedIndex) {
   return {
     items: entries.slice(start, start + limit),
     activeIndex: selected - start,
+    start,
+    total,
   };
+}
+
+function slashMenuTitle(visible) {
+  if (visible.total <= visible.items.length) {
+    return "  Command deck";
+  }
+  return `  Command deck ${visible.start + 1}-${visible.start + visible.items.length}/${visible.total}`;
 }
 
 function toolDetailLine(name, detail) {

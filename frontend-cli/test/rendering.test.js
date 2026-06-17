@@ -256,7 +256,7 @@ test("slashMenuText keeps the selected command visible", () => {
   assert.equal(
     slashMenuText(commands, 9),
     [
-      "  Command deck",
+      "  Command deck 3-10/10",
       "  · /cmd2          Command 2",
       "  · /cmd3          Command 3",
       "  · /cmd4          Command 4",
