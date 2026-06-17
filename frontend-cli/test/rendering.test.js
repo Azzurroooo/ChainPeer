@@ -1,0 +1,543 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { AssistantRenderer } from "../lib/assistant-renderer.js";
+import {
+  answerPromptText,
+  answerPlaceholderText,
+  cancelledText,
+  clearInputHintText,
+  commandResultText,
+  contextBuiltLine,
+  errorLine,
+  helpText,
+  assistantHeaderText,
+  inputHintText,
+  interruptText,
+  modelUsageText,
+  outputBlockText,
+  promptText,
+  promptPlaceholderText,
+  questionText,
+  queuedInputText,
+  skillLine,
+  slashMenuText,
+  startupText,
+  toolProgressLine,
+  toolRequestedLine,
+  toolResultLine,
+  toolStartedLine,
+  turnCompletedLine,
+  unknownCommandText,
+  userInputText,
+} from "../lib/rendering.js";
+
+test("startupText includes resume preview when provided", () => {
+  assert.equal(
+    startupText({
+      model: "m1",
+      session_id: "s1",
+      cwd: "E:\\project",
+      resume_preview: "Resumed session s1\n- user: hello\n- assistant: hi",
+    }),
+    [
+      `┌${"─".repeat(78)}┐`,
+      "│ ChainPeer workbench online                                                   │",
+      "│ model m1 · session s1                                                        │",
+      "│ E:\\project                                                                   │",
+      `└${"─".repeat(78)}┘`,
+      "",
+      "• Recent context",
+      "  Resumed session s1",
+      "› You · hello",
+      "• Assistant · hi",
+    ].join("\n"),
+  );
+});
+
+test("startupText clips long resume preview lines", () => {
+  const text = startupText({
+    resume_preview: `user: ${"x".repeat(120)}`,
+  });
+
+  assert.match(text, /› You · x{69}\.\.\./);
+});
+
+test("startupText clips long cwd in the middle", () => {
+  const cwd = `E:\\${"deep\\".repeat(20)}project`;
+  const text = startupText({
+    model: "m1",
+    session_id: "s1",
+    cwd,
+  });
+  const cwdLine = text.split("\n")[3].slice(2, -2).trim();
+
+  assert.ok(cwdLine.length <= 78);
+  assert.ok(cwdLine.startsWith("E:\\deep"));
+  assert.ok(cwdLine.endsWith("\\project"));
+  assert.ok(cwdLine.includes("..."));
+  assert.notEqual(cwdLine, cwd);
+});
+
+test("startupText keeps banner away from terminal edge", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const firstLine = startupText({ model: "m1", session_id: "s1", cwd: "E:\\project" }).split("\n")[0];
+
+    assert.equal(firstLine.length, 78);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
+test("prompt and turn status copy match the compact terminal UI", () => {
+  assert.equal(
+    promptText(),
+    [
+      "",
+      "  ChainPeer workbench",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+      "  ? shortcuts · / commands · enter send · ctrl+c quit",
+    ].join("\n"),
+  );
+  assert.equal(promptPlaceholderText(), "Ask ChainPeer to do anything");
+  assert.equal(answerPromptText(), "\n  › ");
+  assert.equal(answerPlaceholderText(), "Type your answer");
+  assert.equal(inputHintText("Ask ChainPeer to do anything"), "Ask ChainPeer to do anything");
+  assert.equal(clearInputHintText(), "\x1b[K");
+  assert.equal(queuedInputText(), "• Queued follow-up\n  ↳ runs after the current turn");
+  assert.equal(
+    queuedInputText("next question"),
+    "• Queued follow-up\n  ↳ next question\n  ↳ runs after the current turn",
+  );
+  assert.match(queuedInputText(`${"x".repeat(100)}\nsecond line`), /\n  ↳ x{93}\.\.\.\n/);
+  assert.equal(interruptText(), "• Interrupt requested\n  ↳ ctrl+c again to quit");
+  assert.equal(cancelledText(), "• Interrupted\n  ↳ session preserved; resume with -c");
+  assert.equal(userInputText("hello"), "› You\n  hello");
+  assert.equal(userInputText("first\r\nsecond"), "› You\n  first\n  second");
+  assert.equal(userInputText(""), "");
+  assert.equal(assistantHeaderText(), "• Assistant");
+  assert.equal(outputBlockText("• Working"), "• Working\n");
+  assert.equal(outputBlockText("• Working", true), "\n• Working\n");
+  assert.equal(outputBlockText(""), "");
+});
+
+test("promptText includes compact session status when available", () => {
+  assert.equal(
+    promptText({ model: "glm-5.1", cwd: "E:\\code\\agent\\agent_base-ts-cli-process-split" }, {
+      context_usage_percent: 0.125,
+    }),
+    [
+      "",
+      "  ChainPeer workbench",
+      "  glm-5.1 · E:\\code\\agent\\agent_base-ts-cli-process-split",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+      "  ? shortcuts · / commands · enter send · ctrl+c quit           Context 88% left",
+    ].join("\n"),
+  );
+});
+
+test("promptText shows queue hint while a turn is running", () => {
+  assert.equal(
+    promptText({}, {}, { running: true, frame: 1 }),
+    [
+      "",
+      "  ChainPeer workbench",
+      "  ◓ Working ctrl+c interrupt",
+      `  ${"─".repeat(78)}`,
+      "  › ",
+      "  enter queue follow-up · ctrl+c interrupt · ? shortcuts",
+    ].join("\n"),
+  );
+});
+
+test("promptText clips long session status", () => {
+  const text = promptText({
+    model: "glm-5.1-preview-with-a-very-long-name",
+    cwd: `E:\\${"deep\\".repeat(20)}project`,
+  }, {
+    context_usage_percent: 0.25,
+  });
+  const statusLine = text.split("\n")[2];
+
+  assert.ok(statusLine.length <= 80);
+  assert.match(statusLine, /\.\.\.$/);
+});
+
+test("promptText keeps composer away from terminal edge", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const divider = promptText().split("\n")[2];
+
+    assert.equal(divider.length, 78);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
+test("promptText keeps footer status inside composer width", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const footer = promptText({}, { context_usage_percent: 0.2 }).split("\n")[4];
+
+    assert.equal(footer.length, 78);
+    assert.match(footer, /Context 80% left$/);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
+test("promptText keeps the input line separate from the footer", () => {
+  const lines = promptText({}, { context_usage_percent: 0.03 }).split("\n");
+
+  assert.equal(lines.at(-2), "  › ");
+  assert.match(lines.at(-1), /^\s{2}\? shortcuts .*Context 97% left$/);
+});
+
+test("helpText renders compact shortcuts and commands", () => {
+  assert.equal(
+    helpText(),
+    [
+      "• Controls",
+      "  enter        send message         /              open commands",
+      "  ↑ / ↓        history              ← / →          move cursor",
+      "  home / end   line edges           del / backspace edit text",
+      "  ctrl+c       interrupt or quit    ?              show shortcuts",
+      "",
+      "• Command deck",
+      "  /status  /sessions  /skill  /init  /plan  /compact",
+      "  /model set <name>  /draft  /doctor  /config  /login",
+      "  /clear  /exit",
+    ].join("\n"),
+  );
+  assert.equal(
+    helpText([
+      { name: "status" },
+      { name: "help" },
+      { name: "clear" },
+      { name: "exit" },
+      { name: "model" },
+    ]),
+    [
+      "• Controls",
+      "  enter        send message         /              open commands",
+      "  ↑ / ↓        history              ← / →          move cursor",
+      "  home / end   line edges           del / backspace edit text",
+      "  ctrl+c       interrupt or quit    ?              show shortcuts",
+      "",
+      "• Command deck",
+      "  /status         /help           /clear          /exit",
+      "  /model",
+    ].join("\n"),
+  );
+});
+
+test("slashMenuText renders selectable command menu", () => {
+  assert.equal(
+    slashMenuText([
+      { name: "help", description: "Show commands" },
+      { name: "status", description: "Show session status" },
+    ], 1),
+    [
+      "  Command deck",
+      "  · /help          Show commands",
+      "  › /status        Show session status",
+      "    ↑↓ select · enter run · esc close · backspace edit",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("slashMenuText keeps the selected command visible", () => {
+  const commands = Array.from({ length: 10 }, (_, index) => ({
+    name: `cmd${index}`,
+    description: `Command ${index}`,
+  }));
+
+  assert.equal(
+    slashMenuText(commands, 9),
+    [
+      "  Command deck 3-10/10",
+      "  · /cmd2          Command 2",
+      "  · /cmd3          Command 3",
+      "  · /cmd4          Command 4",
+      "  · /cmd5          Command 5",
+      "  · /cmd6          Command 6",
+      "  · /cmd7          Command 7",
+      "  · /cmd8          Command 8",
+      "  › /cmd9          Command 9",
+      "    ↑↓ select · enter run · esc close · backspace edit",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("unknownCommandText points to shortcuts help", () => {
+  assert.equal(unknownCommandText(), "• Unknown command\n  ↳ type / to browse commands or ? for shortcuts");
+});
+
+test("modelUsageText renders concrete model command usage", () => {
+  assert.equal(modelUsageText(), "• Model command\n  ↳ /model set <name>");
+});
+
+test("commandResultText renders a compact success line", () => {
+  assert.equal(commandResultText("Model updated: glm-5.1"), "✓ Model updated: glm-5.1");
+  assert.equal(
+    commandResultText("Compact complete", "id abc123"),
+    "✓ Compact complete\n  ↳ id abc123",
+  );
+  assert.match(
+    commandResultText("x".repeat(120), "y".repeat(120)),
+    /^✓ x{93}\.\.\.\n  ↳ y{93}\.\.\.$/,
+  );
+});
+
+test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
+  assert.equal(contextBuiltLine({ decisions: {} }), "");
+  assert.equal(
+    contextBuiltLine({
+      decisions: {
+        chainpeer_docs_truncated: true,
+        chainpeer_docs_truncated_scopes: ["user", "project"],
+      },
+    }),
+    "• Context trimmed\n  ↳ CHAINPEER.md: user, project",
+  );
+  assert.match(
+    contextBuiltLine({
+      decisions: {
+        chainpeer_docs_truncated: true,
+        chainpeer_docs_truncated_scopes: ["x".repeat(120)],
+      },
+    }),
+    /\n  ↳ CHAINPEER\.md: x{93}\.\.\.$/,
+  );
+});
+
+test("toolRequestedLine shows bash command", () => {
+  assert.equal(
+    toolRequestedLine({
+      tool_name: "bash",
+      args_preview: '{"command":"date"}',
+    }),
+    "• Tool · Running command\n  $ date",
+  );
+});
+
+test("toolRequestedLine clips long details", () => {
+  const line = toolRequestedLine({
+    tool_name: "bash",
+    args_preview: JSON.stringify({ command: `echo ${"x".repeat(140)}` }),
+  });
+
+  assert.equal(line.split("\n")[1].length, "  $ ".length + 96);
+  assert.match(line, /\.\.\.$/);
+});
+
+test("toolRequestedLine shows non-shell details as metadata", () => {
+  assert.equal(
+    toolRequestedLine({
+      tool_name: "read_file",
+      args_preview: '{"path":"frontend-cli/lib/rendering.js"}',
+    }),
+    "• Tool · Calling file read\n  ↳ frontend-cli/lib/rendering.js",
+  );
+});
+
+test("toolStartedLine renders fallback running state", () => {
+  assert.equal(toolStartedLine({ tool_name: "bash" }), "• Tool · Running command");
+  assert.equal(toolStartedLine({ tool_name: "bash_output" }), "• Tool · Reading command output");
+  assert.equal(toolStartedLine({ tool_name: "web_search" }), "• Tool · Calling web search");
+  assert.equal(toolStartedLine({ tool_name: "custom_tool" }), "• Tool · Calling custom tool");
+});
+
+test("toolResultLine renders compact success state", () => {
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 1250,
+      result: JSON.stringify({ ok: true, data: { stdout: "hello\nworld", stderr: "", exit_code: 0 } }),
+    }),
+    "✓ Tool · Ran command in 1.25s\n  ↳ hello world",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "view_image",
+      status: "completed",
+      duration_ms: 20,
+    }),
+    "✓ Tool · Called image in 20ms",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 25,
+      result: JSON.stringify({ ok: true, data: { stdout: "", stderr: "warning" } }),
+    }),
+    "✓ Tool · Ran command in 25ms\n  ↳ warning",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 35,
+      result: JSON.stringify({ ok: true, data: { message: "Background process started: npm run dev" } }),
+    }),
+    "✓ Tool · Ran command in 35ms\n  ↳ Background process started: npm run dev",
+  );
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "completed",
+      duration_ms: 25,
+      result: JSON.stringify({ ok: true, data: { stdout: "", stderr: "not found", exit_code: 1 } }),
+    }),
+    "× Tool · command exited 1 in 25ms\n  ↳ not found",
+  );
+});
+
+test("toolResultLine includes compact failure detail", () => {
+  assert.equal(
+    toolResultLine({
+      tool_name: "bash",
+      status: "failed",
+      error_type: "Timeout",
+      duration_ms: 50,
+      result: '{"ok":false,"error":"command timed out\\ntry again"}',
+    }),
+    "× Tool · command failed in 50ms (Timeout)\n  ↳ command timed out try again",
+  );
+});
+
+test("toolProgressLine renders compact progress messages", () => {
+  assert.equal(
+    toolProgressLine({
+      tool_name: "bash",
+      payload: { message: "waiting\nfor output" },
+    }),
+    "• Tool · command\n  ↳ waiting for output",
+  );
+  assert.equal(toolProgressLine({ tool_name: "bash", payload: { stdout: "ignored" } }), "");
+});
+
+test("turnCompletedLine renders duration and tool summary", () => {
+  assert.equal(
+    turnCompletedLine({ duration_ms: 2000 }, { completed: 2, failed: 1 }),
+    "─ Worked for 2.00s · 2 completed, 1 failed",
+  );
+  assert.equal(turnCompletedLine({ duration_ms: 125000 }), "─ Worked for 2m 05s");
+  assert.equal(turnCompletedLine({ duration_ms: 0 }), "─ Worked for 0ms");
+});
+
+test("status helpers render question, skill, and errors", () => {
+  assert.equal(
+    questionText({ question: "Pick one", options: ["A", "B"], recommended: "A" }),
+    [
+      "• Choice required",
+      "",
+      "  Pick one",
+      "",
+      "  › 1. A · recommended",
+      "    2. B",
+      "",
+      "  enter number or custom answer · ctrl+c to interrupt",
+    ].join("\n"),
+  );
+  assert.equal(
+    questionText({ question: "Explain" }),
+    [
+      "• Choice required",
+      "",
+      "  Explain",
+      "",
+      "  enter to submit answer · ctrl+c to interrupt",
+    ].join("\n"),
+  );
+  assert.match(questionText({ question: "q".repeat(120) }), /\n  q{73}\.\.\.\n/);
+  assert.match(questionText({ question: "Pick", options: ["x".repeat(120)] }), /\n    1\. x{67}\.\.\.\n/);
+  assert.equal(skillLine({ skill_name: "debugging" }), "• Using skill debugging");
+  assert.equal(errorLine("failed"), "× Turn failed\n  ↳ failed");
+  assert.equal(errorLine(""), "× Turn failed");
+});
+
+test("AssistantRenderer removes markdown markers at message boundary", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("现在是 **2026年6月11日**，路径是 `frontend-cli`。");
+  renderer.finish();
+
+  assert.equal(output, "现在是 2026年6月11日，路径是 frontend-cli。\n");
+});
+
+test("AssistantRenderer renders headings and lists without raw markdown prefixes", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("## 标题\n- **重点** 项\n");
+  renderer.finish();
+
+  assert.equal(output, "标题\n• 重点 项\n");
+});
+
+test("AssistantRenderer renders code fences as compact labels", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("```sh\necho hi\n```\n");
+  renderer.finish();
+
+  assert.equal(output, "  ┌ code sh\necho hi\n  └ end\n");
+});
+
+test("AssistantRenderer renders markdown links as readable text", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: false });
+
+  renderer.append("See [docs](https://example.com) and [**guide**](file.md).\n");
+  renderer.finish();
+
+  assert.equal(output, "See docs (https://example.com) and guide (file.md).\n");
+});
+
+test("AssistantRenderer applies ansi styles when color is enabled", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: true });
+
+  renderer.append("**重点** 和 `code`");
+  renderer.finish();
+
+  assert.match(output, /\x1b\[1m重点\x1b\[0m/);
+  assert.match(output, /\x1b\[1mcode\x1b\[0m/);
+});
+
+test("AssistantRenderer keeps markdown structure markers dim", () => {
+  let output = "";
+  const renderer = new AssistantRenderer((text) => {
+    output += text;
+  }, { color: true });
+
+  renderer.append("> quote\n- item\n");
+  renderer.finish();
+
+  assert.match(output, /\x1b\[2m│ \x1b\[0mquote/);
+  assert.match(output, /\x1b\[2m• \x1b\[0mitem/);
+  assert.doesNotMatch(output, /\x1b\[(1;33|32)m/);
+});

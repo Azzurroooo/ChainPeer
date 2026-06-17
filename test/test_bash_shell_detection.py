@@ -126,3 +126,46 @@ def test_bash_runner_returns_clear_error_when_shell_missing(tmp_path):
     assert result.status == "error"
     assert result.error_type == "RuntimeError"
     assert "No supported shell backend" in result.error_msg
+
+
+class _EmptyStream:
+    async def read(self, _size):
+        return b""
+
+
+class _CompletedProcess:
+    stdout = _EmptyStream()
+    stderr = _EmptyStream()
+    returncode = 0
+
+    async def wait(self):
+        return 0
+
+    def kill(self):
+        return None
+
+
+def test_bash_runner_detaches_child_stdin(tmp_path, monkeypatch):
+    calls = []
+
+    async def fake_create_subprocess_exec(*_args, **kwargs):
+        calls.append(kwargs)
+        return _CompletedProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    state = bash_session_pool.ShellState(
+        cwd=str(tmp_path),
+        env={},
+        shell_executable="bash",
+    )
+    runner = BashRunner(timeout=1)
+
+    async def run():
+        await runner.run("echo hello", state)
+        bg = await runner._spawn_background("echo hello", state, "session_1")
+        await asyncio.gather(*bg._tasks, return_exceptions=True)
+
+    asyncio.run(run())
+
+    assert calls
+    assert all(call.get("stdin") is asyncio.subprocess.DEVNULL for call in calls)

@@ -41,7 +41,7 @@ The project takes a restrained position: an agent should not become a large fram
 - Runtime context management with budget estimation, automatic compaction, context-length rescue, and normalized tool outputs.
 - DAG-based planning tool for tracking dependent work items across turns.
 - Built-in tools for shell execution, file operations, web retrieval, PDF handling, planning, and skill discovery.
-- FastAPI session adapter for applications that need to drive the runtime outside the interactive CLI.
+- Headless JSONL runtime server and experimental JS frontend CLI for separating terminal input/rendering from the Python agent loop.
 
 ## Quick Start
 
@@ -112,6 +112,14 @@ Resume a specific session:
 python main.py --session <session-id>
 ```
 
+Experimental JS frontend CLI:
+
+```bash
+node frontend-cli/bin/chainpeer.js
+```
+
+This starts a headless Python runtime over JSONL stdio and keeps terminal input/rendering in Node.js. The existing Python CLI remains available through `python main.py`.
+
 ## CLI Commands
 
 | Command | Description |
@@ -144,7 +152,9 @@ agent/
 │   └── tools/impl/    # Bash, file, web, PDF, plan, and skill tools
 └── interfaces/
     ├── cli/           # Interactive CLI, slash commands, status UI
+    ├── runtime_server/# JSONL stdio adapter for headless runtime use
     └── api/           # FastAPI session streaming adapter
+frontend-cli/          # Experimental Node.js terminal input/rendering process
 ```
 
 Runtime and persistence boundaries are documented in [`docs/runtime-and-persistence.md`](docs/runtime-and-persistence.md).
