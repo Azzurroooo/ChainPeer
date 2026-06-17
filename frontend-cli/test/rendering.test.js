@@ -44,14 +44,14 @@ test("startupText includes resume preview when provided", () => {
     }),
     [
       `┌${"─".repeat(78)}┐`,
-      "│ ChainPeer connected agent workspace                                          │",
+      "│ ChainPeer workbench online                                                   │",
       "│ model m1 · session s1                                                        │",
       "│ E:\\project                                                                   │",
       `└${"─".repeat(78)}┘`,
       "",
       "  Resumed session s1",
-      "› user · hello",
-      "• assistant · hi",
+      "› You · hello",
+      "• Assistant · hi",
     ].join("\n"),
   );
 });
@@ -61,7 +61,7 @@ test("startupText clips long resume preview lines", () => {
     resume_preview: `user: ${"x".repeat(120)}`,
   });
 
-  assert.match(text, /› user · x{69}\.\.\./);
+  assert.match(text, /› You · x{69}\.\.\./);
 });
 
 test("startupText clips long cwd in the middle", () => {
@@ -97,7 +97,7 @@ test("prompt and turn status copy match the compact terminal UI", () => {
     promptText(),
     [
       "",
-      "  ChainPeer input",
+      "  ChainPeer workbench",
       "  ? shortcuts · / commands · enter send · ctrl+c quit",
       `  ${"─".repeat(78)}`,
       "  › ",
@@ -127,7 +127,7 @@ test("promptText includes compact session status when available", () => {
     }),
     [
       "",
-      "  ChainPeer input",
+      "  ChainPeer workbench",
       "  glm-5.1 · E:\\code\\agent\\agent_base-ts-cli-process-split",
       "  ? shortcuts · / commands · enter send · ctrl+c quit           88% context left",
       `  ${"─".repeat(78)}`,
@@ -141,7 +141,7 @@ test("promptText shows queue hint while a turn is running", () => {
     promptText({}, {}, { running: true }),
     [
       "",
-      "  ChainPeer input",
+      "  ChainPeer workbench",
       "  agent running · enter queue · ctrl+c interrupt · ? shortcuts",
       `  ${"─".repeat(78)}`,
       "  › ",
@@ -191,13 +191,13 @@ test("helpText renders compact shortcuts and commands", () => {
   assert.equal(
     helpText(),
     [
-      "• Shortcuts",
+      "• Controls",
       "  enter        send message         /              open commands",
       "  ↑ / ↓        history              ← / →          move cursor",
       "  home / end   line edges           del / backspace edit text",
       "  ctrl + c     interrupt or quit    ?              show shortcuts",
       "",
-      "• Commands",
+      "• Command deck",
       "  /status  /sessions  /skill  /init  /plan  /compact",
       "  /model set <name>  /draft  /doctor  /config  /login",
       "  /clear  /exit",
@@ -212,10 +212,10 @@ test("slashMenuText renders selectable command menu", () => {
       { name: "status", description: "Show session status" },
     ], 1),
     [
-      "  ChainPeer commands",
+      "  Command deck",
       "  · /help          Show commands",
       "  › /status        Show session status",
-      "    enter accept · arrows move · esc close",
+      "    ↑↓ select · enter run · esc close · backspace edit",
       "",
     ].join("\n"),
   );

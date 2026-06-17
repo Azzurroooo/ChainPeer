@@ -17,11 +17,11 @@ export function promptPlaceholderText() {
 
 export function userInputText(text) {
   const body = singleLine(text);
-  return body ? `${cyan("›")} ${bold("You")}\n  ${body}` : "";
+  return body ? `${accent("›")} ${bold("You")}\n  ${body}` : "";
 }
 
 export function assistantHeaderText() {
-  return `${cyan("•")} ${bold("Assistant")}`;
+  return `${accent("•")} ${bold("Assistant")}`;
 }
 
 export function outputBlockText(text, leading = false) {
@@ -31,13 +31,13 @@ export function outputBlockText(text, leading = false) {
 
 export function helpText() {
   return [
-    `${cyan("•")} Shortcuts`,
+    `${accent("•")} Controls`,
     helpRow("enter", "send message", "/", "open commands"),
     helpRow("↑ / ↓", "history", "← / →", "move cursor"),
     helpRow("home / end", "line edges", "del / backspace", "edit text"),
     helpRow("ctrl + c", "interrupt or quit", "?", "show shortcuts"),
     "",
-    `${cyan("•")} Commands`,
+    `${accent("•")} Command deck`,
     dim("  /status  /sessions  /skill  /init  /plan  /compact"),
     dim("  /model set <name>  /draft  /doctor  /config  /login"),
     dim("  /clear  /exit"),
@@ -45,7 +45,7 @@ export function helpText() {
 }
 
 export function answerPromptText() {
-  return `\n  ${cyan("›")} `;
+  return `\n  ${accent("›")} `;
 }
 
 export function answerPlaceholderText() {
@@ -66,24 +66,24 @@ export function slashMenuText(items, selectedIndex = 0) {
   if (!visible.length) {
     return "";
   }
-  const lines = [dim("  ChainPeer commands")];
+  const lines = [dim("  Command deck")];
   for (const [index, item] of visible.entries()) {
     const active = index === selectedIndex;
-    const marker = active ? cyan("›") : dim("·");
+    const marker = active ? accent("›") : dim("·");
     const name = active ? bold(`/${item.name}`) : dim(`/${item.name}`);
     const description = dim(clipSingleLine(item.description, 46));
     lines.push(`  ${marker} ${padRight(name, 14)} ${description}`);
   }
-  lines.push(dim("    enter accept · arrows move · esc close"));
+  lines.push(dim("    ↑↓ select · enter run · esc close · backspace edit"));
   return `${lines.join("\n")}\n`;
 }
 
 export function turnStartText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Working ${dim("(ctrl + c to interrupt)")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Working ${dim("(ctrl + c to interrupt)")}`;
 }
 
 export function queuedInputText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Queued follow-up input`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Queued follow-up input`;
 }
 
 export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
@@ -95,11 +95,11 @@ export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
 }
 
 export function interruptText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Interrupt requested ${dim("(ctrl + c again to quit)")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Interrupt requested ${dim("(ctrl + c again to quit)")}`;
 }
 
 export function cancelledText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Interrupted ${dim("session state preserved; resume with -c")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Interrupted ${dim("session state preserved; resume with -c")}`;
 }
 
 export function commandResultText(text, detail = "") {
@@ -109,7 +109,7 @@ export function commandResultText(text, detail = "") {
 }
 
 export function modelUsageText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Model command\n${dim("  └ /model set <name>")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Model command\n${dim("  └ /model set <name>")}`;
 }
 
 export function contextBuiltLine(event) {
@@ -120,24 +120,24 @@ export function contextBuiltLine(event) {
   const scopes = Array.isArray(decisions.chainpeer_docs_truncated_scopes)
     ? decisions.chainpeer_docs_truncated_scopes.join(", ")
     : "unknown";
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Context trimmed\n${dim(`  └ CHAINPEER.md: ${clipSingleLine(scopes, 96)}`)}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Context trimmed\n${dim(`  └ CHAINPEER.md: ${clipSingleLine(scopes, 96)}`)}`;
 }
 
 export function unknownCommandText() {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Unknown command\n${dim("  └ type ? for shortcuts")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Unknown command\n${dim("  └ type ? for shortcuts")}`;
 }
 
 export function toolRequestedLine(event) {
   const name = event.tool_name || "unknown";
   const detail = toolDetail(name, parseJsonObject(event.args_preview));
   const label = toolLabel(name);
-  const line = `${cyan("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${label}`;
+  const line = `${accent("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${label}`;
   return detail ? `${line}\n${dim(`  └ ${detail}`)}` : line;
 }
 
 export function toolStartedLine(event) {
   const name = event.tool_name || "tool";
-  return `${cyan("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${toolLabel(name)}`;
+  return `${accent("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${toolLabel(name)}`;
 }
 
 export function toolResultLine(event) {
@@ -156,7 +156,7 @@ export function toolResultLine(event) {
 export function toolProgressLine(event) {
   const name = event.tool_name || "tool";
   const message = progressMessage(event.payload);
-  return message ? `${cyan("•")} ${bold("Tool")} ${dim("·")} ${toolLabel(name)}\n${dim(`  └ ${message}`)}` : "";
+  return message ? `${accent("•")} ${bold("Tool")} ${dim("·")} ${toolLabel(name)}\n${dim(`  └ ${message}`)}` : "";
 }
 
 export function tokenStatsLine(event) {
@@ -170,11 +170,11 @@ export function tokenStatsLine(event) {
   if (output) {
     parts.push(`output ${output}`);
   }
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} ${parts.join(" · ")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} ${parts.join(" · ")}`;
 }
 
 export function skillLine(event) {
-  return `${cyan("•")} ${bold("Status")} ${dim("·")} Using skill ${dim(event.skill_name || "unknown")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Using skill ${dim(event.skill_name || "unknown")}`;
 }
 
 export function errorLine(error) {
@@ -187,7 +187,7 @@ export function errorLine(error) {
 export function questionText(event = {}) {
   const options = Array.isArray(event.options) ? event.options : [];
   const lines = [
-    `${cyan("•")} Question ${dim("1/1")}`,
+    `${accent("•")} Question ${dim("1/1")}`,
     `  ${clipSingleLine(event.question || "Input required", 76)}`,
   ];
   for (const [index, option] of options.entries()) {
@@ -368,8 +368,9 @@ function resumePreviewLine(line) {
   const message = line.match(/^-?\s*(user|assistant):\s*(.*)$/i);
   if (message) {
     const role = message[1].toLowerCase();
-    const marker = role === "user" ? cyan("›") : dim("•");
-    return `${marker} ${role} ${dim("·")} ${clipSingleLine(message[2], 72)}`;
+    const marker = role === "user" ? accent("›") : dim("•");
+    const label = role === "user" ? "You" : "Assistant";
+    return `${marker} ${label} ${dim("·")} ${clipSingleLine(message[2], 72)}`;
   }
   return dim(`  ${clipSingleLine(line, 78)}`);
 }
@@ -380,7 +381,7 @@ function startupBannerText(info) {
   const cwd = middleClip(info.cwd || process.cwd(), width - 4);
   return [
     startupBannerBorder("┌", "┐", width),
-    startupBannerLine(`${bold("ChainPeer")} ${dim("connected agent workspace")}`, width),
+    startupBannerLine(`${bold("ChainPeer")} ${dim("workbench online")}`, width),
     startupBannerLine(modelLine, width),
     startupBannerLine(cwd, width),
     startupBannerBorder("└", "┘", width),
@@ -433,12 +434,12 @@ function inputPromptFrame(header = "", footer = "") {
     lines.push(header);
   }
   lines.push(footer, inputDivider());
-  lines.push(`  ${cyan("›")} `);
+  lines.push(`  ${accent("›")} `);
   return lines.join("\n");
 }
 
 function inputPromptTitle() {
-  return `  ${bold("ChainPeer")} ${dim("input")}`;
+  return `  ${bold("ChainPeer")} ${dim("workbench")}`;
 }
 
 function inputDivider() {
@@ -516,8 +517,8 @@ function dim(text) {
   return styled(text, "2");
 }
 
-function cyan(text) {
-  return styled(text, "36");
+function accent(text) {
+  return styled(text, "38;5;208");
 }
 
 function green(text) {
