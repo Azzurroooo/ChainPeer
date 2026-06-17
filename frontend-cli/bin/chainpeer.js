@@ -177,7 +177,7 @@ async function promptLoop() {
 
 async function handleCommand(text) {
   if (text === "?") {
-    logOutput(helpText());
+    logOutput(helpText(slashCommands));
     return true;
   }
   if (!text.startsWith("/")) {

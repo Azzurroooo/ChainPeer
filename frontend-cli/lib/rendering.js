@@ -29,7 +29,7 @@ export function outputBlockText(text, leading = false) {
   return body ? `${leading ? "\n" : ""}${body}\n` : "";
 }
 
-export function helpText() {
+export function helpText(commands = []) {
   return [
     `${accent("•")} Controls`,
     helpRow("enter", "send message", "/", "open commands"),
@@ -38,9 +38,7 @@ export function helpText() {
     helpRow("ctrl+c", "interrupt or quit", "?", "show shortcuts"),
     "",
     `${accent("•")} Command deck`,
-    dim("  /status  /sessions  /skill  /init  /plan  /compact"),
-    dim("  /model set <name>  /draft  /doctor  /config  /login"),
-    dim("  /clear  /exit"),
+    ...commandDeckText(commands),
   ].join("\n");
 }
 
@@ -229,6 +227,24 @@ function toolDetail(name, args) {
     }
   }
   return "";
+}
+
+function commandDeckText(commands) {
+  const items = Array.isArray(commands) ? commands : [];
+  if (!items.length) {
+    return [
+      dim("  /status  /sessions  /skill  /init  /plan  /compact"),
+      dim("  /model set <name>  /draft  /doctor  /config  /login"),
+      dim("  /clear  /exit"),
+    ];
+  }
+  const names = items.map((command) => `/${clipSingleLine(command?.name, 22)}`);
+  const lines = [];
+  for (let index = 0; index < names.length; index += 4) {
+    const row = names.slice(index, index + 4).map((name) => padRight(name, 14)).join("  ").trimEnd();
+    lines.push(dim(`  ${row}`));
+  }
+  return lines;
 }
 
 function toolDetailLine(name, detail) {

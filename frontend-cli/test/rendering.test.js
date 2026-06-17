@@ -209,6 +209,26 @@ test("helpText renders compact shortcuts and commands", () => {
       "  /clear  /exit",
     ].join("\n"),
   );
+  assert.equal(
+    helpText([
+      { name: "status" },
+      { name: "help" },
+      { name: "clear" },
+      { name: "exit" },
+      { name: "model" },
+    ]),
+    [
+      "• Controls",
+      "  enter        send message         /              open commands",
+      "  ↑ / ↓        history              ← / →          move cursor",
+      "  home / end   line edges           del / backspace edit text",
+      "  ctrl+c       interrupt or quit    ?              show shortcuts",
+      "",
+      "• Command deck",
+      "  /status         /help           /clear          /exit",
+      "  /model",
+    ].join("\n"),
+  );
 });
 
 test("slashMenuText renders selectable command menu", () => {
