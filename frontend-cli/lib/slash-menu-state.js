@@ -30,12 +30,6 @@ export function createSlashMenuState(commands) {
         selected = selected >= matches.length - 1 ? 0 : selected + 1;
         return true;
       }
-      if (key.name === "backspace") {
-        text = text.slice(0, -1);
-        selected = 0;
-        dismissed = false;
-        return true;
-      }
       if (chunk && !key.ctrl && !key.meta && String(chunk) >= " ") {
         text += String(chunk);
         selected = 0;

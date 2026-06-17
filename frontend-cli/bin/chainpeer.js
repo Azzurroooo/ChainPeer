@@ -596,16 +596,18 @@ function askTtyPrompt(prompt, placeholder) {
         return;
       }
       const menuOpen = syncMenu().length > 0;
-      if (menuOpen && menuState.handleKey("", key)) {
-        renderPrompt();
-        return;
-      }
-      if (!menuOpen && key.name === "up") {
+      if (menuOpen) {
+        if (key.name === "escape" || key.name === "up" || key.name === "down") {
+          if (menuState.handleKey("", key)) {
+            renderPrompt();
+            return;
+          }
+        }
+      } else if (key.name === "up") {
         editor.setInput(inputHistory.previous(editor.input()));
         renderPrompt();
         return;
-      }
-      if (!menuOpen && key.name === "down") {
+      } else if (key.name === "down") {
         editor.setInput(inputHistory.next(editor.input()));
         renderPrompt();
         return;

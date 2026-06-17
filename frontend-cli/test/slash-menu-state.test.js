@@ -61,6 +61,15 @@ test("slash menu escape dismisses immediately and typing reopens it", () => {
   assert.deepEqual(state.matches().map((command) => command.name), ["status", "sessions"]);
 });
 
+test("slash menu leaves backspace to the editor", () => {
+  const state = createSlashMenuState(commands);
+  state.setInput("/");
+
+  assert.equal(state.handleKey("", { name: "backspace" }), false);
+  assert.equal(state.input(), "/");
+  assert.deepEqual(state.matches().map((command) => command.name), ["status", "sessions", "clear"]);
+});
+
 test("slash menu ignores modified keypresses", () => {
   const state = createSlashMenuState(commands);
   state.setInput("/");

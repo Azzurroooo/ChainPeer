@@ -79,35 +79,37 @@ export function slashMenuText(items, selectedIndex = 0) {
 }
 
 export function turnStartText() {
-  return `${cyan("•")} Working ${dim("(ctrl + c to interrupt)")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Working ${dim("(ctrl + c to interrupt)")}`;
 }
 
 export function queuedInputText() {
-  return `${cyan("•")} Queued follow-up input`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Queued follow-up input`;
 }
 
 export function turnCompletedLine(event, tools = { completed: 0, failed: 0 }) {
   const duration = formatDuration(event.duration_ms);
   const summary = toolSummary(tools);
-  return summary ? `${green("✓")} Done in ${duration} · ${summary}` : `${green("✓")} Done in ${duration}`;
+  return summary
+    ? `${green("✓")} ${bold("Status")} ${dim("·")} Done in ${duration} · ${summary}`
+    : `${green("✓")} ${bold("Status")} ${dim("·")} Done in ${duration}`;
 }
 
 export function interruptText() {
-  return `${cyan("•")} Interrupt requested ${dim("(ctrl + c again to quit)")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Interrupt requested ${dim("(ctrl + c again to quit)")}`;
 }
 
 export function cancelledText() {
-  return `${cyan("•")} Interrupted ${dim("session state preserved; resume with -c")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Interrupted ${dim("session state preserved; resume with -c")}`;
 }
 
 export function commandResultText(text, detail = "") {
-  const line = `${green("✓")} ${clipSingleLine(text, 96)}`;
+  const line = `${green("✓")} ${bold("Status")} ${dim("·")} ${clipSingleLine(text, 96)}`;
   const extra = clipSingleLine(detail, 96);
   return extra ? `${line}\n${dim(`  └ ${extra}`)}` : line;
 }
 
 export function modelUsageText() {
-  return `${cyan("•")} Model command\n${dim("  └ /model set <name>")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Model command\n${dim("  └ /model set <name>")}`;
 }
 
 export function contextBuiltLine(event) {
@@ -118,11 +120,11 @@ export function contextBuiltLine(event) {
   const scopes = Array.isArray(decisions.chainpeer_docs_truncated_scopes)
     ? decisions.chainpeer_docs_truncated_scopes.join(", ")
     : "unknown";
-  return `${cyan("•")} Context trimmed\n${dim(`  └ CHAINPEER.md: ${clipSingleLine(scopes, 96)}`)}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Context trimmed\n${dim(`  └ CHAINPEER.md: ${clipSingleLine(scopes, 96)}`)}`;
 }
 
 export function unknownCommandText() {
-  return `${cyan("•")} Unknown command\n${dim("  └ type ? for shortcuts")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Unknown command\n${dim("  └ type ? for shortcuts")}`;
 }
 
 export function toolRequestedLine(event) {
@@ -168,16 +170,18 @@ export function tokenStatsLine(event) {
   if (output) {
     parts.push(`output ${output}`);
   }
-  return `${cyan("•")} ${parts.join(" · ")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} ${parts.join(" · ")}`;
 }
 
 export function skillLine(event) {
-  return `${cyan("•")} Using skill ${dim(event.skill_name || "unknown")}`;
+  return `${cyan("•")} ${bold("Status")} ${dim("·")} Using skill ${dim(event.skill_name || "unknown")}`;
 }
 
 export function errorLine(error) {
   const detail = clipSingleLine(error, 120);
-  return detail ? `${red("×")} Turn failed\n${dim(`  └ ${detail}`)}` : `${red("×")} Turn failed`;
+  return detail
+    ? `${red("×")} ${bold("Status")} ${dim("·")} Turn failed\n${dim(`  └ ${detail}`)}`
+    : `${red("×")} ${bold("Status")} ${dim("·")} Turn failed`;
 }
 
 export function questionText(event = {}) {
