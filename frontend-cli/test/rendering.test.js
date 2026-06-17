@@ -98,7 +98,7 @@ test("prompt and turn status copy match the compact terminal UI", () => {
     [
       "",
       "  ChainPeer input",
-      "  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit",
+      "  ? shortcuts · / commands · enter send · ctrl+c quit",
       `  ${"─".repeat(78)}`,
       "  › ",
     ].join("\n"),
@@ -128,8 +128,8 @@ test("promptText includes compact session status when available", () => {
     [
       "",
       "  ChainPeer input",
-      "  glm-5.1 · 88% context left · E:\\code\\agent\\agent_base-ts-cli-process-split",
-      "  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit",
+      "  glm-5.1 · E:\\code\\agent\\agent_base-ts-cli-process-split",
+      "  ? shortcuts · / commands · enter send · ctrl+c quit           88% context left",
       `  ${"─".repeat(78)}`,
       "  › ",
     ].join("\n"),
@@ -169,6 +169,19 @@ test("promptText keeps composer away from terminal edge", () => {
     const divider = promptText().split("\n")[3];
 
     assert.equal(divider.length, 78);
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
+test("promptText keeps footer status inside composer width", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 80;
+  try {
+    const footer = promptText({}, { context_usage_percent: 0.2 }).split("\n")[2];
+
+    assert.equal(footer.length, 78);
+    assert.match(footer, /80% context left$/);
   } finally {
     process.stdout.columns = originalColumns;
   }

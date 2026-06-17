@@ -8,7 +8,7 @@ export function startupText(info = {}) {
 }
 
 export function promptText(info = {}, stats = {}, state = {}) {
-  return inputPromptFrame([promptStatusLine(info, stats)], state);
+  return inputPromptFrame(promptHeaderLine(info), promptFooterLine(stats, state));
 }
 
 export function promptPlaceholderText() {
@@ -427,18 +427,12 @@ function helpRow(leftKey, leftText, rightKey, rightText) {
   return dim(`  ${padRight(left, 33)} ${right}`);
 }
 
-function inputFooter(state = {}) {
-  if (state.running) {
-    return dim("  agent running · enter queue · ctrl+c interrupt · ? shortcuts");
-  }
-  return dim("  ? shortcuts · / commands · enter send · ctrl+c interrupt/quit");
-}
-
-function inputPromptFrame(body = [], state = {}) {
+function inputPromptFrame(header = "", footer = "") {
   const lines = ["", inputPromptTitle()];
-  const content = body.filter(Boolean);
-  lines.push(...content);
-  lines.push(inputFooter(state), inputDivider());
+  if (header) {
+    lines.push(header);
+  }
+  lines.push(footer, inputDivider());
   lines.push(`  ${cyan("›")} `);
   return lines.join("\n");
 }
@@ -459,9 +453,21 @@ function visibleLength(text) {
   return String(text).replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
-function promptStatusLine(info, stats) {
-  const parts = [singleLine(info.model), contextLeft(stats), middleClip(info.cwd, 56)].filter(Boolean);
+function promptHeaderLine(info) {
+  const parts = [singleLine(info.model), middleClip(info.cwd, 56)].filter(Boolean);
   return parts.length ? dim(`  ${clipSingleLine(parts.join(" · "), composerWidth())}`) : "";
+}
+
+function promptFooterLine(stats, state = {}) {
+  const parts = state.running
+    ? ["agent running", "enter queue", "ctrl+c interrupt", "? shortcuts"]
+    : ["? shortcuts", "/ commands", "enter send", "ctrl+c quit"];
+  const right = contextLeft(stats);
+  const left = parts.join(" · ");
+  if (!right) {
+    return dim(`  ${clipSingleLine(left, composerWidth())}`);
+  }
+  return dim(`  ${footerColumns(left, right)}`);
 }
 
 function composerWidth() {
@@ -475,6 +481,13 @@ function composerWidth() {
 function contextLeft(stats) {
   const remaining = contextRemaining(stats);
   return remaining.endsWith("left") ? remaining.replace(" left", " context left") : "";
+}
+
+function footerColumns(left, right) {
+  const width = composerWidth();
+  const leftText = clipSingleLine(left, Math.max(0, width - visibleLength(right) - 1));
+  const gap = width - visibleLength(leftText) - visibleLength(right);
+  return `${leftText}${" ".repeat(Math.max(1, gap))}${right}`;
 }
 
 function contextRemaining(stats) {
