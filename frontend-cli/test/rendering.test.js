@@ -44,8 +44,8 @@ test("startupText includes resume preview when provided", () => {
     }),
     [
       `┌${"─".repeat(78)}┐`,
-      "│ ChainPeer agent runtime                                                      │",
-      "│ m1 · session s1                                                              │",
+      "│ ChainPeer connected agent workspace                                          │",
+      "│ model m1 · session s1                                                        │",
       "│ E:\\project                                                                   │",
       `└${"─".repeat(78)}┘`,
       "",

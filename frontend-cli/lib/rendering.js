@@ -376,11 +376,11 @@ function resumePreviewLine(line) {
 
 function startupBannerText(info) {
   const width = startupBannerWidth();
-  const modelLine = `${singleLine(info.model) || "unknown"} · session ${singleLine(info.session_id) || "unknown"}`;
+  const modelLine = `model ${singleLine(info.model) || "unknown"} · session ${singleLine(info.session_id) || "unknown"}`;
   const cwd = middleClip(info.cwd || process.cwd(), width - 4);
   return [
     startupBannerBorder("┌", "┐", width),
-    startupBannerLine(`${bold("ChainPeer")} ${dim("agent runtime")}`, width),
+    startupBannerLine(`${bold("ChainPeer")} ${dim("connected agent workspace")}`, width),
     startupBannerLine(modelLine, width),
     startupBannerLine(cwd, width),
     startupBannerBorder("└", "┘", width),
