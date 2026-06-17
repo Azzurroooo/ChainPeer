@@ -289,7 +289,7 @@ function flushAssistantText(text = "", options = {}) {
     writeAssistantHeader();
     process.stdout.write(output);
     assistantOutputLineOpen = output ? !output.endsWith("\n") : assistantOutputLineOpen;
-  }, { redraw: options.redraw ?? output.endsWith("\n") });
+  }, { redraw: options.redraw !== false });
 }
 
 function writeUserInput(text) {
