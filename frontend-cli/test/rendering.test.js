@@ -222,22 +222,22 @@ test("slashMenuText renders selectable command menu", () => {
 });
 
 test("unknownCommandText points to shortcuts help", () => {
-  assert.equal(unknownCommandText(), "• Status · Unknown command\n  └ type ? for shortcuts");
+  assert.equal(unknownCommandText(), "• Status · Unknown command\n  ↳ type ? for shortcuts");
 });
 
 test("modelUsageText renders concrete model command usage", () => {
-  assert.equal(modelUsageText(), "• Status · Model command\n  └ /model set <name>");
+  assert.equal(modelUsageText(), "• Status · Model command\n  ↳ /model set <name>");
 });
 
 test("commandResultText renders a compact success line", () => {
   assert.equal(commandResultText("Model updated: glm-5.1"), "✓ Status · Model updated: glm-5.1");
   assert.equal(
     commandResultText("Compact complete", "id abc123"),
-    "✓ Status · Compact complete\n  └ id abc123",
+    "✓ Status · Compact complete\n  ↳ id abc123",
   );
   assert.match(
     commandResultText("x".repeat(120), "y".repeat(120)),
-    /^✓ Status · x{93}\.\.\.\n  └ y{93}\.\.\.$/,
+    /^✓ Status · x{93}\.\.\.\n  ↳ y{93}\.\.\.$/,
   );
 });
 
@@ -250,7 +250,7 @@ test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
         chainpeer_docs_truncated_scopes: ["user", "project"],
       },
     }),
-    "• Status · Context trimmed\n  └ CHAINPEER.md: user, project",
+    "• Status · Context trimmed\n  ↳ CHAINPEER.md: user, project",
   );
   assert.match(
     contextBuiltLine({
@@ -259,7 +259,7 @@ test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
         chainpeer_docs_truncated_scopes: ["x".repeat(120)],
       },
     }),
-    /\n  └ CHAINPEER\.md: x{93}\.\.\.$/,
+    /\n  ↳ CHAINPEER\.md: x{93}\.\.\.$/,
   );
 });
 
@@ -328,7 +328,7 @@ test("toolResultLine includes compact failure detail", () => {
       duration_ms: 50,
       result: '{"ok":false,"error":"command timed out\\ntry again"}',
     }),
-    "× Tool · command failed in 50ms (Timeout)\n  └ command timed out try again",
+    "× Tool · command failed in 50ms (Timeout)\n  ↳ command timed out try again",
   );
 });
 
@@ -412,7 +412,7 @@ test("status helpers render question, skill, and errors", () => {
   assert.match(questionText({ question: "q".repeat(120) }), /\n  q{73}\.\.\.\n/);
   assert.match(questionText({ question: "Pick", options: ["x".repeat(120)] }), /\n    1\. x{67}\.\.\.\n/);
   assert.equal(skillLine({ skill_name: "debugging" }), "• Status · Using skill debugging");
-  assert.equal(errorLine("failed"), "× Status · Turn failed\n  └ failed");
+  assert.equal(errorLine("failed"), "× Status · Turn failed\n  ↳ failed");
   assert.equal(errorLine(""), "× Status · Turn failed");
 });
 

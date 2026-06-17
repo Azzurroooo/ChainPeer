@@ -105,11 +105,11 @@ export function cancelledText() {
 export function commandResultText(text, detail = "") {
   const line = `${green("✓")} ${bold("Status")} ${dim("·")} ${clipSingleLine(text, 96)}`;
   const extra = clipSingleLine(detail, 96);
-  return extra ? `${line}\n${dim(`  └ ${extra}`)}` : line;
+  return extra ? `${line}\n${dim(detailLine(extra))}` : line;
 }
 
 export function modelUsageText() {
-  return `${accent("•")} ${bold("Status")} ${dim("·")} Model command\n${dim("  └ /model set <name>")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Model command\n${dim(detailLine("/model set <name>"))}`;
 }
 
 export function contextBuiltLine(event) {
@@ -120,11 +120,11 @@ export function contextBuiltLine(event) {
   const scopes = Array.isArray(decisions.chainpeer_docs_truncated_scopes)
     ? decisions.chainpeer_docs_truncated_scopes.join(", ")
     : "unknown";
-  return `${accent("•")} ${bold("Status")} ${dim("·")} Context trimmed\n${dim(`  └ CHAINPEER.md: ${clipSingleLine(scopes, 96)}`)}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Context trimmed\n${dim(detailLine(`CHAINPEER.md: ${clipSingleLine(scopes, 96)}`))}`;
 }
 
 export function unknownCommandText() {
-  return `${accent("•")} ${bold("Status")} ${dim("·")} Unknown command\n${dim("  └ type ? for shortcuts")}`;
+  return `${accent("•")} ${bold("Status")} ${dim("·")} Unknown command\n${dim(detailLine("type ? for shortcuts"))}`;
 }
 
 export function toolRequestedLine(event) {
@@ -148,7 +148,7 @@ export function toolResultLine(event) {
     const suffix = event.error_type ? ` (${event.error_type})` : "";
     const detail = toolErrorDetail(event.result);
     const line = `${red("×")} ${bold("Tool")} ${dim("·")} ${label} failed in ${duration}${suffix}`;
-    return detail ? `${line}\n${dim(`  └ ${detail}`)}` : line;
+    return detail ? `${line}\n${dim(detailLine(detail))}` : line;
   }
   return `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
 }
@@ -180,7 +180,7 @@ export function skillLine(event) {
 export function errorLine(error) {
   const detail = clipSingleLine(error, 120);
   return detail
-    ? `${red("×")} ${bold("Status")} ${dim("·")} Turn failed\n${dim(`  └ ${detail}`)}`
+    ? `${red("×")} ${bold("Status")} ${dim("·")} Turn failed\n${dim(detailLine(detail))}`
     : `${red("×")} ${bold("Status")} ${dim("·")} Turn failed`;
 }
 
@@ -221,6 +221,10 @@ function toolDetail(name, args) {
 
 function toolDetailLine(name, detail) {
   return name === "bash" ? `  $ ${detail}` : `  ↳ ${detail}`;
+}
+
+function detailLine(text) {
+  return `  ↳ ${text}`;
 }
 
 function toolLabel(name) {
