@@ -212,10 +212,10 @@ test("slashMenuText renders selectable command menu", () => {
       { name: "status", description: "Show session status" },
     ], 1),
     [
-      "  / commands",
-      "  │   /help          Show commands",
-      "  │ › /status        Show session status",
-      "  └ enter accept · ↑/↓ choose · esc close",
+      "  ChainPeer commands",
+      "  · /help          Show commands",
+      "  › /status        Show session status",
+      "    enter accept · arrows move · esc close",
       "",
     ].join("\n"),
   );

@@ -66,15 +66,15 @@ export function slashMenuText(items, selectedIndex = 0) {
   if (!visible.length) {
     return "";
   }
-  const lines = [dim("  / commands")];
+  const lines = [dim("  ChainPeer commands")];
   for (const [index, item] of visible.entries()) {
     const active = index === selectedIndex;
-    const marker = active ? cyan("›") : dim(" ");
-    const name = active ? bold(`/${item.name}`) : `/${item.name}`;
+    const marker = active ? cyan("›") : dim("·");
+    const name = active ? bold(`/${item.name}`) : dim(`/${item.name}`);
     const description = dim(clipSingleLine(item.description, 46));
-    lines.push(`${dim("  │")} ${marker} ${padRight(name, 14)} ${description}`);
+    lines.push(`  ${marker} ${padRight(name, 14)} ${description}`);
   }
-  lines.push(dim("  └ enter accept · ↑/↓ choose · esc close"));
+  lines.push(dim("    enter accept · arrows move · esc close"));
   return `${lines.join("\n")}\n`;
 }
 
