@@ -267,6 +267,7 @@ function request(method, params = {}) {
 }
 
 function logOutput(text) {
+  flushAssistantText(assistantStreamBuffer.flush());
   withSuspendedPrompt(() => {
     closeOpenAssistantOutputLine();
     process.stdout.write(outputBlockText(text, outputStarted));
