@@ -382,6 +382,7 @@ test("turnCompletedLine renders duration and tool summary", () => {
     turnCompletedLine({ duration_ms: 2000 }, { completed: 2, failed: 1 }),
     "─ Worked for 2.00s · 2 tools, 1 failed",
   );
+  assert.equal(turnCompletedLine({ duration_ms: 125000 }), "─ Worked for 2m 05s");
   assert.equal(turnCompletedLine({ duration_ms: 0 }), "─ Worked for 0ms");
 });
 

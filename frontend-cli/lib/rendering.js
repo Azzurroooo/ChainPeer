@@ -321,6 +321,12 @@ function formatDuration(durationMs) {
   if (value < 1000) {
     return `${Math.trunc(value)}ms`;
   }
+  if (value >= 60000) {
+    const totalSeconds = Math.round(value / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return `${minutes}m ${seconds}s`;
+  }
   return `${(value / 1000).toFixed(2)}s`;
 }
 
