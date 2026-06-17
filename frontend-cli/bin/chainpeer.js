@@ -299,6 +299,7 @@ function writeUserInput(text) {
 }
 
 function writeErrorOutput(text) {
+  flushAssistantText(assistantStreamBuffer.flush());
   withSuspendedPrompt(() => process.stderr.write(String(text || "")));
 }
 
