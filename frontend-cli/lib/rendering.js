@@ -11,6 +11,14 @@ export function promptText(info = {}, stats = {}, state = {}) {
   return inputPromptFrame(promptHeaderLine(info), promptFooterLine(stats, state), state);
 }
 
+export function promptActivityLine(state = {}) {
+  if (!state.running) {
+    return "";
+  }
+  const elapsed = formatActivityDuration(state.elapsedMs);
+  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
+}
+
 export function promptPlaceholderText() {
   return "Ask ChainPeer to do anything";
 }
@@ -518,7 +526,7 @@ function helpRow(leftKey, leftText, rightKey, rightText) {
 
 function inputPromptFrame(header = "", footer = "", state = {}) {
   const lines = [""];
-  const activity = activityLine(state);
+  const activity = promptActivityLine(state);
   if (activity) {
     lines.push(activity);
   }
@@ -540,14 +548,6 @@ function inputPromptTitle() {
 
 function inputDivider() {
   return dim(`  ${"─".repeat(composerWidth())}`);
-}
-
-function activityLine(state = {}) {
-  if (!state.running) {
-    return "";
-  }
-  const elapsed = formatActivityDuration(state.elapsedMs);
-  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
 }
 
 function activityFrame(frame) {
