@@ -77,6 +77,7 @@ let assistantHeaderShown = false;
 let outputStarted = false;
 let activityFrame = 0;
 let activityTimer = null;
+let activityStartedAt = 0;
 const promptResumeWaiters = [];
 const assistantStreamBuffer = createAssistantStreamBuffer();
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
@@ -225,7 +226,12 @@ function submitTurn(text, extra = {}) {
 }
 
 function inputState() {
-  return { running: activeTurn || queuedTurns > 0, frame: activityFrame };
+  const running = activeTurn || queuedTurns > 0;
+  return {
+    running,
+    frame: activityFrame,
+    elapsedMs: running ? Date.now() - activityStartedAt : 0,
+  };
 }
 
 function mainPromptText() {
@@ -239,12 +245,15 @@ function refreshInputState() {
 
 function redrawInput() {
   if (inputActive && process.stdout.isTTY && !runtimeClosing && redrawActiveInput) {
-    redrawActiveInput();
+    withTerminalCursorHidden(() => redrawActiveInput());
   }
 }
 
 function updateActivityTimer() {
   if (activeTurn || queuedTurns > 0) {
+    if (!activityStartedAt) {
+      activityStartedAt = Date.now();
+    }
     if (activityTimer) {
       return;
     }
@@ -265,6 +274,7 @@ function clearActivityTimer() {
   clearInterval(activityTimer);
   activityTimer = null;
   activityFrame = 0;
+  activityStartedAt = 0;
 }
 
 async function runQueuedTurn(text, extra = {}) {
@@ -347,15 +357,28 @@ function writeErrorOutput(text) {
 function withSuspendedPrompt(action, options = {}) {
   const shouldRedraw =
     inputActive && process.stdout.isTTY && !runtimeClosing && suspendActiveInput && redrawActiveInput;
-  if (shouldRedraw) {
-    suspendActiveInput();
+  if (!shouldRedraw) {
+    action();
+    return;
   }
+  withTerminalCursorHidden(() => {
+    suspendActiveInput();
+    try {
+      action();
+    } finally {
+      if (options.redraw !== false) {
+        redrawActiveInput();
+      }
+    }
+  });
+}
+
+function withTerminalCursorHidden(action) {
+  process.stdout.write("\x1b[?25l");
   try {
     action();
   } finally {
-    if (shouldRedraw && options.redraw !== false) {
-      redrawActiveInput();
-    }
+    process.stdout.write("\x1b[?25h");
   }
 }
 

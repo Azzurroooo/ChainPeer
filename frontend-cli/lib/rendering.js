@@ -388,6 +388,17 @@ function formatDuration(durationMs) {
   return `${(value / 1000).toFixed(2)}s`;
 }
 
+function formatActivityDuration(durationMs) {
+  const value = Math.max(0, Number(durationMs || 0));
+  if (!Number.isFinite(value) || value < 60000) {
+    return `${Math.floor(value / 1000)}s`;
+  }
+  const totalSeconds = Math.floor(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}m ${seconds}s`;
+}
+
 function toolSummary(tools) {
   const completed = Number(tools.completed || 0);
   const failed = Number(tools.failed || 0);
@@ -506,13 +517,14 @@ function helpRow(leftKey, leftText, rightKey, rightText) {
 }
 
 function inputPromptFrame(header = "", footer = "", state = {}) {
-  const lines = ["", inputPromptTitle()];
-  if (header) {
-    lines.push(header);
-  }
+  const lines = [""];
   const activity = activityLine(state);
   if (activity) {
     lines.push(activity);
+  }
+  lines.push(inputPromptTitle());
+  if (header) {
+    lines.push(header);
   }
   lines.push(inputDivider());
   lines.push("  › ");
@@ -534,7 +546,8 @@ function activityLine(state = {}) {
   if (!state.running) {
     return "";
   }
-  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim("ctrl+c interrupt")}`;
+  const elapsed = formatActivityDuration(state.elapsedMs);
+  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
 }
 
 function activityFrame(frame) {

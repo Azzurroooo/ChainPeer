@@ -142,11 +142,11 @@ test("promptText includes compact session status when available", () => {
 
 test("promptText shows queue hint while a turn is running", () => {
   assert.equal(
-    promptText({}, {}, { running: true, frame: 1 }),
+    promptText({}, {}, { running: true, frame: 1, elapsedMs: 1250 }),
     [
       "",
+      "  ◓ Working (1s) ctrl+c interrupt",
       "  ChainPeer workbench",
-      "  ◓ Working ctrl+c interrupt",
       `  ${"─".repeat(78)}`,
       "  › ",
       "  enter queue follow-up · ctrl+c interrupt · ? shortcuts",
