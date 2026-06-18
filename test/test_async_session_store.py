@@ -319,6 +319,19 @@ async def test_get_messages_slice_recovers_missing_tool_message_from_record(temp
 
 
 @pytest.mark.asyncio
+async def test_get_messages_slice_skips_interrupted_tool_call(temp_session_dir):
+    store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
+    await store.initialize()
+    await store.persist_message(
+        "assistant", "", meta={"tool_calls": [{"id": "call_1", "name": "bash"}]}
+    )
+
+    messages = await store.get_messages_slice()
+
+    assert messages == [{"role": "system", "content": "sys"}]
+
+
+@pytest.mark.asyncio
 async def test_get_messages_slice_matches_numeric_tool_ids_as_strings(temp_session_dir):
     store = AsyncJsonlSessionStore(session_dir=temp_session_dir, system_prompt="sys")
     await store.initialize()

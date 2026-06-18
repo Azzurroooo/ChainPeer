@@ -44,8 +44,9 @@ def project_messages(
             continue
         if role == "assistant" and _has_tool_calls_meta(message):
             tool_calls = _build_assistant_tool_calls(message["meta"]["tool_calls"], tool_map)
-            built_messages.append({"role": "assistant", "tool_calls": tool_calls})
-            built_messages.extend(_missing_tool_messages(tool_calls, tool_map, emitted_tool_call_ids))
+            if tool_calls:
+                built_messages.append({"role": "assistant", "tool_calls": tool_calls})
+                built_messages.extend(_missing_tool_messages(tool_calls, tool_map, emitted_tool_call_ids))
             if message.get("content"):
                 built_messages.append({"role": "assistant", "content": message.get("content")})
             continue
@@ -162,11 +163,9 @@ def _build_assistant_tool_calls(
         if not tc_id:
             raise ValueError("Invalid tool call message: missing tool call id.")
         tc_record = tool_map.get(tc_id)
-        if not isinstance(tc_record, dict):
-            raise ValueError(f"Invalid tool call message: missing tool record for {tc_id}.")
-        raw_args = tc_record.get("raw_args") or ""
+        raw_args = tc_record.get("raw_args") if isinstance(tc_record, dict) else ""
         if not raw_args:
-            raise ValueError(f"Invalid tool call record: missing raw_args for {tc_id}.")
+            continue
         tool_calls.append(
             {"id": tc_id, "type": "function", "function": {"name": tc_name, "arguments": raw_args}}
         )
