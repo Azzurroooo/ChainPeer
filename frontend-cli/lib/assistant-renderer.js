@@ -52,7 +52,11 @@ export class AssistantRenderer {
       this.renderCodeFence(line, newline);
       return;
     }
-    if (this.inCodeBlock || isPlainLine(line)) {
+    if (this.inCodeBlock) {
+      this.writeStyled(styled(line, this.color, "codeBlock"), newline);
+      return;
+    }
+    if (isPlainLine(line)) {
       this.writePlain(line, newline);
       return;
     }
@@ -65,7 +69,7 @@ export class AssistantRenderer {
       return;
     }
     const rendered = cells.map((cell, index) =>
-      renderInline(cell, this.color, index === 0 ? "boldCyan" : "")
+      renderInline(cell, this.color, index === 0 ? "tableHeader" : "")
     );
     this.writeStyled(rendered.join(dim(" | ", this.color)), newline);
   }
@@ -91,7 +95,7 @@ export class AssistantRenderer {
 function renderMarkdownishLine(line, color) {
   const heading = line.match(/^(#{1,6})\s+(.+?)\s*$/);
   if (heading) {
-    return renderInline(heading[2], color, "bold");
+    return renderInline(heading[2], color, "heading");
   }
 
   const quote = line.match(/^(\s*)>\s?(.*)$/);
@@ -109,19 +113,29 @@ function renderMarkdownishLine(line, color) {
 }
 
 function renderInline(text, color, baseStyle = "") {
-  return String(text || "").replace(INLINE_TOKEN_RE, (token) => {
-    const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    if (link) {
-      return `${renderInline(link[1], color, baseStyle)} ${dim(`(${link[2]})`, color)}`;
-    }
-    if (token.startsWith("`") && token.endsWith("`")) {
-      return styled(token.slice(1, -1), color, "bold");
-    }
-    if (token.startsWith("**") && token.endsWith("**")) {
-      return styled(token.slice(2, -2), color, baseStyle ? `${baseStyle}Bold` : "bold");
-    }
-    return token;
-  });
+  const source = String(text || "");
+  let output = "";
+  let index = 0;
+  for (const match of source.matchAll(INLINE_TOKEN_RE)) {
+    output += styled(source.slice(index, match.index), color, baseStyle);
+    output += renderInlineToken(match[0], color, baseStyle);
+    index = match.index + match[0].length;
+  }
+  return output + styled(source.slice(index), color, baseStyle);
+}
+
+function renderInlineToken(token, color, baseStyle) {
+  const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+  if (link) {
+    return `${renderInline(link[1], color, baseStyle)} ${dim(`(${link[2]})`, color)}`;
+  }
+  if (token.startsWith("`") && token.endsWith("`")) {
+    return styled(token.slice(1, -1), color, "inlineCode");
+  }
+  if (token.startsWith("**") && token.endsWith("**")) {
+    return styled(token.slice(2, -2), color, baseStyle || "emphasis");
+  }
+  return token;
 }
 
 function isPlainLine(line) {
@@ -156,15 +170,17 @@ function codeOpenLabel(label) {
 }
 
 function styled(text, color, style) {
-  if (!color || !style) {
+  if (!text || !color || !style) {
     return text;
   }
   const codes = {
-    bold: "1",
-    boldCyan: "1;36",
-    boldBold: "1",
+    codeBlock: "38;5;110",
+    emphasis: "1;38;5;229",
+    heading: "1;38;5;81",
+    inlineCode: "38;5;214",
+    tableHeader: "1;38;5;81",
   };
-  const code = codes[style] || codes.bold;
+  const code = codes[style] || codes.emphasis;
   return `\x1b[${code}m${text}\x1b[0m`;
 }
 

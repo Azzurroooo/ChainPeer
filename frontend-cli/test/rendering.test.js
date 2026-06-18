@@ -521,11 +521,13 @@ test("AssistantRenderer applies ansi styles when color is enabled", () => {
     output += text;
   }, { color: true });
 
-  renderer.append("**重点** 和 `code`");
+  renderer.append("## 标题\n**重点** 和 `code`\n```js\nconst x = 1;\n```\n");
   renderer.finish();
 
-  assert.match(output, /\x1b\[1m重点\x1b\[0m/);
-  assert.match(output, /\x1b\[1mcode\x1b\[0m/);
+  assert.match(output, /\x1b\[1;38;5;81m标题\x1b\[0m/);
+  assert.match(output, /\x1b\[1;38;5;229m重点\x1b\[0m/);
+  assert.match(output, /\x1b\[38;5;214mcode\x1b\[0m/);
+  assert.match(output, /\x1b\[38;5;110mconst x = 1;\x1b\[0m/);
 });
 
 test("AssistantRenderer keeps markdown structure markers dim", () => {

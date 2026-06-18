@@ -644,9 +644,9 @@ function accent(text) {
 }
 
 function green(text) {
-  return styled(text, "32");
+  return styled(text, "38;5;70");
 }
 
 function red(text) {
-  return styled(text, "31");
+  return styled(text, "38;5;203");
 }
