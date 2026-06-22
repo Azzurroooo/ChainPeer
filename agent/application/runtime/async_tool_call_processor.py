@@ -12,6 +12,7 @@ from typing import AsyncIterator, Any
 from agent.application.ports.async_session_store import AsyncSessionStore
 from agent.domain import ParsedToolCall, looks_like_tool_payload, parse_tool_args, tool_error, tool_ok
 from agent.domain.events import (
+    FileChangeEvent,
     RuntimeEvent,
     ToolCallStartedEvent,
     ToolResultEvent,
@@ -128,6 +129,16 @@ class AsyncToolCallProcessor:
                 )
 
             duration_ms = int((time.perf_counter() - started_at) * 1000)
+            file_change_event = self._build_file_change_event(
+                session=session,
+                turn_id=turn_id,
+                call=call,
+                parsed_args=parsed_args,
+                status=outcome.status,
+                result=outcome.result,
+            )
+            if file_change_event is not None:
+                yield file_change_event
             yield ToolResultEvent(
                 **event_meta(session, turn_id),
                 tool_call_id=call.call_id,
@@ -377,3 +388,51 @@ class AsyncToolCallProcessor:
         if count <= 3:
             return 120000
         return 300000
+
+    def _build_file_change_event(
+        self,
+        *,
+        session: AsyncSessionStore,
+        turn_id: str,
+        call: ParsedToolCall,
+        parsed_args: dict,
+        status: str,
+        result: str,
+    ) -> FileChangeEvent | None:
+        if status != "completed":
+            return None
+        try:
+            payload = json.loads(result)
+        except Exception:
+            return None
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            return None
+        lines = self._file_change_lines(call.name, parsed_args)
+        if not lines:
+            return None
+        return FileChangeEvent(
+            **event_meta(session, turn_id),
+            tool_call_id=call.call_id,
+            file_path=str(parsed_args.get("file_path") or ""),
+            lines=lines,
+        )
+
+    def _file_change_lines(self, tool_name: str, parsed_args: dict) -> list[dict[str, str]]:
+        if tool_name == "write_file":
+            return [{"kind": "added", "text": line} for line in self._split_change_lines(parsed_args.get("content"))]
+        if tool_name == "edit_file":
+            removed = [
+                {"kind": "removed", "text": line}
+                for line in self._split_change_lines(parsed_args.get("old_str"))
+            ]
+            added = [
+                {"kind": "added", "text": line}
+                for line in self._split_change_lines(parsed_args.get("new_str"))
+            ]
+            return removed + added
+        return []
+
+    def _split_change_lines(self, value: object) -> list[str]:
+        if not isinstance(value, str) or not value:
+            return []
+        return value.splitlines()

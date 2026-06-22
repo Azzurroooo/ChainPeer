@@ -13,7 +13,7 @@ import pytest
 from agent.application.runtime.async_tool_call_processor import AsyncToolCallProcessor
 from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.domain import ParsedToolCall
-from agent.domain.events import ToolCallStartedEvent, ToolResultEvent, UserQuestionRequestedEvent
+from agent.domain.events import FileChangeEvent, ToolCallStartedEvent, ToolResultEvent, UserQuestionRequestedEvent
 from agent.domain.tool_result import ToolExecutionResult
 
 
@@ -39,6 +39,25 @@ class FakeSyncToolExecutor:
     def execute_sync(self, name: str, args: dict, raw_args: str | None = None):
         self.received_args = dict(args)
         return ToolExecutionResult(status="ok", result_str="sync done")
+
+
+class FakeFailingToolExecutor:
+    def is_async_tool(self, name: str) -> bool:
+        return True
+
+    async def execute_async(self, name: str, args: dict, raw_args: str | None = None):
+        return ToolExecutionResult(status="error", error_msg="failed", error_type="ToolFailed")
+
+
+class FakeToolPayloadErrorExecutor:
+    def is_async_tool(self, name: str) -> bool:
+        return True
+
+    async def execute_async(self, name: str, args: dict, raw_args: str | None = None):
+        return ToolExecutionResult(
+            status="ok",
+            result_str='{"ok":false,"tool":"edit_file","error":"old_str not found","error_type":"OldStrNotFound"}',
+        )
 
 
 class FakeEmptyBashOutputExecutor:
@@ -211,6 +230,94 @@ async def test_successful_tool_persists_result_directly() -> None:
         raise AssertionError(f"Expected model_content_format, got: {kwargs}")
     if kwargs.get("artifact_ref") is not None:
         raise AssertionError(f"Expected artifact_ref None, got: {kwargs}")
+
+
+@pytest.mark.asyncio
+async def test_write_file_success_emits_file_change_before_result() -> None:
+    processor = AsyncToolCallProcessor(tool_executor=FakeToolExecutor())
+    session = FakeSession()
+    call = ParsedToolCall(
+        call_id="call_write",
+        name="write_file",
+        raw_args='{"file_path":"demo.txt","content":"one\\n\\ntwo\\n"}',
+    )
+
+    events = [event async for event in processor.execute(session=session, tool_calls=[call], turn_id="turn_file")]
+
+    if [type(event) for event in events] != [ToolCallStartedEvent, FileChangeEvent, ToolResultEvent]:
+        raise AssertionError(f"Expected started/file_change/result events, got: {events}")
+    file_change = events[1]
+    if file_change.tool_call_id != "call_write" or file_change.file_path != "demo.txt":
+        raise AssertionError(f"Expected file change identity from tool args, got: {file_change}")
+    if file_change.lines != [
+        {"kind": "added", "text": "one"},
+        {"kind": "added", "text": ""},
+        {"kind": "added", "text": "two"},
+    ]:
+        raise AssertionError(f"Expected write_file added lines from content, got: {file_change}")
+    if len(session.persisted_tool_calls) != 1 or len(session.persisted_messages) != 1:
+        raise AssertionError("Expected file change event to stay out of persistence")
+
+
+@pytest.mark.asyncio
+async def test_edit_file_success_emits_file_change_lines_from_args() -> None:
+    processor = AsyncToolCallProcessor(tool_executor=FakeToolExecutor())
+    session = FakeSession()
+    call = ParsedToolCall(
+        call_id="call_edit",
+        name="edit_file",
+        raw_args='{"file_path":"demo.txt","old_str":"old\\ntext","new_str":"new\\ntext"}',
+    )
+
+    events = [event async for event in processor.execute(session=session, tool_calls=[call])]
+
+    file_changes = [event for event in events if isinstance(event, FileChangeEvent)]
+    if len(file_changes) != 1:
+        raise AssertionError(f"Expected one file_change event, got: {events}")
+    file_change = file_changes[0]
+    if file_change.lines != [
+        {"kind": "removed", "text": "old"},
+        {"kind": "removed", "text": "text"},
+        {"kind": "added", "text": "new"},
+        {"kind": "added", "text": "text"},
+    ]:
+        raise AssertionError(f"Expected edit_file removed then added lines, got: {file_change}")
+
+
+@pytest.mark.asyncio
+async def test_file_change_is_not_emitted_for_failed_empty_or_non_file_tools() -> None:
+    session = FakeSession()
+    failed_processor = AsyncToolCallProcessor(tool_executor=FakeFailingToolExecutor())
+    failed_call = ParsedToolCall(
+        call_id="call_failed",
+        name="edit_file",
+        raw_args='{"file_path":"demo.txt","old_str":"old","new_str":"new"}',
+    )
+    failed_events = [event async for event in failed_processor.execute(session=session, tool_calls=[failed_call])]
+    if any(isinstance(event, FileChangeEvent) for event in failed_events):
+        raise AssertionError(f"Did not expect file_change for failed edit_file, got: {failed_events}")
+
+    payload_error_processor = AsyncToolCallProcessor(tool_executor=FakeToolPayloadErrorExecutor())
+    payload_error_events = [
+        event async for event in payload_error_processor.execute(session=FakeSession(), tool_calls=[failed_call])
+    ]
+    if any(isinstance(event, FileChangeEvent) for event in payload_error_events):
+        raise AssertionError(f"Did not expect file_change for ok:false tool payload, got: {payload_error_events}")
+
+    processor = AsyncToolCallProcessor(tool_executor=FakeToolExecutor())
+    empty_call = ParsedToolCall(
+        call_id="call_empty",
+        name="write_file",
+        raw_args='{"file_path":"empty.txt","content":""}',
+    )
+    non_file_call = ParsedToolCall(
+        call_id="call_read",
+        name="read_file",
+        raw_args='{"file_path":"demo.txt"}',
+    )
+    events = [event async for event in processor.execute(session=FakeSession(), tool_calls=[empty_call, non_file_call])]
+    if any(isinstance(event, FileChangeEvent) for event in events):
+        raise AssertionError(f"Did not expect file_change for empty write or non-file tool, got: {events}")
 
 
 @pytest.mark.asyncio

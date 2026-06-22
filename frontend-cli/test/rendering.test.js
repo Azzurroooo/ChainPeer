@@ -63,6 +63,16 @@ test("startupText clips long resume preview lines", () => {
   assert.match(text, /› You · x{69}\.\.\./);
 });
 
+test("startupText clips resume preview without splitting keycap emoji", () => {
+  const text = startupText({
+    resume_preview: `user: ${"x".repeat(68)}9️⃣ tail`,
+  });
+
+  assert.match(text, /› You · x{68}\.\.\./);
+  assert.doesNotMatch(text, /9\uFE0F\.\.\./);
+  assert.doesNotMatch(text, /9\u20E3/);
+});
+
 test("startupText clips long cwd in the middle", () => {
   const cwd = `E:\\${"deep\\".repeat(20)}project`;
   const text = startupText({
@@ -142,11 +152,11 @@ test("promptText includes compact session status when available", () => {
 
 test("promptText shows queue hint while a turn is running", () => {
   assert.equal(
-    promptText({}, {}, { running: true, frame: 1 }),
+    promptText({}, {}, { running: true, frame: 1, elapsedMs: 1250 }),
     [
       "",
+      "  ◓ Working (1s) ctrl+c interrupt",
       "  ChainPeer workbench",
-      "  ◓ Working ctrl+c interrupt",
       `  ${"─".repeat(78)}`,
       "  › ",
       "  enter queue follow-up · ctrl+c interrupt · ? shortcuts",
@@ -403,6 +413,90 @@ test("toolResultLine renders compact success state", () => {
   );
 });
 
+test("toolResultLine appends inline file change diff for successful file tools", () => {
+  assert.equal(
+    toolResultLine({
+      tool_name: "edit_file",
+      status: "completed",
+      duration_ms: 35,
+    }, {
+      file_path: "frontend-cli/lib/rendering.js",
+      lines: [
+        { kind: "removed", text: "const oldValue = 1;" },
+        { kind: "added", text: "const newValue = 2;" },
+      ],
+    }),
+    [
+      "✓ Tool · Called file edit in 35ms",
+      "  ↳ frontend-cli/lib/rendering.js",
+      "    - const oldValue = 1;",
+      "    + const newValue = 2;",
+    ].join("\n"),
+  );
+});
+
+test("toolResultLine clips long file change lines", () => {
+  const originalColumns = process.stdout.columns;
+  process.stdout.columns = 40;
+  try {
+    assert.equal(
+      toolResultLine({
+        tool_name: "write_file",
+        status: "completed",
+        duration_ms: 10,
+      }, {
+        file_path: "E:\\deep\\path\\created-file.md",
+        lines: [{ kind: "added", text: "x".repeat(60) }],
+      }),
+      [
+        "✓ Tool · Called write file in 10ms",
+        "  ↳ E:\\deep\\...file.md",
+        `    + ${"x".repeat(31)}...`,
+      ].join("\n"),
+    );
+  } finally {
+    process.stdout.columns = originalColumns;
+  }
+});
+
+test("toolResultLine truncates long file change blocks", () => {
+  const lines = Array.from({ length: 22 }, (_, index) => ({
+    kind: "added",
+    text: `line ${index + 1}`,
+  }));
+
+  const output = toolResultLine({
+    tool_name: "write_file",
+    status: "completed",
+    duration_ms: 10,
+  }, {
+    file_path: "demo.txt",
+    lines,
+  });
+
+  assert.match(output, /\n    \+ line 20\n    … 2 more changed lines$/);
+  assert.doesNotMatch(output, /line 21/);
+});
+
+test("toolResultLine ignores file change details for failed tools", () => {
+  assert.equal(
+    toolResultLine({
+      tool_name: "edit_file",
+      status: "failed",
+      error_type: "OldStrNotFound",
+      duration_ms: 20,
+      result: '{"ok":false,"error":"not found"}',
+    }, {
+      file_path: "demo.txt",
+      lines: [
+        { kind: "removed", text: "old" },
+        { kind: "added", text: "new" },
+      ],
+    }),
+    "× Tool · file edit failed in 20ms (OldStrNotFound)\n  ↳ not found",
+  );
+});
+
 test("toolResultLine includes compact failure detail", () => {
   assert.equal(
     toolResultLine({
@@ -485,10 +579,10 @@ test("AssistantRenderer renders headings and lists without raw markdown prefixes
     output += text;
   }, { color: false });
 
-  renderer.append("## 标题\n- **重点** 项\n");
+  renderer.append("## 🔟 标题\n- **重点** 9️⃣ 项\n");
   renderer.finish();
 
-  assert.equal(output, "标题\n• 重点 项\n");
+  assert.equal(output, "🔟 标题\n• 重点 9️⃣ 项\n");
 });
 
 test("AssistantRenderer renders code fences as compact labels", () => {
@@ -521,11 +615,13 @@ test("AssistantRenderer applies ansi styles when color is enabled", () => {
     output += text;
   }, { color: true });
 
-  renderer.append("**重点** 和 `code`");
+  renderer.append("## 标题\n**重点** 和 `code`\n```js\nconst x = 1;\n```\n");
   renderer.finish();
 
-  assert.match(output, /\x1b\[1m重点\x1b\[0m/);
-  assert.match(output, /\x1b\[1mcode\x1b\[0m/);
+  assert.match(output, /\x1b\[1;38;5;81m标题\x1b\[0m/);
+  assert.match(output, /\x1b\[1;38;5;229m重点\x1b\[0m/);
+  assert.match(output, /\x1b\[38;5;214mcode\x1b\[0m/);
+  assert.match(output, /\x1b\[38;5;110mconst x = 1;\x1b\[0m/);
 });
 
 test("AssistantRenderer keeps markdown structure markers dim", () => {

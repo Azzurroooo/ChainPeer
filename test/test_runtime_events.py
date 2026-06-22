@@ -14,6 +14,7 @@ from agent.domain.events import (
     RuntimeEvent,
     AssistantDeltaEvent,
     ContextBuiltEvent,
+    FileChangeEvent,
     SkillActivatedEvent,
     TokenStatsUpdatedEvent,
     ToolRequestedEvent,
@@ -70,6 +71,11 @@ class TestRuntimeEvents(unittest.TestCase):
             TurnStartedEvent(session_id="session_1", turn_id="turn_1", user_message_chars=5),
             ToolRequestedEvent(tool_call_id="call_1", tool_name="bash", args_preview='{"command":"date"}'),
             ToolResultEvent(tool_call_id="call_1", tool_name="bash", status="failed", error_type="Boom"),
+            FileChangeEvent(
+                tool_call_id="call_file",
+                file_path="demo.txt",
+                lines=[{"kind": "removed", "text": "old"}, {"kind": "added", "text": "new"}],
+            ),
             TokenStatsUpdatedEvent(stats={"input_tokens": 10}),
         ]
 

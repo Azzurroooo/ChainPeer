@@ -1,6 +1,8 @@
+import { graphemes, textWidth } from "./text-width.js";
+
 export function createLineEditor(initialValue = "") {
   let text = String(initialValue || "");
-  let cursor = Array.from(text).length;
+  let cursor = graphemes(text).length;
 
   return {
     input() {
@@ -11,7 +13,7 @@ export function createLineEditor(initialValue = "") {
     },
     setInput(value) {
       text = String(value || "");
-      cursor = Array.from(text).length;
+      cursor = graphemes(text).length;
     },
     handleKey(chunk, key = {}) {
       if (key.name === "left") {
@@ -25,7 +27,7 @@ export function createLineEditor(initialValue = "") {
         return "move";
       }
       if (key.name === "end") {
-        cursor = Array.from(text).length;
+        cursor = graphemes(text).length;
         return "move";
       }
       if (key.name === "backspace") {
@@ -43,7 +45,7 @@ export function createLineEditor(initialValue = "") {
   };
 
   function moveCursor(delta) {
-    const length = Array.from(text).length;
+    const length = graphemes(text).length;
     cursor = Math.max(0, Math.min(length, cursor + delta));
     return "move";
   }
@@ -52,7 +54,7 @@ export function createLineEditor(initialValue = "") {
     if (cursor <= 0) {
       return "edit";
     }
-    const chars = Array.from(text);
+    const chars = graphemes(text);
     chars.splice(cursor - 1, 1);
     cursor -= 1;
     text = chars.join("");
@@ -60,7 +62,7 @@ export function createLineEditor(initialValue = "") {
   }
 
   function removeAtCursor() {
-    const chars = Array.from(text);
+    const chars = graphemes(text);
     if (cursor >= chars.length) {
       return "edit";
     }
@@ -70,8 +72,8 @@ export function createLineEditor(initialValue = "") {
   }
 
   function insertText(value) {
-    const chars = Array.from(text);
-    const inserted = Array.from(value);
+    const chars = graphemes(text);
+    const inserted = graphemes(value);
     chars.splice(cursor, 0, ...inserted);
     cursor += inserted.length;
     text = chars.join("");
@@ -79,15 +81,11 @@ export function createLineEditor(initialValue = "") {
 }
 
 export function trailingCellWidth(text, cursor) {
-  return Array.from(String(text || ""))
+  return graphemes(text)
     .slice(cursor)
-    .reduce((width, char) => width + cellWidth(char), 0);
+    .reduce((width, segment) => width + textWidth(segment), 0);
 }
 
 function isPrintable(chunk, key) {
   return Boolean(chunk && !key.ctrl && !key.meta && String(chunk) >= " ");
-}
-
-function cellWidth(char) {
-  return char.codePointAt(0) > 0xff ? 2 : 1;
 }

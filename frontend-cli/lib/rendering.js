@@ -1,5 +1,8 @@
+import { clipCells, middleClipCells, textWidth } from "./text-width.js";
+
 const MAX_STARTUP_BANNER_WIDTH = 80;
 const MAX_COMPOSER_WIDTH = 78;
+const MAX_FILE_CHANGE_LINES = 20;
 
 export function startupText(info = {}) {
   const header = startupBannerText(info);
@@ -9,6 +12,14 @@ export function startupText(info = {}) {
 
 export function promptText(info = {}, stats = {}, state = {}) {
   return inputPromptFrame(promptHeaderLine(info), promptFooterLine(stats, state), state);
+}
+
+export function promptActivityLine(state = {}) {
+  if (!state.running) {
+    return "";
+  }
+  const elapsed = formatActivityDuration(state.elapsedMs);
+  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
 }
 
 export function promptPlaceholderText() {
@@ -140,7 +151,7 @@ export function toolStartedLine(event) {
   return `${accent("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${toolLabel(name)}`;
 }
 
-export function toolResultLine(event) {
+export function toolResultLine(event, fileChange) {
   const name = event.tool_name || "unknown";
   const label = toolLabel(name);
   const duration = formatDuration(event.duration_ms);
@@ -155,7 +166,9 @@ export function toolResultLine(event) {
     ? `${red("×")} ${bold("Tool")} ${dim("·")} ${label} exited ${result.exitCode} in ${duration}`
     : `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
   const output = result.output;
-  return output ? `${line}\n${dim(detailLine(output))}` : line;
+  return [line, output ? dim(detailLine(output)) : "", fileChangeLine(fileChange)]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function toolProgressLine(event) {
@@ -343,23 +356,60 @@ function progressMessage(payload) {
   return "";
 }
 
+function fileChangeLine(fileChange) {
+  if (!fileChange || typeof fileChange !== "object") {
+    return "";
+  }
+  const changes = Array.isArray(fileChange.lines)
+    ? fileChange.lines.filter((line) => line?.kind === "added" || line?.kind === "removed")
+    : [];
+  if (!changes.length) {
+    return "";
+  }
+  const path = middleClip(fileChange.file_path, fileChangePathWidth());
+  const shown = changes.slice(0, MAX_FILE_CHANGE_LINES);
+  const lines = [`${dim("  ↳")} ${path}`];
+  for (const change of shown) {
+    lines.push(fileChangeDiffLine(change));
+  }
+  const hidden = changes.length - shown.length;
+  if (hidden > 0) {
+    lines.push(dim(`    … ${hidden} more changed lines`));
+  }
+  return lines.join("\n");
+}
+
+function fileChangeDiffLine(change) {
+  const added = change.kind === "added";
+  const marker = added ? "+" : "-";
+  const style = added ? green : red;
+  return `${dim(`    ${marker} `)}${style(clipCells(change.text, fileChangeTextWidth()))}`;
+}
+
+function fileChangePathWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return 48;
+  }
+  return Math.max(18, Math.min(48, columns - 32));
+}
+
+function fileChangeTextWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return 96;
+  }
+  return Math.max(12, Math.min(96, columns - 6));
+}
+
 function clipSingleLine(value, maxLength) {
   const text = singleLine(value);
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+  return clipCells(text, maxLength);
 }
 
 function middleClip(value, maxLength) {
   const text = singleLine(value);
-  if (text.length <= maxLength) {
-    return text;
-  }
-  const keep = Math.max(0, maxLength - 3);
-  const head = Math.ceil(keep / 2);
-  const tail = Math.floor(keep / 2);
-  return `${text.slice(0, head)}...${text.slice(text.length - tail)}`;
+  return middleClipCells(text, maxLength);
 }
 
 function singleLine(value) {
@@ -386,6 +436,17 @@ function formatDuration(durationMs) {
     return `${minutes}m ${seconds}s`;
   }
   return `${(value / 1000).toFixed(2)}s`;
+}
+
+function formatActivityDuration(durationMs) {
+  const value = Math.max(0, Number(durationMs || 0));
+  if (!Number.isFinite(value) || value < 60000) {
+    return `${Math.floor(value / 1000)}s`;
+  }
+  const totalSeconds = Math.floor(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}m ${seconds}s`;
 }
 
 function toolSummary(tools) {
@@ -475,7 +536,7 @@ function startupBannerLine(text, frameWidth) {
   const content =
     visibleLength(clean) <= width
       ? clean
-      : `${clean.slice(0, Math.max(0, width - 3))}...`;
+      : clipCells(clean, width);
   return `${dim("│")} ${padRight(content, width)} ${dim("│")}`;
 }
 
@@ -506,13 +567,14 @@ function helpRow(leftKey, leftText, rightKey, rightText) {
 }
 
 function inputPromptFrame(header = "", footer = "", state = {}) {
-  const lines = ["", inputPromptTitle()];
-  if (header) {
-    lines.push(header);
-  }
-  const activity = activityLine(state);
+  const lines = [""];
+  const activity = promptActivityLine(state);
   if (activity) {
     lines.push(activity);
+  }
+  lines.push(inputPromptTitle());
+  if (header) {
+    lines.push(header);
   }
   lines.push(inputDivider());
   lines.push("  › ");
@@ -530,13 +592,6 @@ function inputDivider() {
   return dim(`  ${"─".repeat(composerWidth())}`);
 }
 
-function activityLine(state = {}) {
-  if (!state.running) {
-    return "";
-  }
-  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim("ctrl+c interrupt")}`;
-}
-
 function activityFrame(frame) {
   const frames = ["◐", "◓", "◑", "◒"];
   const index = Math.abs(Number(frame) || 0) % frames.length;
@@ -548,7 +603,7 @@ function padRight(text, width) {
 }
 
 function visibleLength(text) {
-  return String(text).replace(/\x1b\[[0-9;]*m/g, "").length;
+  return textWidth(text);
 }
 
 function promptHeaderLine(info) {
@@ -631,9 +686,9 @@ function accent(text) {
 }
 
 function green(text) {
-  return styled(text, "32");
+  return styled(text, "38;5;70");
 }
 
 function red(text) {
-  return styled(text, "31");
+  return styled(text, "38;5;203");
 }

@@ -13,6 +13,7 @@ import { createInputHistory } from "../lib/input-history.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
 import { createSlashMenuState } from "../lib/slash-menu-state.js";
+import { graphemes, textWidth } from "../lib/text-width.js";
 import {
   answerPromptText,
   answerPlaceholderText,
@@ -24,6 +25,7 @@ import {
   inputHintText,
   interruptText,
   outputBlockText,
+  promptActivityLine,
   promptPlaceholderText,
   promptText,
   questionText,
@@ -62,6 +64,7 @@ let processExitTimer = null;
 let cancelActiveInput = null;
 const pending = new Map();
 const announcedTools = new Set();
+const pendingFileChanges = new Map();
 let sessionInfo = {};
 let latestStats = {};
 let slashCommands = [];
@@ -71,12 +74,14 @@ let pendingInputPrefill = "";
 let queuedTurns = 0;
 let turnQueue = Promise.resolve();
 let redrawActiveInput = null;
+let redrawActiveActivity = null;
 let suspendActiveInput = null;
 let assistantOutputLineOpen = false;
 let assistantHeaderShown = false;
 let outputStarted = false;
 let activityFrame = 0;
 let activityTimer = null;
+let activityStartedAt = 0;
 const promptResumeWaiters = [];
 const assistantStreamBuffer = createAssistantStreamBuffer();
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
@@ -208,11 +213,14 @@ async function runSlashCommand(text) {
 }
 
 function submitTurn(text, extra = {}) {
-  if (activeTurn || queuedTurns > 0) {
+  const wasRunning = activeTurn || queuedTurns > 0;
+  if (wasRunning) {
     logOutput(queuedInputText(text));
   }
   queuedTurns += 1;
-  refreshInputState();
+  if (!wasRunning) {
+    refreshInputState();
+  }
   const task = turnQueue.then(
     () => runQueuedTurn(text, extra),
     () => runQueuedTurn(text, extra),
@@ -225,7 +233,12 @@ function submitTurn(text, extra = {}) {
 }
 
 function inputState() {
-  return { running: activeTurn || queuedTurns > 0, frame: activityFrame };
+  const running = activeTurn || queuedTurns > 0;
+  return {
+    running,
+    frame: activityFrame,
+    elapsedMs: running ? Date.now() - activityStartedAt : 0,
+  };
 }
 
 function mainPromptText() {
@@ -239,19 +252,24 @@ function refreshInputState() {
 
 function redrawInput() {
   if (inputActive && process.stdout.isTTY && !runtimeClosing && redrawActiveInput) {
-    redrawActiveInput();
+    withTerminalCursorHidden(() => redrawActiveInput());
   }
 }
 
 function updateActivityTimer() {
   if (activeTurn || queuedTurns > 0) {
+    if (!activityStartedAt) {
+      activityStartedAt = Date.now();
+    }
     if (activityTimer) {
       return;
     }
     activityTimer = setInterval(() => {
       activityFrame += 1;
-      redrawInput();
-    }, 180);
+      if (inputActive && process.stdout.isTTY && !runtimeClosing && redrawActiveActivity) {
+        withTerminalCursorHidden(() => redrawActiveActivity());
+      }
+    }, 300);
     activityTimer.unref?.();
     return;
   }
@@ -265,6 +283,7 @@ function clearActivityTimer() {
   clearInterval(activityTimer);
   activityTimer = null;
   activityFrame = 0;
+  activityStartedAt = 0;
 }
 
 async function runQueuedTurn(text, extra = {}) {
@@ -275,7 +294,6 @@ async function runQueuedTurn(text, extra = {}) {
   activeTurn = true;
   assistantHeaderShown = false;
   resetTurnTools();
-  refreshInputState();
   resumeInput();
   try {
     await request("turn.start", { input: text, ...extra });
@@ -347,15 +365,28 @@ function writeErrorOutput(text) {
 function withSuspendedPrompt(action, options = {}) {
   const shouldRedraw =
     inputActive && process.stdout.isTTY && !runtimeClosing && suspendActiveInput && redrawActiveInput;
-  if (shouldRedraw) {
-    suspendActiveInput();
+  if (!shouldRedraw) {
+    action();
+    return;
   }
+  withTerminalCursorHidden(() => {
+    suspendActiveInput();
+    try {
+      action();
+    } finally {
+      if (options.redraw !== false) {
+        redrawActiveInput();
+      }
+    }
+  });
+}
+
+function withTerminalCursorHidden(action) {
+  process.stdout.write("\x1b[?25l");
   try {
     action();
   } finally {
-    if (shouldRedraw && options.redraw !== false) {
-      redrawActiveInput();
-    }
+    process.stdout.write("\x1b[?25h");
   }
 }
 
@@ -441,8 +472,15 @@ async function renderEvent(event) {
       return;
     case "tool_result":
       closeAssistant();
+      const fileChange = pendingFileChanges.get(event.tool_call_id);
+      pendingFileChanges.delete(event.tool_call_id);
       recordToolResult(event);
-      logOutput(toolResultLine(event));
+      logOutput(toolResultLine(event, fileChange));
+      return;
+    case "file_change":
+      if (event.tool_call_id) {
+        pendingFileChanges.set(event.tool_call_id, event);
+      }
       return;
     case "tool_progress": {
       closeAssistant();
@@ -455,7 +493,9 @@ async function renderEvent(event) {
     case "token_stats_updated":
       closeAssistant();
       latestStats = event.stats && typeof event.stats === "object" ? event.stats : {};
-      redrawInput();
+      if (!activeTurn && queuedTurns === 0) {
+        redrawInput();
+      }
       return;
     case "skill_activated":
       closeAssistant();
@@ -492,6 +532,7 @@ function recordToolResult(event) {
 
 function resetTurnTools() {
   turnTools = { completed: 0, failed: 0 };
+  pendingFileChanges.clear();
 }
 
 async function answerQuestion(event) {
@@ -573,6 +614,7 @@ function askTtyLine(prompt) {
     const cleanup = () => {
       inputActive = false;
       redrawActiveInput = null;
+      redrawActiveActivity = null;
       suspendActiveInput = null;
       process.stdin.off("keypress", onKeypress);
       if (cancelActiveInput === onCancel) {
@@ -638,6 +680,7 @@ function askTtyPrompt(prompt, placeholder) {
         cancelActiveInput = null;
       }
       redrawActiveInput = null;
+      redrawActiveActivity = null;
       suspendActiveInput = null;
       resumeInput();
     };
@@ -694,6 +737,7 @@ function askTtyPrompt(prompt, placeholder) {
       }
       renderPrompt();
     };
+    redrawActiveActivity = renderActivityLine;
     suspendActiveInput = clearPromptBlock;
     renderPrompt();
 
@@ -707,6 +751,15 @@ function askTtyPrompt(prompt, placeholder) {
       promptRowsBelow = writeRowsBelow(block.trailing);
       restoreInputCursor(block.prefix);
       rendered = true;
+    }
+
+    function renderActivityLine() {
+      const line = promptActivityLine(inputState());
+      const rowsAbove = promptRowsAbove - 1;
+      if (!rendered || !line || rowsAbove <= 0) {
+        return;
+      }
+      process.stdout.write(`\x1b7\x1b[${rowsAbove}A\r\x1b[K${line}\x1b8`);
     }
 
     function clearPromptBlock() {
@@ -861,17 +914,13 @@ function lineCount(text) {
 }
 
 function cursorCellWidth(text, cursor) {
-  return Array.from(String(text || ""))
+  return graphemes(text)
     .slice(0, cursor)
-    .reduce((width, char) => width + cellWidth(char), 0);
+    .reduce((width, segment) => width + textWidth(segment), 0);
 }
 
 function promptPrefixWidth(text) {
-  return String(text || "").replace(/\x1b\[[0-9;]*m/g, "").length;
-}
-
-function cellWidth(char) {
-  return char.codePointAt(0) > 0xff ? 2 : 1;
+  return textWidth(text);
 }
 
 function handleSigint() {
