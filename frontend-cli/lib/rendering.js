@@ -1,3 +1,5 @@
+import { clipCells, middleClipCells, textWidth } from "./text-width.js";
+
 const MAX_STARTUP_BANNER_WIDTH = 80;
 const MAX_COMPOSER_WIDTH = 78;
 
@@ -353,21 +355,12 @@ function progressMessage(payload) {
 
 function clipSingleLine(value, maxLength) {
   const text = singleLine(value);
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+  return clipCells(text, maxLength);
 }
 
 function middleClip(value, maxLength) {
   const text = singleLine(value);
-  if (text.length <= maxLength) {
-    return text;
-  }
-  const keep = Math.max(0, maxLength - 3);
-  const head = Math.ceil(keep / 2);
-  const tail = Math.floor(keep / 2);
-  return `${text.slice(0, head)}...${text.slice(text.length - tail)}`;
+  return middleClipCells(text, maxLength);
 }
 
 function singleLine(value) {
@@ -494,7 +487,7 @@ function startupBannerLine(text, frameWidth) {
   const content =
     visibleLength(clean) <= width
       ? clean
-      : `${clean.slice(0, Math.max(0, width - 3))}...`;
+      : clipCells(clean, width);
   return `${dim("│")} ${padRight(content, width)} ${dim("│")}`;
 }
 
@@ -561,7 +554,7 @@ function padRight(text, width) {
 }
 
 function visibleLength(text) {
-  return String(text).replace(/\x1b\[[0-9;]*m/g, "").length;
+  return textWidth(text);
 }
 
 function promptHeaderLine(info) {

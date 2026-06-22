@@ -51,3 +51,28 @@ test("line editor reports trailing display width", () => {
 
   assert.equal(trailingCellWidth(editor.input(), editor.cursor()), 3);
 });
+
+test("line editor treats keycap emoji as one cursor cell unit", () => {
+  const editor = createLineEditor("9️⃣abc");
+
+  editor.handleKey("", { name: "home" });
+  editor.handleKey("", { name: "right" });
+
+  assert.equal(editor.cursor(), 1);
+  assert.equal(trailingCellWidth(editor.input(), editor.cursor()), 3);
+
+  editor.handleKey("", { name: "backspace" });
+
+  assert.equal(editor.input(), "abc");
+  assert.equal(editor.cursor(), 0);
+});
+
+test("line editor measures emoji and cjk trailing width", () => {
+  const editor = createLineEditor("🔟你a");
+
+  editor.handleKey("", { name: "home" });
+  editor.handleKey("", { name: "right" });
+
+  assert.equal(editor.cursor(), 1);
+  assert.equal(trailingCellWidth(editor.input(), editor.cursor()), 3);
+});

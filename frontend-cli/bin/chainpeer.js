@@ -13,6 +13,7 @@ import { createInputHistory } from "../lib/input-history.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
 import { createSlashMenuState } from "../lib/slash-menu-state.js";
+import { graphemes, textWidth } from "../lib/text-width.js";
 import {
   answerPromptText,
   answerPlaceholderText,
@@ -904,17 +905,13 @@ function lineCount(text) {
 }
 
 function cursorCellWidth(text, cursor) {
-  return Array.from(String(text || ""))
+  return graphemes(text)
     .slice(0, cursor)
-    .reduce((width, char) => width + cellWidth(char), 0);
+    .reduce((width, segment) => width + textWidth(segment), 0);
 }
 
 function promptPrefixWidth(text) {
-  return String(text || "").replace(/\x1b\[[0-9;]*m/g, "").length;
-}
-
-function cellWidth(char) {
-  return char.codePointAt(0) > 0xff ? 2 : 1;
+  return textWidth(text);
 }
 
 function handleSigint() {

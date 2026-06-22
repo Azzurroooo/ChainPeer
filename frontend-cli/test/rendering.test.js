@@ -63,6 +63,16 @@ test("startupText clips long resume preview lines", () => {
   assert.match(text, /› You · x{69}\.\.\./);
 });
 
+test("startupText clips resume preview without splitting keycap emoji", () => {
+  const text = startupText({
+    resume_preview: `user: ${"x".repeat(68)}9️⃣ tail`,
+  });
+
+  assert.match(text, /› You · x{68}\.\.\./);
+  assert.doesNotMatch(text, /9\uFE0F\.\.\./);
+  assert.doesNotMatch(text, /9\u20E3/);
+});
+
 test("startupText clips long cwd in the middle", () => {
   const cwd = `E:\\${"deep\\".repeat(20)}project`;
   const text = startupText({
@@ -485,10 +495,10 @@ test("AssistantRenderer renders headings and lists without raw markdown prefixes
     output += text;
   }, { color: false });
 
-  renderer.append("## 标题\n- **重点** 项\n");
+  renderer.append("## 🔟 标题\n- **重点** 9️⃣ 项\n");
   renderer.finish();
 
-  assert.equal(output, "标题\n• 重点 项\n");
+  assert.equal(output, "🔟 标题\n• 重点 9️⃣ 项\n");
 });
 
 test("AssistantRenderer renders code fences as compact labels", () => {
