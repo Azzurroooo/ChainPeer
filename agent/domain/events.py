@@ -153,6 +153,15 @@ class ToolResultEvent(RuntimeEvent):
 
 
 @dataclass(slots=True)
+class FileChangeEvent(RuntimeEvent):
+    """Fired when a file-writing tool completes with a displayable change."""
+    type: Literal["file_change"] = "file_change"
+    tool_call_id: str = ""
+    file_path: str = ""
+    lines: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class TokenStatsUpdatedEvent(RuntimeEvent):
     """Fired when provider token usage is available."""
     type: Literal["token_stats_updated"] = "token_stats_updated"

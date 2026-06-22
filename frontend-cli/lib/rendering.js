@@ -2,6 +2,7 @@ import { clipCells, middleClipCells, textWidth } from "./text-width.js";
 
 const MAX_STARTUP_BANNER_WIDTH = 80;
 const MAX_COMPOSER_WIDTH = 78;
+const MAX_FILE_CHANGE_LINES = 20;
 
 export function startupText(info = {}) {
   const header = startupBannerText(info);
@@ -150,7 +151,7 @@ export function toolStartedLine(event) {
   return `${accent("•")} ${bold("Tool")} ${dim("·")} ${toolActiveVerb(name)} ${toolLabel(name)}`;
 }
 
-export function toolResultLine(event) {
+export function toolResultLine(event, fileChange) {
   const name = event.tool_name || "unknown";
   const label = toolLabel(name);
   const duration = formatDuration(event.duration_ms);
@@ -165,7 +166,9 @@ export function toolResultLine(event) {
     ? `${red("×")} ${bold("Tool")} ${dim("·")} ${label} exited ${result.exitCode} in ${duration}`
     : `${green("✓")} ${bold("Tool")} ${dim("·")} ${completedToolText(name, label)} in ${duration}`;
   const output = result.output;
-  return output ? `${line}\n${dim(detailLine(output))}` : line;
+  return [line, output ? dim(detailLine(output)) : "", fileChangeLine(fileChange)]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function toolProgressLine(event) {
@@ -351,6 +354,52 @@ function progressMessage(payload) {
     }
   }
   return "";
+}
+
+function fileChangeLine(fileChange) {
+  if (!fileChange || typeof fileChange !== "object") {
+    return "";
+  }
+  const changes = Array.isArray(fileChange.lines)
+    ? fileChange.lines.filter((line) => line?.kind === "added" || line?.kind === "removed")
+    : [];
+  if (!changes.length) {
+    return "";
+  }
+  const path = middleClip(fileChange.file_path, fileChangePathWidth());
+  const shown = changes.slice(0, MAX_FILE_CHANGE_LINES);
+  const lines = [`${dim("  ↳")} ${path}`];
+  for (const change of shown) {
+    lines.push(fileChangeDiffLine(change));
+  }
+  const hidden = changes.length - shown.length;
+  if (hidden > 0) {
+    lines.push(dim(`    … ${hidden} more changed lines`));
+  }
+  return lines.join("\n");
+}
+
+function fileChangeDiffLine(change) {
+  const added = change.kind === "added";
+  const marker = added ? "+" : "-";
+  const style = added ? green : red;
+  return `${dim(`    ${marker} `)}${style(clipCells(change.text, fileChangeTextWidth()))}`;
+}
+
+function fileChangePathWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return 48;
+  }
+  return Math.max(18, Math.min(48, columns - 32));
+}
+
+function fileChangeTextWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return 96;
+  }
+  return Math.max(12, Math.min(96, columns - 6));
 }
 
 function clipSingleLine(value, maxLength) {

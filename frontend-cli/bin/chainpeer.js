@@ -64,6 +64,7 @@ let processExitTimer = null;
 let cancelActiveInput = null;
 const pending = new Map();
 const announcedTools = new Set();
+const pendingFileChanges = new Map();
 let sessionInfo = {};
 let latestStats = {};
 let slashCommands = [];
@@ -471,8 +472,15 @@ async function renderEvent(event) {
       return;
     case "tool_result":
       closeAssistant();
+      const fileChange = pendingFileChanges.get(event.tool_call_id);
+      pendingFileChanges.delete(event.tool_call_id);
       recordToolResult(event);
-      logOutput(toolResultLine(event));
+      logOutput(toolResultLine(event, fileChange));
+      return;
+    case "file_change":
+      if (event.tool_call_id) {
+        pendingFileChanges.set(event.tool_call_id, event);
+      }
       return;
     case "tool_progress": {
       closeAssistant();
@@ -524,6 +532,7 @@ function recordToolResult(event) {
 
 function resetTurnTools() {
   turnTools = { completed: 0, failed: 0 };
+  pendingFileChanges.clear();
 }
 
 async function answerQuestion(event) {
