@@ -1,3 +1,13 @@
+import os
+import sys
+from datetime import date
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(PROJECT_ROOT)
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import agent.prompts as prompts
 
 
@@ -14,6 +24,18 @@ def test_system_info_omits_start_time(monkeypatch):
 
     assert "Start Time:" not in info
     assert "Start Time:" not in prompts.SYSTEM_PROMPT
+
+
+def test_system_info_includes_current_date_without_time(monkeypatch):
+    monkeypatch.setattr(prompts, "BashSessionPool", lambda: FakeShellPool("bash", "/bin/bash"))
+
+    today = date.today().isoformat()
+    info = prompts.get_system_info()
+
+    assert f"Current Date: {today}" in info
+    assert f"Current Date: {today}" in prompts.SYSTEM_PROMPT
+    assert "Current Time:" not in info
+    assert "Current Time:" not in prompts.SYSTEM_PROMPT
 
 
 def test_system_info_uses_detected_shell_backend(monkeypatch):
@@ -34,6 +56,12 @@ def test_system_prompt_contains_chainpeer_doc_rules():
     assert "Never create, update, delete, or rename any `CHAINPEER.md`" in text
     assert "not automatically updated memory" in text
 
+
+def test_system_prompt_strongly_limits_emojis():
+    text = prompts.SYSTEM_PROMPT
+
+    assert 'Use emojis ONLY if the user explicitly requests them' in text
+    assert 'AVOID using emojis in all communication unless asked' in text
 
 def test_system_prompt_describes_path_roots():
     text = prompts.SYSTEM_PROMPT

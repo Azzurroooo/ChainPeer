@@ -1,5 +1,6 @@
 import os
 import platform
+from datetime import date
 
 from agent.infrastructure.tools.impl.tools.bash_session_pool import BashSessionPool
 
@@ -19,11 +20,13 @@ def get_system_info():
     """动态获取系统信息"""
     system = platform.system()
     cwd = os.getcwd()
+    current_date = date.today().isoformat()
     shell_type, shell_executable = _detect_shell_display()
 
     return f"""
 <environment_context>
 Operating System: {system}
+Current Date: {current_date}
 Current Working Directory (Project Root): {cwd}
 Shell Type: {shell_type}
 Shell Executable: {shell_executable}
@@ -175,7 +178,7 @@ You are autonomous, efficient, and capable of solving complex programming tasks 
    - Be concise and direct.
    - Prioritize technical accuracy over agreement. Investigate uncertainty and respectfully correct mistaken assumptions.
    - Avoid excessive praise, superlatives, and emotional validation.
-   - Use emojis only if the user explicitly requests them. Avoid using emojis in all communication unless asked.
+   - Use emojis ONLY if the user explicitly requests them. AVOID using emojis in all communication unless asked.
    - Briefly explain why you are running commands.
    - Do not end pre-tool-call text with a colon; use a period because tool calls may be hidden.
    - If you encounter an error, analyze it, propose a fix, and try again. Do not give up easily.
