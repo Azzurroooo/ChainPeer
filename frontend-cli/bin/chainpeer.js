@@ -7,29 +7,36 @@ import { fileURLToPath } from "node:url";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import { createAssistantStreamBuffer } from "../lib/assistant-stream-buffer.js";
+import { createCompactContextState } from "../lib/compact-context-state.js";
 import { createLineEditor, trailingCellWidth } from "../lib/line-editor.js";
 import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { createInputHistory } from "../lib/input-history.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
+import { isReadonlySlashCommand } from "../lib/slash-command-mode.js";
+import { createModelMenuState } from "../lib/model-menu-state.js";
 import { createSlashMenuState } from "../lib/slash-menu-state.js";
 import { graphemes, textWidth } from "../lib/text-width.js";
 import {
   answerPromptText,
   answerPlaceholderText,
   cancelledText,
+  commandResultText,
   contextBuiltLine,
   errorLine,
   helpText,
   assistantHeaderText,
   inputHintText,
   interruptText,
+  modelListErrorText,
+  modelMenuText,
   outputBlockText,
   promptActivityLine,
   promptPlaceholderText,
   promptText,
   questionText,
   queuedInputText,
+  slashResultText,
   slashMenuText,
   skillLine,
   startupText,
@@ -55,6 +62,7 @@ const runtimeBootstrap = [
 
 let nextId = 1;
 let activeTurn = false;
+let activeCompact = false;
 let interruptRequested = false;
 let input = null;
 let inputActive = false;
@@ -85,6 +93,7 @@ let activityStartedAt = 0;
 const promptResumeWaiters = [];
 const assistantStreamBuffer = createAssistantStreamBuffer();
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
+const compactContextState = createCompactContextState();
 const inputHistory = createInputHistory();
 let runtimeStdoutBuffer = "";
 
@@ -191,12 +200,32 @@ async function handleCommand(text) {
 }
 
 async function runSlashCommand(text) {
+  if (isBareModelCommand(text) && process.stdin.isTTY) {
+    await runModelSelector();
+    return;
+  }
+  if (isCompactCommand(text) && process.stdin.isTTY) {
+    startCompactCommand();
+    return;
+  }
+  if (isReadonlySlashCommand(text) && process.stdin.isTTY) {
+    startReadonlySlashCommand(text);
+    return;
+  }
   const result = await request("slash.execute", { input: text });
+  await applySlashResult(result);
+}
+
+async function applySlashResult(result) {
   if (result.clear_screen) {
     withSuspendedPrompt(() => console.clear());
   }
-  if (result.text) {
-    logOutput(result.text);
+  const text = slashResultText(result, slashCommands);
+  if (text) {
+    logOutput(text);
+  }
+  if (result.context_usage_reset) {
+    resetContextUsage();
   }
   if (result.input_prefill) {
     pendingInputPrefill = result.input_prefill;
@@ -212,8 +241,89 @@ async function runSlashCommand(text) {
   }
 }
 
+function startReadonlySlashCommand(text) {
+  void runReadonlySlashCommand(text).catch((error) => {
+    if (!runtimeClosing) {
+      writeErrorOutput(`${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  });
+}
+
+async function runReadonlySlashCommand(text) {
+  const result = await request("slash.execute", { input: text });
+  await applySlashResult(result);
+}
+
+function startCompactCommand() {
+  if (activeCompact) {
+    logOutput("Compact is already running.");
+    return;
+  }
+  activeCompact = true;
+  interruptRequested = false;
+  refreshInputState();
+  void runCompactCommand().catch((error) => {
+    if (!runtimeClosing) {
+      writeErrorOutput(`${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  });
+}
+
+async function runCompactCommand() {
+  try {
+    const result = await request("slash.execute", { input: "/compact" });
+    await applySlashResult(result);
+  } finally {
+    activeCompact = false;
+    interruptRequested = false;
+    refreshInputState();
+  }
+}
+
+async function runModelSelector() {
+  let result;
+  try {
+    result = await request("models.list");
+  } catch (error) {
+    logOutput(modelListErrorText(error instanceof Error ? error.message : String(error), sessionInfo.model));
+    return;
+  }
+
+  const currentModel = result?.current_model || sessionInfo.model || result?.default_model || "";
+  const selected = await askModelMenu(result?.models || [], currentModel);
+  if (!selected || runtimeClosing) {
+    return;
+  }
+
+  try {
+    const update = await request("model.set", { model: selected });
+    sessionInfo = { ...sessionInfo, model: update?.model || selected };
+    logOutput(modelSetResultText(update, selected));
+  } catch (error) {
+    logOutput(`Command failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function modelSetResultText(result, model) {
+  const previous = singleLineText(result?.previous_default);
+  const next = singleLineText(result?.new_default || result?.model || model);
+  const lines = ["Model updated."];
+  if (previous) {
+    lines.push(`- previous default: ${previous}`);
+  }
+  if (next) {
+    lines.push(`- new default: ${next}`);
+  }
+  if (result?.active_updated || result?.runtime || result?.session) {
+    lines.push("- active session: updated");
+  } else {
+    lines.push("- active session: unchanged; start a new session to use this model");
+  }
+  return commandResultText(lines[0], lines.slice(1).join(" · "));
+}
+
 function submitTurn(text, extra = {}) {
-  const wasRunning = activeTurn || queuedTurns > 0;
+  const wasRunning = activeTurn || activeCompact || queuedTurns > 0;
   if (wasRunning) {
     logOutput(queuedInputText(text));
   }
@@ -233,9 +343,10 @@ function submitTurn(text, extra = {}) {
 }
 
 function inputState() {
-  const running = activeTurn || queuedTurns > 0;
+  const running = activeTurn || activeCompact || queuedTurns > 0;
   return {
     running,
+    label: activeCompact ? "Compacting" : "Working",
     frame: activityFrame,
     elapsedMs: running ? Date.now() - activityStartedAt : 0,
   };
@@ -250,6 +361,11 @@ function refreshInputState() {
   redrawInput();
 }
 
+function resetContextUsage() {
+  latestStats = { context_usage_percent: 0 };
+  redrawInput();
+}
+
 function redrawInput() {
   if (inputActive && process.stdout.isTTY && !runtimeClosing && redrawActiveInput) {
     withTerminalCursorHidden(() => redrawActiveInput());
@@ -257,7 +373,7 @@ function redrawInput() {
 }
 
 function updateActivityTimer() {
-  if (activeTurn || queuedTurns > 0) {
+  if (activeTurn || activeCompact || queuedTurns > 0) {
     if (!activityStartedAt) {
       activityStartedAt = Date.now();
     }
@@ -449,6 +565,9 @@ async function renderEvent(event) {
       assistantRenderer.append(event.text || "");
       return;
     case "context_built": {
+      if (compactContextState.handleContextBuilt(event)) {
+        resetContextUsage();
+      }
       const line = contextBuiltLine(event);
       if (line) {
         closeAssistant();
@@ -505,14 +624,17 @@ async function renderEvent(event) {
       await answerQuestion(event);
       return;
     case "turn_failed":
+      compactContextState.clear();
       closeAssistant();
       logOutput(errorLine(event.error));
       return;
     case "turn_cancelled":
+      compactContextState.clear();
       closeAssistant();
       logOutput(cancelledText());
       return;
     case "turn_completed":
+      compactContextState.clear();
       closeAssistant();
       logOutput(turnCompletedLine(event, turnTools));
       resetTurnTools();
@@ -817,6 +939,129 @@ function askTtyPrompt(prompt, placeholder) {
   });
 }
 
+function askModelMenu(models, currentModel) {
+  return new Promise((resolve) => {
+    const state = createModelMenuState(models, currentModel);
+    if (!state.items().length) {
+      resolve("");
+      return;
+    }
+    let rendered = false;
+    let promptRowsAbove = 0;
+    let promptRowsBelow = 0;
+    const cleanup = () => {
+      inputActive = false;
+      process.stdin.off("keypress", onKeypress);
+      clearPromptBlock();
+      if (cancelActiveInput === onCancel) {
+        cancelActiveInput = null;
+      }
+      redrawActiveInput = null;
+      redrawActiveActivity = null;
+      suspendActiveInput = null;
+      resumeInput();
+    };
+    const onKeypress = (chunk, key = {}) => {
+      if (isCtrlC(key)) {
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        const model = state.selectedModel()?.name || "";
+        cleanup();
+        if (model) {
+          writeUserInput(`/model set ${model}`);
+        }
+        resolve(model);
+        return;
+      }
+      if (key.name === "escape") {
+        cleanup();
+        resolve("");
+        return;
+      }
+      if (state.handleKey(key)) {
+        renderPrompt();
+      }
+    };
+    const onCancel = () => {
+      cleanup();
+      resolve("");
+    };
+    process.stdin.resume();
+    process.stdin.on("keypress", onKeypress);
+    cancelActiveInput = onCancel;
+    inputActive = true;
+    redrawActiveInput = renderPrompt;
+    redrawActiveActivity = renderActivityLine;
+    suspendActiveInput = clearPromptBlock;
+    renderPrompt();
+
+    function renderPrompt() {
+      const block = splitPromptBlock(mainPromptText());
+      closeOpenAssistantOutputLine();
+      clearPromptBlock();
+      promptRowsAbove = countLineBreaks(block.leading);
+      process.stdout.write(block.leading);
+      writeInputLine(block.prefix);
+      promptRowsBelow = writeRowsBelow(block.trailing);
+      restoreInputCursor(block.prefix);
+      rendered = true;
+    }
+
+    function renderActivityLine() {
+      const line = promptActivityLine(inputState());
+      const rowsAbove = promptRowsAbove - 1;
+      if (!rendered || !line || rowsAbove <= 0) {
+        return;
+      }
+      process.stdout.write(`\x1b7\x1b[${rowsAbove}A\r\x1b[K${line}\x1b8`);
+    }
+
+    function clearPromptBlock() {
+      if (!rendered) {
+        return;
+      }
+      if (promptRowsAbove) {
+        process.stdout.write(`\x1b[${promptRowsAbove}A`);
+      }
+      process.stdout.write("\r\x1b[J");
+      rendered = false;
+      promptRowsBelow = 0;
+    }
+
+    function writeInputLine(prefix) {
+      process.stdout.write("\r\x1b[K");
+      process.stdout.write(`${prefix}/model`);
+    }
+
+    function restoreInputCursor(prefix) {
+      if (promptRowsBelow) {
+        process.stdout.write(`\x1b[${promptRowsBelow}A`);
+      }
+      process.stdout.write("\r");
+      const width = promptPrefixWidth(prefix) + textWidth("/model");
+      if (width) {
+        process.stdout.write(`\x1b[${width}C`);
+      }
+    }
+
+    function writeRowsBelow(trailing) {
+      const menu = modelMenuText(state.items(), state.selectedIndex()).trimEnd();
+      let rows = 0;
+      if (menu) {
+        process.stdout.write(`\r\n${menu}`);
+        rows += lineCount(menu);
+      }
+      const text = String(trailing || "");
+      if (text) {
+        process.stdout.write(`\r\n${text}`);
+        rows += lineCount(text);
+      }
+      return rows;
+    }
+  });
+}
+
 function countLineBreaks(text) {
   return (String(text).match(/\n/g) || []).length;
 }
@@ -846,6 +1091,18 @@ function normalizeSlashCommands(commands) {
 function singleWord(value) {
   const text = String(value || "").trim().toLowerCase();
   return text && !/\s/.test(text) ? text : "";
+}
+
+function isBareModelCommand(value) {
+  return String(value || "").trim().toLowerCase() === "/model";
+}
+
+function isCompactCommand(value) {
+  return String(value || "").trim().toLowerCase() === "/compact";
+}
+
+function singleLineText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function pausePrompt() {
@@ -924,7 +1181,7 @@ function promptPrefixWidth(text) {
 }
 
 function handleSigint() {
-  const action = sigintAction({ activeTurn, interruptRequested, runtimeClosing });
+  const action = sigintAction({ activeTurn: activeTurn || activeCompact, interruptRequested, runtimeClosing });
   if (action === "interrupt") {
     interruptTurn();
   } else {

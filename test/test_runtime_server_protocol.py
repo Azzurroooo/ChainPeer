@@ -10,20 +10,29 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.interfaces.runtime_server.stdio import (
     JsonlWriter,
     StdioRuntimeServer,
     configure_stdio_server_signals,
     configure_utf8_stdio,
 )
+from agent.infrastructure.config import Config
 
 
 class _Runtime:
+    def __init__(self):
+        self.model = None
+
     def set_user_question_responder(self, responder):
         self.responder = responder
 
     async def initialize(self):
         return None
+
+    async def set_model(self, model):
+        self.model = model
+        return {"runtime": True, "session": False}
 
     async def compact_context(self, reason="manual", cancellation_token=None):
         return {
@@ -39,6 +48,26 @@ class _Runtime:
 class _Session:
     session_id = "s1"
     model = "m1"
+
+
+class _Model:
+    def __init__(self, model_id):
+        self.id = model_id
+
+
+class _AsyncModelList:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __aiter__(self):
+        self._iter = iter(self._items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
 
 
 def test_question_response_completes_pending_future():
@@ -101,7 +130,250 @@ def test_slash_execute_reuses_cli_router(capsys):
     result = message["result"]
     assert result["should_exit"] is False
     assert result["clear_screen"] is False
+    assert result["context_usage_reset"] is True
+    assert result["display"] is None
     assert result["text"].startswith("Compact complete.")
+
+
+def test_slash_execute_non_compact_does_not_reset_context_usage(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._execute_slash({"id": 14, "method": "slash.execute", "params": {"input": "/help"}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["context_usage_reset"] is False
+    assert message["result"]["display"]["type"] == "help"
+
+
+def test_readonly_status_slash_responds_without_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session(), debug=True)
+        server._initialized = True
+        handled = await server._handle_control_message(
+            {"id": 15, "method": "slash.execute", "params": {"input": "/status"}}
+        )
+        await asyncio.sleep(0)
+        queued = server._requests.empty()
+        return handled, queued
+
+    handled, queued = asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert handled is True
+    assert queued is True
+    assert message["result"]["text"].startswith("```text\nStatus:")
+    assert "Session: s1" in message["result"]["text"]
+    assert message["result"]["display"]["type"] == "status"
+    assert message["result"]["display"]["session"] == "s1"
+
+
+def test_readonly_doctor_slash_responds_without_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        handled = await server._handle_control_message(
+            {"id": 16, "method": "slash.execute", "params": {"input": "/doctor"}}
+        )
+        await asyncio.sleep(0)
+        return handled, server._requests.empty()
+
+    handled, queued = asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert handled is True
+    assert queued is True
+    assert message["result"]["text"].startswith("Doctor:")
+    assert message["result"]["display"]["type"] == "doctor"
+
+
+def test_readonly_slash_does_not_replace_current_cancel(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        current = CancellationTokenSource()
+        server._current_cancel = current
+        handled = await server._handle_control_message(
+            {"id": 17, "method": "slash.execute", "params": {"input": "/status"}}
+        )
+        await asyncio.sleep(0)
+        same_source = server._current_cancel is current
+        current.dispose()
+        return handled, same_source
+
+    handled, same_source = asyncio.run(run())
+
+    assert handled is True
+    assert same_source is True
+    assert json.loads(capsys.readouterr().out)["result"]["text"].startswith("```text\nStatus:")
+
+
+def test_non_readonly_slash_stays_on_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        message = {"id": 18, "method": "slash.execute", "params": {"input": "/help"}}
+        handled = await server._handle_control_message(message)
+        if not handled:
+            await server._requests.put(message)
+        queued = await server._requests.get()
+        return handled, queued
+
+    handled, queued = asyncio.run(run())
+
+    assert handled is False
+    assert queued["params"]["input"] == "/help"
+    assert capsys.readouterr().out == ""
+
+
+def test_readonly_slash_usage_errors_return_immediately(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        await server._handle_control_message(
+            {"id": 19, "method": "slash.execute", "params": {"input": "/status bad"}}
+        )
+        await server._handle_control_message(
+            {"id": 20, "method": "slash.execute", "params": {"input": "/doctor extra"}}
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    messages = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert messages[0]["result"]["text"] == "Usage: /status"
+    assert messages[1]["result"]["text"] == "Usage: /doctor"
+
+
+def test_slash_execute_exposes_cancellation_token_to_interrupt(capsys):
+    class Runtime(_Runtime):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.received_token = None
+
+        async def compact_context(self, reason="manual", cancellation_token=None):
+            self.received_token = cancellation_token
+            self.started.set()
+            await cancellation_token.wait()
+            raise asyncio.CancelledError(cancellation_token.reason)
+
+    async def run():
+        runtime = Runtime()
+        server = StdioRuntimeServer(runtime, _Session())
+        task = asyncio.create_task(
+            server._execute_slash({"id": 13, "method": "slash.execute", "params": {"input": "/compact"}})
+        )
+        await runtime.started.wait()
+        server._interrupt_current()
+        await task
+        return runtime
+
+    runtime = asyncio.run(run())
+
+    assert runtime.received_token is not None
+    assert runtime.received_token.is_cancelled is True
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["text"] == "Compact cancelled."
+    assert message["result"]["context_usage_reset"] is False
+    assert message["result"]["display"] is None
+
+
+def test_models_list_returns_unique_sorted_models_and_current_marker(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            return _AsyncModelList([_Model("z-model"), _Model("m1"), _Model("a-model"), _Model("z-model")])
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "DEFAULT_MODEL", "default-model")
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._list_models({"id": 9, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    result = message["result"]
+    assert result["current_model"] == "m1"
+    assert result["default_model"] == "default-model"
+    assert result["models"] == ["a-model", "m1", "z-model"]
+
+
+def test_models_list_includes_current_model_when_missing(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            return _AsyncModelList([_Model("a-model"), _Model("b-model")])
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "DEFAULT_MODEL", "default-model")
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._list_models({"id": 10, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["models"] == ["m1", "a-model", "b-model"]
+
+
+def test_models_list_failure_returns_protocol_error(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            raise RuntimeError("models endpoint unavailable")
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._dispatch({"id": 11, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["error"]["type"] == "RuntimeError"
+    assert message["error"]["message"] == "models endpoint unavailable"
+
+
+def test_model_set_updates_settings_runtime_and_session(capsys, tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"model": "old-model", "apiKey": "secret-value"}), encoding="utf-8")
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+    Config.reload()
+
+    class Session(_Session):
+        def __init__(self):
+            self.model = "old-model"
+
+        async def update_model(self, model):
+            self.model = model
+
+    async def run():
+        runtime = _Runtime()
+        session = Session()
+        server = StdioRuntimeServer(runtime, session)
+        await server._set_model({"id": 12, "method": "model.set", "params": {"model": "new-model"}})
+        return runtime, session
+
+    runtime, session = asyncio.run(run())
+    message = json.loads(capsys.readouterr().out)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert message["result"]["runtime"] is True
+    assert message["result"]["session"] is True
+    assert message["result"]["model"] == "new-model"
+    assert runtime.model == "new-model"
+    assert session.model == "new-model"
+    assert data["model"] == "new-model"
+    assert data["apiKey"] == "secret-value"
 
 
 class _TextStream:

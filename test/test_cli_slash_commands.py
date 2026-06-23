@@ -128,6 +128,9 @@ async def test_help_returns_command_list() -> None:
     assert "alias: /quit" in result.text
     assert "Use `/help <command>` for usage." in result.text
     assert result.should_exit is False
+    assert result.display is not None
+    assert result.display["type"] == "help"
+    assert any(command["name"] == "status" for command in result.display["commands"])
 
 
 @pytest.mark.asyncio
@@ -138,6 +141,9 @@ async def test_help_returns_command_specific_usage() -> None:
     assert "Show or change the active model" in result.text
     assert "Usage" in result.text
     assert "  /model | /model set <model>" in result.text
+    assert result.display is not None
+    assert result.display["type"] == "help"
+    assert result.display["command"]["name"] == "model"
 
 
 @pytest.mark.asyncio
@@ -224,6 +230,10 @@ async def test_sessions_lists_recent_sessions_with_current_marker() -> None:
     assert "4 msg, 1 tool" in result.text
     assert "latest answer" in result.text
     assert "python main.py --session <id>" in result.text
+    assert result.display is not None
+    assert result.display["type"] == "sessions"
+    assert result.display["sessions"][0]["current"] is True
+    assert result.display["sessions"][0]["messages"] == 4
 
 
 @pytest.mark.asyncio
@@ -231,6 +241,13 @@ async def test_sessions_reports_no_recent_sessions() -> None:
     result = await SlashCommandRouter().execute("/sessions", _context())
 
     assert result.text == "No recent sessions."
+    assert result.display == {
+        "type": "sessions",
+        "sessions": [],
+        "current_session_id": "session_1",
+        "limit": 8,
+        "resume_command": "python main.py --session <id>",
+    }
 
 
 @pytest.mark.asyncio
@@ -267,6 +284,17 @@ async def test_status_shows_session_model_debug_and_message_count() -> None:
     assert "Model: model_a" in result.text
     assert "Debug: true" in result.text
     assert "Messages: 2" in result.text
+    assert result.display is not None
+    assert result.display["type"] == "status"
+    assert result.display["session"] == "session_1"
+    assert result.display["debug"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_rejects_extra_args() -> None:
+    result = await SlashCommandRouter().execute("/status now", _context())
+
+    assert result.text == "Usage: /status"
 
 
 @pytest.mark.asyncio
@@ -303,6 +331,9 @@ async def test_status_shows_latest_sampling_usage() -> None:
     assert "Last sampling:" in result.text
     assert "input: 121.3k / 258.4k" in result.text
     assert "cached: 98.7k (81.4%)" in result.text
+    assert result.display is not None
+    assert result.display["usage"][0]["label"] == "Last sampling:"
+    assert result.display["usage"][0]["input_tokens"] == 121300
 
 
 @pytest.mark.asyncio
@@ -407,6 +438,9 @@ async def test_config_does_not_leak_api_key(monkeypatch) -> None:
     assert "baseUrl: https://example.com/v1" in result.text
     assert "model: test-model" in result.text
     assert "secret-value" not in result.text
+    assert result.display is not None
+    assert result.display["type"] == "config"
+    assert {"label": "apiKey", "value": "set"} in result.display["entries"]
 
 
 @pytest.mark.asyncio
@@ -436,6 +470,9 @@ async def test_doctor_reports_setup_without_leaking_api_key(monkeypatch, tmp_pat
     assert "Session store:" in result.text
     assert "Context window" not in result.text
     assert "secret-value" not in result.text
+    assert result.display is not None
+    assert result.display["type"] == "doctor"
+    assert any(check["name"] == "API key" for check in result.display["checks"])
 
 
 @pytest.mark.asyncio
@@ -611,6 +648,9 @@ async def test_skill_lists_project_skill(tmp_path, monkeypatch) -> None:
 
     assert "demo [project]" in result.text
     assert "Demo skill" in result.text
+    assert result.display is not None
+    assert result.display["type"] == "skills"
+    assert any(skill["name"] == "demo" for skill in result.display["skills"])
 
 
 @pytest.mark.asyncio

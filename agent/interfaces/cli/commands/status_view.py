@@ -8,30 +8,56 @@ from .router import SlashCommandContext
 
 
 async def render_status(context: SlashCommandContext) -> str:
-    session = context.session
-    message_count = await _message_count(session)
+    display = await build_status_display(context)
+    return render_status_display(display)
+
+
+def render_status_display(display: dict) -> str:
     lines = [
         "```text",
         "Status:",
-        f"Session: {display_value(getattr(session, 'session_id', None))}",
-        f"Model: {display_value(getattr(session, 'model', None))}",
-        f"Debug: {str(bool(context.debug)).lower()}",
-        f"Messages: {message_count}",
+        f"Session: {display['session']}",
+        f"Model: {display['model']}",
+        f"Debug: {str(bool(display['debug'])).lower()}",
+        f"Messages: {display['messages']}",
     ]
-    git_status = _git_status_line()
-    if git_status:
-        lines.append(git_status)
-    assistant_usage = await _latest_assistant_sampling_usage(session)
-    latest_usage = await _latest_sampling_usage(session)
-    if assistant_usage:
-        lines.extend(_usage_lines("Assistant sampling:", assistant_usage))
-        if latest_usage and latest_usage.get("sampling_kind") != "assistant":
-            label = f"Latest request ({latest_usage.get('sampling_kind') or 'unknown'}):"
-            lines.extend(_usage_lines(label, latest_usage))
-    elif latest_usage:
-        lines.extend(_usage_lines("Last sampling:", latest_usage))
+    git_status = display.get("git")
+    if isinstance(git_status, dict):
+        marker = "*" if git_status.get("dirty") else ""
+        lines.append(f"Git: {display_value(git_status.get('branch'))}{marker}")
+    for usage in display.get("usage") or []:
+        if isinstance(usage, dict):
+            lines.extend(_usage_lines(str(usage.get("label") or "Last sampling:"), usage))
     lines.append("```")
     return "\n".join(lines)
+
+
+async def build_status_display(context: SlashCommandContext) -> dict:
+    session = context.session
+    message_count = await _message_count(session)
+    display = {
+        "type": "status",
+        "session": display_value(getattr(session, "session_id", None)),
+        "model": display_value(getattr(session, "model", None)),
+        "debug": bool(context.debug),
+        "messages": message_count,
+    }
+    git_status = _git_status_display()
+    if git_status:
+        display["git"] = git_status
+    assistant_usage = await _latest_assistant_sampling_usage(session)
+    latest_usage = await _latest_sampling_usage(session)
+    usage_items = []
+    if assistant_usage:
+        usage_items.append(_usage_display("Assistant sampling:", assistant_usage))
+        if latest_usage and latest_usage.get("sampling_kind") != "assistant":
+            label = f"Latest request ({latest_usage.get('sampling_kind') or 'unknown'}):"
+            usage_items.append(_usage_display(label, latest_usage))
+    elif latest_usage:
+        usage_items.append(_usage_display("Last sampling:", latest_usage))
+    if usage_items:
+        display["usage"] = usage_items
+    return display
 
 
 async def _message_count(session) -> str:
@@ -44,17 +70,16 @@ async def _message_count(session) -> str:
         return "unknown"
 
 
-def _git_status_line() -> str:
+def _git_status_display() -> dict | None:
     try:
         from agent.interfaces.cli.ui import GitPromptStatusProvider
 
         status = GitPromptStatusProvider(ttl_seconds=0).current()
     except Exception:
-        return ""
+        return None
     if status is None:
-        return ""
-    marker = "*" if status.dirty else ""
-    return f"Git: {status.branch}{marker}"
+        return None
+    return {"branch": display_value(status.branch), "dirty": bool(status.dirty)}
 
 
 async def _latest_sampling_usage(session) -> dict | None:
@@ -94,6 +119,19 @@ def _usage_lines(label: str, usage: dict) -> list[str]:
     ]
 
 
+def _usage_display(label: str, usage: dict) -> dict:
+    return {
+        "label": label,
+        "sampling_kind": str(usage.get("sampling_kind") or ""),
+        "input_tokens": nonnegative_int(usage.get("input_tokens")),
+        "context_window_tokens": nonnegative_int(usage.get("context_window_tokens")),
+        "context_usage_percent": _numeric_percent(usage.get("context_usage_percent")),
+        "cached_input_tokens": nonnegative_int(usage.get("cached_input_tokens")),
+        "cache_hit_rate": _numeric_percent(usage.get("cache_hit_rate")),
+        "output_tokens": nonnegative_int(usage.get("output_tokens")),
+    }
+
+
 def _format_count(value: object) -> str:
     try:
         number = float(value)
@@ -108,3 +146,7 @@ def _format_percent(value: object) -> str:
     if not isinstance(value, int | float):
         return "0.0%"
     return f"{value * 100:.1f}%"
+
+
+def _numeric_percent(value: object) -> float:
+    return float(value) if isinstance(value, int | float) else 0.0
