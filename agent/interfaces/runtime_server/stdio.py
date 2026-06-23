@@ -235,6 +235,7 @@ class StdioRuntimeServer:
         params = request.get("params") if isinstance(request.get("params"), dict) else {}
         raw_input = str(params.get("input") or "")
         cancel_source = CancellationTokenSource()
+        self._current_cancel = cancel_source
         try:
             result = await self._slash_router.execute(
                 raw_input,
@@ -254,9 +255,26 @@ class StdioRuntimeServer:
                     "input_prefill": result.input_prefill,
                     "run_turn_input": result.run_turn_input,
                     "transient_system_messages": result.transient_system_messages,
+                    "context_usage_reset": result.context_usage_reset,
+                },
+            )
+        except asyncio.CancelledError:
+            if not cancel_source.token.is_cancelled:
+                raise
+            await self._respond(
+                request,
+                {
+                    "text": "Compact cancelled.",
+                    "should_exit": False,
+                    "clear_screen": False,
+                    "input_prefill": "",
+                    "run_turn_input": "",
+                    "transient_system_messages": None,
+                    "context_usage_reset": False,
                 },
             )
         finally:
+            self._current_cancel = None
             cancel_source.dispose()
 
     async def _read_stdin(self) -> None:

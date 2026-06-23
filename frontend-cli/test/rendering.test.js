@@ -166,6 +166,13 @@ test("promptText shows queue hint while a turn is running", () => {
   );
 });
 
+test("promptText shows compact activity label while compacting", () => {
+  assert.equal(
+    promptText({}, {}, { running: true, label: "Compacting", frame: 2, elapsedMs: 2500 }).split("\n")[1],
+    "  ◑ Compacting (2s) ctrl+c interrupt",
+  );
+});
+
 test("promptText clips long session status", () => {
   const text = promptText({
     model: "glm-5.1-preview-with-a-very-long-name",
@@ -202,6 +209,12 @@ test("promptText keeps footer status inside composer width", () => {
   } finally {
     process.stdout.columns = originalColumns;
   }
+});
+
+test("promptText shows full context remaining after compact reset", () => {
+  const footer = promptText({}, { context_usage_percent: 0 }).split("\n").at(-1);
+
+  assert.match(footer, /Context 100% left$/);
 });
 
 test("promptText keeps the input line separate from the footer", () => {

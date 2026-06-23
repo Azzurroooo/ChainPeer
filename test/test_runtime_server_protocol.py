@@ -129,7 +129,52 @@ def test_slash_execute_reuses_cli_router(capsys):
     result = message["result"]
     assert result["should_exit"] is False
     assert result["clear_screen"] is False
+    assert result["context_usage_reset"] is True
     assert result["text"].startswith("Compact complete.")
+
+
+def test_slash_execute_non_compact_does_not_reset_context_usage(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._execute_slash({"id": 14, "method": "slash.execute", "params": {"input": "/help"}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["context_usage_reset"] is False
+
+
+def test_slash_execute_exposes_cancellation_token_to_interrupt(capsys):
+    class Runtime(_Runtime):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.received_token = None
+
+        async def compact_context(self, reason="manual", cancellation_token=None):
+            self.received_token = cancellation_token
+            self.started.set()
+            await cancellation_token.wait()
+            raise asyncio.CancelledError(cancellation_token.reason)
+
+    async def run():
+        runtime = Runtime()
+        server = StdioRuntimeServer(runtime, _Session())
+        task = asyncio.create_task(
+            server._execute_slash({"id": 13, "method": "slash.execute", "params": {"input": "/compact"}})
+        )
+        await runtime.started.wait()
+        server._interrupt_current()
+        await task
+        return runtime
+
+    runtime = asyncio.run(run())
+
+    assert runtime.received_token is not None
+    assert runtime.received_token.is_cancelled is True
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["text"] == "Compact cancelled."
+    assert message["result"]["context_usage_reset"] is False
 
 
 def test_models_list_returns_unique_sorted_models_and_current_marker(capsys, monkeypatch):

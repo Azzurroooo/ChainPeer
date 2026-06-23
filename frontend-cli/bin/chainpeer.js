@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { AssistantRenderer } from "../lib/assistant-renderer.js";
 import { createAssistantStreamBuffer } from "../lib/assistant-stream-buffer.js";
+import { createCompactContextState } from "../lib/compact-context-state.js";
 import { createLineEditor, trailingCellWidth } from "../lib/line-editor.js";
 import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { createInputHistory } from "../lib/input-history.js";
@@ -59,6 +60,7 @@ const runtimeBootstrap = [
 
 let nextId = 1;
 let activeTurn = false;
+let activeCompact = false;
 let interruptRequested = false;
 let input = null;
 let inputActive = false;
@@ -89,6 +91,7 @@ let activityStartedAt = 0;
 const promptResumeWaiters = [];
 const assistantStreamBuffer = createAssistantStreamBuffer();
 const assistantRenderer = new AssistantRenderer((text) => writeOutput(text));
+const compactContextState = createCompactContextState();
 const inputHistory = createInputHistory();
 let runtimeStdoutBuffer = "";
 
@@ -199,12 +202,19 @@ async function runSlashCommand(text) {
     await runModelSelector();
     return;
   }
+  if (isCompactCommand(text) && process.stdin.isTTY) {
+    startCompactCommand();
+    return;
+  }
   const result = await request("slash.execute", { input: text });
   if (result.clear_screen) {
     withSuspendedPrompt(() => console.clear());
   }
   if (result.text) {
     logOutput(result.text);
+  }
+  if (result.context_usage_reset) {
+    resetContextUsage();
   }
   if (result.input_prefill) {
     pendingInputPrefill = result.input_prefill;
@@ -217,6 +227,37 @@ async function runSlashCommand(text) {
   if (result.should_exit) {
     await shutdownRuntime();
     process.exit(0);
+  }
+}
+
+function startCompactCommand() {
+  if (activeCompact) {
+    logOutput("Compact is already running.");
+    return;
+  }
+  activeCompact = true;
+  interruptRequested = false;
+  refreshInputState();
+  void runCompactCommand().catch((error) => {
+    if (!runtimeClosing) {
+      writeErrorOutput(`${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  });
+}
+
+async function runCompactCommand() {
+  try {
+    const result = await request("slash.execute", { input: "/compact" });
+    if (result.text) {
+      logOutput(result.text);
+    }
+    if (result.context_usage_reset) {
+      resetContextUsage();
+    }
+  } finally {
+    activeCompact = false;
+    interruptRequested = false;
+    refreshInputState();
   }
 }
 
@@ -263,7 +304,7 @@ function modelSetResultText(result, model) {
 }
 
 function submitTurn(text, extra = {}) {
-  const wasRunning = activeTurn || queuedTurns > 0;
+  const wasRunning = activeTurn || activeCompact || queuedTurns > 0;
   if (wasRunning) {
     logOutput(queuedInputText(text));
   }
@@ -283,9 +324,10 @@ function submitTurn(text, extra = {}) {
 }
 
 function inputState() {
-  const running = activeTurn || queuedTurns > 0;
+  const running = activeTurn || activeCompact || queuedTurns > 0;
   return {
     running,
+    label: activeCompact ? "Compacting" : "Working",
     frame: activityFrame,
     elapsedMs: running ? Date.now() - activityStartedAt : 0,
   };
@@ -300,6 +342,11 @@ function refreshInputState() {
   redrawInput();
 }
 
+function resetContextUsage() {
+  latestStats = { context_usage_percent: 0 };
+  redrawInput();
+}
+
 function redrawInput() {
   if (inputActive && process.stdout.isTTY && !runtimeClosing && redrawActiveInput) {
     withTerminalCursorHidden(() => redrawActiveInput());
@@ -307,7 +354,7 @@ function redrawInput() {
 }
 
 function updateActivityTimer() {
-  if (activeTurn || queuedTurns > 0) {
+  if (activeTurn || activeCompact || queuedTurns > 0) {
     if (!activityStartedAt) {
       activityStartedAt = Date.now();
     }
@@ -499,6 +546,9 @@ async function renderEvent(event) {
       assistantRenderer.append(event.text || "");
       return;
     case "context_built": {
+      if (compactContextState.handleContextBuilt(event)) {
+        resetContextUsage();
+      }
       const line = contextBuiltLine(event);
       if (line) {
         closeAssistant();
@@ -555,14 +605,17 @@ async function renderEvent(event) {
       await answerQuestion(event);
       return;
     case "turn_failed":
+      compactContextState.clear();
       closeAssistant();
       logOutput(errorLine(event.error));
       return;
     case "turn_cancelled":
+      compactContextState.clear();
       closeAssistant();
       logOutput(cancelledText());
       return;
     case "turn_completed":
+      compactContextState.clear();
       closeAssistant();
       logOutput(turnCompletedLine(event, turnTools));
       resetTurnTools();
@@ -1025,6 +1078,10 @@ function isBareModelCommand(value) {
   return String(value || "").trim().toLowerCase() === "/model";
 }
 
+function isCompactCommand(value) {
+  return String(value || "").trim().toLowerCase() === "/compact";
+}
+
 function singleLineText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -1105,7 +1162,7 @@ function promptPrefixWidth(text) {
 }
 
 function handleSigint() {
-  const action = sigintAction({ activeTurn, interruptRequested, runtimeClosing });
+  const action = sigintAction({ activeTurn: activeTurn || activeCompact, interruptRequested, runtimeClosing });
   if (action === "interrupt") {
     interruptTurn();
   } else {

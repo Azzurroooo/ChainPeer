@@ -163,7 +163,7 @@ async def handle_plan(context: SlashCommandContext, args: list[str]) -> str:
     return summary or "No active plan."
 
 
-async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_compact(context: SlashCommandContext, args: list[str]) -> SlashCommandResult | str:
     compact_context = getattr(context.runtime, "compact_context", None)
     if not callable(compact_context):
         return "Compact is not supported by this runtime."
@@ -174,13 +174,16 @@ async def handle_compact(context: SlashCommandContext, args: list[str]) -> str:
     start = source.get("message_start_index", "?")
     end = source.get("message_end_index_exclusive", "?")
     tool_count = len(source.get("tool_call_ids") or [])
-    return "\n".join(
-        [
-            "Compact complete.",
-            f"- id: {display_value(record.get('id') if isinstance(record, dict) else None)}",
-            f"- source: messages[{start}:{end}]",
-            f"- tool calls: {tool_count}",
-        ]
+    return SlashCommandResult(
+        "\n".join(
+            [
+                "Compact complete.",
+                f"- id: {display_value(record.get('id') if isinstance(record, dict) else None)}",
+                f"- source: messages[{start}:{end}]",
+                f"- tool calls: {tool_count}",
+            ]
+        ),
+        context_usage_reset=True,
     )
 
 

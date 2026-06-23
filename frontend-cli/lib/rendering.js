@@ -19,7 +19,8 @@ export function promptActivityLine(state = {}) {
     return "";
   }
   const elapsed = formatActivityDuration(state.elapsedMs);
-  return `  ${accent(activityFrame(state.frame))} ${bold("Working")} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
+  const label = singleLine(state.label) || "Working";
+  return `  ${accent(activityFrame(state.frame))} ${bold(label)} ${dim(`(${elapsed}) ctrl+c interrupt`)}`;
 }
 
 export function promptPlaceholderText() {

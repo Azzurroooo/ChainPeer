@@ -26,6 +26,7 @@ class SlashCommandResult:
     input_prefill: str = ""
     run_turn_input: str = ""
     transient_system_messages: list[dict] | None = None
+    context_usage_reset: bool = False
 
 
 @dataclass(frozen=True, slots=True)
