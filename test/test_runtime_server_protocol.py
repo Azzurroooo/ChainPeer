@@ -10,6 +10,7 @@ os.chdir(PROJECT_ROOT)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.application.runtime.cancellation import CancellationTokenSource
 from agent.interfaces.runtime_server.stdio import (
     JsonlWriter,
     StdioRuntimeServer,
@@ -142,6 +143,102 @@ def test_slash_execute_non_compact_does_not_reset_context_usage(capsys):
 
     message = json.loads(capsys.readouterr().out)
     assert message["result"]["context_usage_reset"] is False
+
+
+def test_readonly_status_slash_responds_without_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session(), debug=True)
+        server._initialized = True
+        handled = await server._handle_control_message(
+            {"id": 15, "method": "slash.execute", "params": {"input": "/status"}}
+        )
+        await asyncio.sleep(0)
+        queued = server._requests.empty()
+        return handled, queued
+
+    handled, queued = asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert handled is True
+    assert queued is True
+    assert message["result"]["text"].startswith("```text\nStatus:")
+    assert "Session: s1" in message["result"]["text"]
+
+
+def test_readonly_doctor_slash_responds_without_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        handled = await server._handle_control_message(
+            {"id": 16, "method": "slash.execute", "params": {"input": "/doctor"}}
+        )
+        await asyncio.sleep(0)
+        return handled, server._requests.empty()
+
+    handled, queued = asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert handled is True
+    assert queued is True
+    assert message["result"]["text"].startswith("Doctor:")
+
+
+def test_readonly_slash_does_not_replace_current_cancel(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        current = CancellationTokenSource()
+        server._current_cancel = current
+        handled = await server._handle_control_message(
+            {"id": 17, "method": "slash.execute", "params": {"input": "/status"}}
+        )
+        await asyncio.sleep(0)
+        same_source = server._current_cancel is current
+        current.dispose()
+        return handled, same_source
+
+    handled, same_source = asyncio.run(run())
+
+    assert handled is True
+    assert same_source is True
+    assert json.loads(capsys.readouterr().out)["result"]["text"].startswith("```text\nStatus:")
+
+
+def test_non_readonly_slash_stays_on_main_queue(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        message = {"id": 18, "method": "slash.execute", "params": {"input": "/help"}}
+        handled = await server._handle_control_message(message)
+        if not handled:
+            await server._requests.put(message)
+        queued = await server._requests.get()
+        return handled, queued
+
+    handled, queued = asyncio.run(run())
+
+    assert handled is False
+    assert queued["params"]["input"] == "/help"
+    assert capsys.readouterr().out == ""
+
+
+def test_readonly_slash_usage_errors_return_immediately(capsys):
+    async def run():
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        server._initialized = True
+        await server._handle_control_message(
+            {"id": 19, "method": "slash.execute", "params": {"input": "/status bad"}}
+        )
+        await server._handle_control_message(
+            {"id": 20, "method": "slash.execute", "params": {"input": "/doctor extra"}}
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    messages = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert messages[0]["result"]["text"] == "Usage: /status"
+    assert messages[1]["result"]["text"] == "Usage: /doctor"
 
 
 def test_slash_execute_exposes_cancellation_token_to_interrupt(capsys):

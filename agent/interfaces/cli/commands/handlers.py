@@ -63,6 +63,8 @@ async def handle_help(context: SlashCommandContext, args: list[str]) -> str:
 
 
 async def handle_status(context: SlashCommandContext, args: list[str]) -> str:
+    if args:
+        return "Usage: /status"
     return await render_status(context)
 
 

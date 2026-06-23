@@ -16,7 +16,7 @@ from agent.bootstrap import build_basic_agent_dependencies
 from agent.domain.events import UserQuestionRequestedEvent
 from agent.infrastructure.config import Config
 from agent.infrastructure.paths import validate_session_id
-from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
+from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandResult, SlashCommandRouter
 from agent.interfaces.cli.commands.model_control import set_active_model
 from agent.interfaces.cli.ui.resume_preview import render_resume_preview
 
@@ -53,6 +53,7 @@ class StdioRuntimeServer:
         self._requests: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._pending_answers: dict[str, asyncio.Future[str]] = {}
         self._current_cancel: CancellationTokenSource | None = None
+        self._initialized = False
         self._install_question_responder()
 
     async def run(self) -> int:
@@ -101,6 +102,7 @@ class StdioRuntimeServer:
 
     async def _initialize(self, request: dict[str, Any]) -> None:
         await self._runtime.initialize()
+        self._initialized = True
         await self._respond(
             request,
             {
@@ -246,18 +248,7 @@ class StdioRuntimeServer:
                     cancellation_token=cancel_source.token,
                 ),
             )
-            await self._respond(
-                request,
-                {
-                    "text": result.text,
-                    "should_exit": result.should_exit,
-                    "clear_screen": result.clear_screen,
-                    "input_prefill": result.input_prefill,
-                    "run_turn_input": result.run_turn_input,
-                    "transient_system_messages": result.transient_system_messages,
-                    "context_usage_reset": result.context_usage_reset,
-                },
-            )
+            await self._respond_slash_result(request, result)
         except asyncio.CancelledError:
             if not cancel_source.token.is_cancelled:
                 raise
@@ -306,7 +297,50 @@ class StdioRuntimeServer:
         if method == "user_question.respond":
             await self._receive_user_answer(message)
             return True
+        if method == "slash.execute" and self._initialized and self._is_readonly_slash_request(message):
+            await self._execute_readonly_slash(message)
+            return True
         return False
+
+    def _is_readonly_slash_request(self, message: dict[str, Any]) -> bool:
+        params = message.get("params") if isinstance(message.get("params"), dict) else {}
+        raw_input = str(params.get("input") or "").strip()
+        try:
+            name, _args = self._slash_router._parse(raw_input)
+        except ValueError:
+            return False
+        return name in {"status", "doctor"}
+
+    async def _execute_readonly_slash(self, request: dict[str, Any]) -> None:
+        params = request.get("params") if isinstance(request.get("params"), dict) else {}
+        raw_input = str(params.get("input") or "")
+        try:
+            result = await self._slash_router.execute(
+                raw_input,
+                SlashCommandContext(
+                    runtime=self._runtime,
+                    session=self._session,
+                    debug=self._debug,
+                    cancellation_token=None,
+                ),
+            )
+            await self._respond_slash_result(request, result)
+        except Exception as exc:
+            await self._respond_error(request, str(exc), type(exc).__name__)
+
+    async def _respond_slash_result(self, request: dict[str, Any], result: SlashCommandResult) -> None:
+        await self._respond(
+            request,
+            {
+                "text": result.text,
+                "should_exit": result.should_exit,
+                "clear_screen": result.clear_screen,
+                "input_prefill": result.input_prefill,
+                "run_turn_input": result.run_turn_input,
+                "transient_system_messages": result.transient_system_messages,
+                "context_usage_reset": result.context_usage_reset,
+            },
+        )
 
     def _interrupt_current(self) -> None:
         if self._current_cancel and not self._current_cancel.token.is_cancelled:

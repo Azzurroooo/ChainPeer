@@ -13,6 +13,7 @@ import { buildRuntimeEnv } from "../lib/runtime-env.js";
 import { createInputHistory } from "../lib/input-history.js";
 import { isInputClosed } from "../lib/input-errors.js";
 import { sigintAction } from "../lib/interrupt-state.js";
+import { isReadonlySlashCommand } from "../lib/slash-command-mode.js";
 import { createModelMenuState } from "../lib/model-menu-state.js";
 import { createSlashMenuState } from "../lib/slash-menu-state.js";
 import { graphemes, textWidth } from "../lib/text-width.js";
@@ -206,7 +207,15 @@ async function runSlashCommand(text) {
     startCompactCommand();
     return;
   }
+  if (isReadonlySlashCommand(text) && process.stdin.isTTY) {
+    startReadonlySlashCommand(text);
+    return;
+  }
   const result = await request("slash.execute", { input: text });
+  await applySlashResult(result);
+}
+
+async function applySlashResult(result) {
   if (result.clear_screen) {
     withSuspendedPrompt(() => console.clear());
   }
@@ -230,6 +239,19 @@ async function runSlashCommand(text) {
   }
 }
 
+function startReadonlySlashCommand(text) {
+  void runReadonlySlashCommand(text).catch((error) => {
+    if (!runtimeClosing) {
+      writeErrorOutput(`${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  });
+}
+
+async function runReadonlySlashCommand(text) {
+  const result = await request("slash.execute", { input: text });
+  await applySlashResult(result);
+}
+
 function startCompactCommand() {
   if (activeCompact) {
     logOutput("Compact is already running.");
@@ -248,12 +270,7 @@ function startCompactCommand() {
 async function runCompactCommand() {
   try {
     const result = await request("slash.execute", { input: "/compact" });
-    if (result.text) {
-      logOutput(result.text);
-    }
-    if (result.context_usage_reset) {
-      resetContextUsage();
-    }
+    await applySlashResult(result);
   } finally {
     activeCompact = false;
     interruptRequested = false;

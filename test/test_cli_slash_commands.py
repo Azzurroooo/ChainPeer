@@ -270,6 +270,13 @@ async def test_status_shows_session_model_debug_and_message_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_status_rejects_extra_args() -> None:
+    result = await SlashCommandRouter().execute("/status now", _context())
+
+    assert result.text == "Usage: /status"
+
+
+@pytest.mark.asyncio
 async def test_status_shows_git_branch(monkeypatch) -> None:
     class FakeGitProvider:
         def __init__(self, *args, **kwargs):
