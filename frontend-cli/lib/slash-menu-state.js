@@ -55,5 +55,5 @@ function matchingCommands(commands, line) {
     return [];
   }
   const token = text.slice(1).toLowerCase();
-  return commands.filter((command) => command.name.startsWith(token)).slice(0, 8);
+  return commands.filter((command) => command.name.startsWith(token));
 }

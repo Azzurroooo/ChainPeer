@@ -9,6 +9,20 @@ const commands = [
   { name: "clear", description: "Clear screen" },
 ];
 
+const fullCommandDeck = [
+  "clear",
+  "compact",
+  "config",
+  "doctor",
+  "draft",
+  "exit",
+  "help",
+  "init",
+  "model",
+  "skill",
+  "status",
+].map((name) => ({ name, description: `/${name}` }));
+
 test("slash menu opens only for a slash command prefix", () => {
   const state = createSlashMenuState(commands);
 
@@ -76,4 +90,53 @@ test("slash menu ignores modified keypresses", () => {
 
   assert.equal(state.handleKey("x", { ctrl: true }), false);
   assert.equal(state.input(), "/");
+});
+
+test("slash menu keeps all matching commands for renderer windowing", () => {
+  const state = createSlashMenuState(fullCommandDeck);
+  state.setInput("/");
+
+  assert.deepEqual(state.matches().map((command) => command.name), [
+    "clear",
+    "compact",
+    "config",
+    "doctor",
+    "draft",
+    "exit",
+    "help",
+    "init",
+    "model",
+    "skill",
+    "status",
+  ]);
+});
+
+test("slash menu can select commands beyond the first visible window", () => {
+  const state = createSlashMenuState(fullCommandDeck);
+  state.setInput("/");
+
+  for (let index = 0; index < 8; index += 1) {
+    assert.equal(state.handleKey("", { name: "down" }), true);
+  }
+
+  assert.equal(state.selectedIndex(), 8);
+  assert.equal(state.selectedCommand().name, "model");
+
+  assert.equal(state.handleKey("", { name: "down" }), true);
+  assert.equal(state.selectedIndex(), 9);
+  assert.equal(state.selectedCommand().name, "skill");
+});
+
+test("slash menu returns later selected commands for submission", () => {
+  const state = createSlashMenuState(fullCommandDeck);
+  state.setInput("/");
+
+  for (let index = 0; index < 9; index += 1) {
+    state.handleKey("", { name: "down" });
+  }
+
+  const command = state.selectedCommand();
+  const submitted = command ? `/${command.name}` : state.input();
+
+  assert.equal(submitted, "/skill");
 });
