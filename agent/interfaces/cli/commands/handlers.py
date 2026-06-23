@@ -10,7 +10,7 @@ from agent.interfaces.cli.formatting import clip_text, display_value, nonnegativ
 from .help_view import render_command_help, render_help
 from .model_control import normalize_model_name, set_active_model
 from .router import SlashCommandContext, SlashCommandInfo, SlashCommandResult
-from .status_view import render_status
+from .status_view import build_status_display, render_status_display
 
 
 COMMAND_INFOS = (
@@ -54,29 +54,36 @@ def default_handlers() -> dict[str, Callable]:
     }
 
 
-async def handle_help(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_help(context: SlashCommandContext, args: list[str]) -> str | SlashCommandResult:
     if len(args) > 1:
         return "Usage: /help [command]"
     if args:
-        return render_command_help(COMMAND_INFOS, args[0])
-    return render_help(COMMAND_INFOS)
+        name = args[0].strip().lstrip("/").lower()
+        info = _find_command_info(name)
+        text = render_command_help(COMMAND_INFOS, args[0])
+        if info is None:
+            return text
+        return SlashCommandResult(text, display={"type": "help", "commands": _command_display_list(), "command": _command_display(info)})
+    return SlashCommandResult(render_help(COMMAND_INFOS), display={"type": "help", "commands": _command_display_list()})
 
 
-async def handle_status(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_status(context: SlashCommandContext, args: list[str]) -> str | SlashCommandResult:
     if args:
         return "Usage: /status"
-    return await render_status(context)
+    display = await build_status_display(context)
+    return SlashCommandResult(render_status_display(display), display=display)
 
 
-async def handle_doctor(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_doctor(context: SlashCommandContext, args: list[str]) -> str | SlashCommandResult:
     if args:
         return "Usage: /doctor"
-    from .diagnostics import render_doctor_report
+    from .diagnostics import build_doctor_report
 
-    return render_doctor_report(context)
+    report = build_doctor_report(context)
+    return SlashCommandResult(report.text, display=report.display)
 
 
-async def handle_sessions(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_sessions(context: SlashCommandContext, args: list[str]) -> str | SlashCommandResult:
     limit = _parse_limit(args, default=8, maximum=20)
     if limit is None:
         return "Usage: /sessions [limit]"
@@ -87,11 +94,21 @@ async def handle_sessions(context: SlashCommandContext, args: list[str]) -> str:
         sessions = await list_sessions(limit=limit)
     except Exception as exc:
         return f"Command failed: {exc}"
-    if not sessions:
-        return "No recent sessions."
-
     current_id = str(getattr(context.session, "session_id", "") or "")
+    if not sessions:
+        return SlashCommandResult(
+            "No recent sessions.",
+            display={
+                "type": "sessions",
+                "sessions": [],
+                "current_session_id": current_id,
+                "limit": limit,
+                "resume_command": "python main.py --session <id>",
+            },
+        )
+
     lines = ["Recent sessions:"]
+    display_sessions = []
     for item in sessions[:limit]:
         if not isinstance(item, dict):
             continue
@@ -99,15 +116,36 @@ async def handle_sessions(context: SlashCommandContext, args: list[str]) -> str:
         marker = " (current)" if current_id and session_id == current_id else ""
         updated = display_value(item.get("updated_at"))
         title = clip_text(display_value(item.get("title")), 40)
-        size = _format_session_size(item.get("size"))
+        size_data = item.get("size")
+        size = _format_session_size(size_data)
         preview = clip_text(single_line(item.get("preview")), 56)
         suffix = f" | {preview}" if preview else ""
         lines.append(f"- {session_id}{marker} | {updated} | {title} | {size}{suffix}")
+        display_sessions.append(
+            {
+                "id": session_id,
+                "current": bool(current_id and session_id == current_id),
+                "updated_at": updated,
+                "title": display_value(item.get("title")),
+                "messages": nonnegative_int(size_data.get("messages")) if isinstance(size_data, dict) else None,
+                "tool_calls": nonnegative_int(size_data.get("tool_calls")) if isinstance(size_data, dict) else None,
+                "preview": single_line(item.get("preview")),
+            }
+        )
     lines.append("Resume with: python main.py --session <id>")
-    return "\n".join(lines)
+    return SlashCommandResult(
+        "\n".join(lines),
+        display={
+            "type": "sessions",
+            "sessions": display_sessions,
+            "current_session_id": current_id,
+            "limit": limit,
+            "resume_command": "python main.py --session <id>",
+        },
+    )
 
 
-async def handle_skill(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_skill(context: SlashCommandContext, args: list[str]) -> str | SlashCommandResult:
     if args and args[0].lower() != "list":
         return "Usage: /skill or /skill list"
     try:
@@ -117,13 +155,22 @@ async def handle_skill(context: SlashCommandContext, args: list[str]) -> str:
     except Exception as exc:
         return f"Command failed: {exc}"
     if not skills:
-        return "No skills found."
+        return SlashCommandResult("No skills found.", display={"type": "skills", "skills": []})
     lines = ["Skills:"]
+    display_skills = []
     for skill in skills:
         description = str(getattr(skill, "description", "") or "").strip()
         path = str(getattr(skill, "path", "") or "")
         lines.append(f"- {skill.name} [{skill.source}] {description} ({path})")
-    return "\n".join(lines)
+        display_skills.append(
+            {
+                "name": str(getattr(skill, "name", "") or ""),
+                "source": str(getattr(skill, "source", "") or ""),
+                "description": description,
+                "path": path,
+            }
+        )
+    return SlashCommandResult("\n".join(lines), display={"type": "skills", "skills": display_skills})
 
 
 async def handle_init(context: SlashCommandContext, args: list[str]) -> SlashCommandResult:
@@ -254,21 +301,31 @@ async def handle_login(context: SlashCommandContext, args: list[str]) -> str:
     return "Login/config setup is not implemented yet.\nCreate settings.json under CHAINPEER_HOME, or ~/.chainpeer when CHAINPEER_HOME is unset."
 
 
-async def handle_config(context: SlashCommandContext, args: list[str]) -> str:
+async def handle_config(context: SlashCommandContext, args: list[str]) -> SlashCommandResult:
     from agent.infrastructure.config import Config
 
     api_key_state = "set" if Config.OPENAI_API_KEY else "unset"
     reasoning = Config.MODEL_REASONING_EFFORT or "unset"
     settings_state = "found" if Config.SETTINGS_EXISTS else "missing"
-    return "\n".join(
-        [
-            "Config:",
-            f"- settings: {Config.SETTINGS_PATH} ({settings_state})",
-            f"- apiKey: {api_key_state}",
-            f"- baseUrl: {Config.OPENAI_API_BASE}",
-            f"- model: {Config.DEFAULT_MODEL}",
-            f"- reasoningEffort: {reasoning}",
-        ]
+    entries = [
+        {"label": "settings", "value": str(Config.SETTINGS_PATH), "state": settings_state},
+        {"label": "apiKey", "value": api_key_state},
+        {"label": "baseUrl", "value": str(Config.OPENAI_API_BASE)},
+        {"label": "model", "value": str(Config.DEFAULT_MODEL)},
+        {"label": "reasoningEffort", "value": str(reasoning)},
+    ]
+    return SlashCommandResult(
+        "\n".join(
+            [
+                "Config:",
+                f"- settings: {Config.SETTINGS_PATH} ({settings_state})",
+                f"- apiKey: {api_key_state}",
+                f"- baseUrl: {Config.OPENAI_API_BASE}",
+                f"- model: {Config.DEFAULT_MODEL}",
+                f"- reasoningEffort: {reasoning}",
+            ]
+        ),
+        display={"type": "config", "entries": entries},
     )
 
 
@@ -332,3 +389,23 @@ def _format_session_size(value: object) -> str:
     messages = nonnegative_int(value.get("messages"))
     tools = nonnegative_int(value.get("tool_calls"))
     return f"{messages} msg, {tools} tool"
+
+
+def _command_display_list() -> list[dict]:
+    return [_command_display(info) for info in COMMAND_INFOS]
+
+
+def _command_display(info: SlashCommandInfo) -> dict:
+    return {
+        "name": info.name,
+        "description": info.description,
+        "usage": info.usage,
+        "aliases": list(info.aliases),
+    }
+
+
+def _find_command_info(name: str) -> SlashCommandInfo | None:
+    for info in COMMAND_INFOS:
+        if info.name == name or name in info.aliases:
+            return info
+    return None

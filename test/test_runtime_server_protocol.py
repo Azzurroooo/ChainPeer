@@ -131,6 +131,7 @@ def test_slash_execute_reuses_cli_router(capsys):
     assert result["should_exit"] is False
     assert result["clear_screen"] is False
     assert result["context_usage_reset"] is True
+    assert result["display"] is None
     assert result["text"].startswith("Compact complete.")
 
 
@@ -143,6 +144,7 @@ def test_slash_execute_non_compact_does_not_reset_context_usage(capsys):
 
     message = json.loads(capsys.readouterr().out)
     assert message["result"]["context_usage_reset"] is False
+    assert message["result"]["display"]["type"] == "help"
 
 
 def test_readonly_status_slash_responds_without_main_queue(capsys):
@@ -163,6 +165,8 @@ def test_readonly_status_slash_responds_without_main_queue(capsys):
     assert queued is True
     assert message["result"]["text"].startswith("```text\nStatus:")
     assert "Session: s1" in message["result"]["text"]
+    assert message["result"]["display"]["type"] == "status"
+    assert message["result"]["display"]["session"] == "s1"
 
 
 def test_readonly_doctor_slash_responds_without_main_queue(capsys):
@@ -181,6 +185,7 @@ def test_readonly_doctor_slash_responds_without_main_queue(capsys):
     assert handled is True
     assert queued is True
     assert message["result"]["text"].startswith("Doctor:")
+    assert message["result"]["display"]["type"] == "doctor"
 
 
 def test_readonly_slash_does_not_replace_current_cancel(capsys):
@@ -272,6 +277,7 @@ def test_slash_execute_exposes_cancellation_token_to_interrupt(capsys):
     message = json.loads(capsys.readouterr().out)
     assert message["result"]["text"] == "Compact cancelled."
     assert message["result"]["context_usage_reset"] is False
+    assert message["result"]["display"] is None
 
 
 def test_models_list_returns_unique_sorted_models_and_current_marker(capsys, monkeypatch):

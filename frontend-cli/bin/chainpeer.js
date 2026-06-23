@@ -36,6 +36,7 @@ import {
   promptText,
   questionText,
   queuedInputText,
+  slashResultText,
   slashMenuText,
   skillLine,
   startupText,
@@ -219,8 +220,9 @@ async function applySlashResult(result) {
   if (result.clear_screen) {
     withSuspendedPrompt(() => console.clear());
   }
-  if (result.text) {
-    logOutput(result.text);
+  const text = slashResultText(result, slashCommands);
+  if (text) {
+    logOutput(text);
   }
   if (result.context_usage_reset) {
     resetContextUsage();

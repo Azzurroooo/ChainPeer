@@ -27,6 +27,7 @@ class DoctorReport:
     text: str
     failures: int
     warnings: int
+    display: dict
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +51,21 @@ def build_doctor_report(context: SlashCommandContext) -> DoctorReport:
     if next_steps:
         lines.append("Next steps:")
         lines.extend(f"- {step}" for step in next_steps)
-    return DoctorReport(text="\n".join(lines), failures=failures, warnings=warnings)
+    return DoctorReport(
+        text="\n".join(lines),
+        failures=failures,
+        warnings=warnings,
+        display={
+            "type": "doctor",
+            "checks": [
+                {"status": check.status, "name": check.name, "detail": check.detail}
+                for check in checks
+            ],
+            "failures": failures,
+            "warnings": warnings,
+            "next_steps": next_steps,
+        },
+    )
 
 
 def _build_checks(context: SlashCommandContext) -> list[DoctorCheck]:

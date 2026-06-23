@@ -54,6 +54,35 @@ export function helpText(commands = []) {
   ].join("\n");
 }
 
+export function slashDisplayText(display, commands = []) {
+  if (!display || typeof display !== "object") {
+    return "";
+  }
+  switch (display.type) {
+    case "help":
+      return slashHelpText(display, commands);
+    case "status":
+      return slashStatusText(display);
+    case "doctor":
+      return slashDoctorText(display);
+    case "sessions":
+      return slashSessionsText(display);
+    case "skills":
+      return slashSkillsText(display);
+    case "config":
+      return slashConfigText(display);
+    default:
+      return "";
+  }
+}
+
+export function slashResultText(result, commands = []) {
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+  return slashDisplayText(result.display, commands) || String(result.text || "");
+}
+
 export function answerPromptText() {
   return `\n  ${accent("›")} `;
 }
@@ -271,6 +300,210 @@ function commandDeckText(commands) {
     lines.push(dim(`  ${row}`));
   }
   return lines;
+}
+
+function slashHelpText(display, commands) {
+  const command = display.command && typeof display.command === "object" ? display.command : null;
+  if (command) {
+    const lines = [`${accent("•")} ${bold(`/${clipSingleLine(command.name, 32)}`)}`];
+    const description = clipSingleLine(command.description, slashContentWidth());
+    if (description) {
+      lines.push(slashDetailLine(description));
+    }
+    const usage = clipSingleLine(command.usage || `/${command.name}`, slashContentWidth());
+    if (usage) {
+      lines.push(slashDetailLine(`usage: ${usage}`));
+    }
+    const aliases = slashAliases(command.aliases);
+    if (aliases) {
+      lines.push(slashDetailLine(`aliases: ${aliases}`));
+    }
+    return lines.join("\n");
+  }
+
+  const items = Array.isArray(display.commands) && display.commands.length ? display.commands : commands;
+  const lines = [`${accent("•")} ${bold("Commands")}`];
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const name = `/${clipSingleLine(item.name, 22)}`;
+    const description = clipSingleLine(item.description, slashDescriptionWidth());
+    lines.push(`  ${padRight(name, 16)} ${dim(description)}`.trimEnd());
+  }
+  lines.push(slashDetailLine("use /help <command> for usage"));
+  return lines.join("\n");
+}
+
+function slashStatusText(display) {
+  const lines = [`${accent("•")} ${bold("Status")}`];
+  lines.push(slashDetailLine(`session ${clipSingleLine(display.session, 42)}`));
+  lines.push(slashDetailLine(`model ${clipSingleLine(display.model, 48)}`));
+  lines.push(slashDetailLine(`messages ${singleLine(display.messages) || "unknown"} · debug ${display.debug ? "on" : "off"}`));
+  const git = display.git && typeof display.git === "object" ? display.git : null;
+  if (git) {
+    const state = git.dirty ? "dirty" : "clean";
+    lines.push(slashDetailLine(`git ${clipSingleLine(git.branch, 48)} · ${state}`));
+  }
+  for (const usage of Array.isArray(display.usage) ? display.usage : []) {
+    lines.push("");
+    lines.push(`${accent("•")} ${bold(clipSingleLine(usage.label || "Usage", 48))}`);
+    const input = usage.context_window_tokens > 0
+      ? `${formatCount(usage.input_tokens)} / ${formatCount(usage.context_window_tokens)}`
+      : formatCount(usage.input_tokens);
+    lines.push(slashDetailLine(`input ${input} · ${formatPercent(usage.context_usage_percent)}`));
+    lines.push(slashDetailLine(`cached ${formatCount(usage.cached_input_tokens)} · ${formatPercent(usage.cache_hit_rate)}`));
+    lines.push(slashDetailLine(`output ${formatCount(usage.output_tokens)}`));
+  }
+  return lines.join("\n");
+}
+
+function slashDoctorText(display) {
+  const failures = Number(display.failures || 0);
+  const warnings = Number(display.warnings || 0);
+  const summary = failures || warnings
+    ? `${failures} fail · ${warnings} warn`
+    : "all checks passed";
+  const lines = [`${accent("•")} ${bold("Doctor")} ${dim(`· ${summary}`)}`];
+  for (const check of Array.isArray(display.checks) ? display.checks : []) {
+    if (!check || typeof check !== "object") {
+      continue;
+    }
+    const status = singleLine(check.status).toLowerCase();
+    const marker = doctorMarker(status);
+    const name = clipSingleLine(check.name, slashDoctorNameWidth());
+    const detail = clipSingleLine(check.detail, slashDoctorDetailWidth(name));
+    lines.push(`  ${marker} ${padRight(status || "unknown", 5)} ${name}${detail ? dim(` · ${detail}`) : ""}`);
+  }
+  const nextSteps = Array.isArray(display.next_steps) ? display.next_steps : [];
+  if (nextSteps.length) {
+    lines.push("");
+    lines.push(`${accent("•")} ${bold("Next steps")}`);
+    for (const step of nextSteps) {
+      lines.push(slashDetailLine(step));
+    }
+  }
+  return lines.join("\n");
+}
+
+function slashSessionsText(display) {
+  const sessions = Array.isArray(display.sessions) ? display.sessions : [];
+  const lines = [`${accent("•")} ${bold("Recent sessions")}`];
+  if (!sessions.length) {
+    lines.push(slashDetailLine("no recent sessions"));
+  }
+  for (const session of sessions) {
+    if (!session || typeof session !== "object") {
+      continue;
+    }
+    const marker = session.current ? accent("›") : dim("·");
+    const current = session.current ? dim(" current") : "";
+    const id = middleClip(session.id, 32);
+    const updated = clipSingleLine(session.updated_at, 28);
+    lines.push(`  ${marker} ${id}${current}${updated ? dim(` · ${updated}`) : ""}`);
+    const title = clipSingleLine(session.title, slashContentWidth());
+    const size = sessionSizeText(session);
+    lines.push(slashDetailLine([title, size].filter(Boolean).join(" · ")));
+    const preview = clipSingleLine(session.preview, slashContentWidth());
+    if (preview) {
+      lines.push(slashDetailLine(preview));
+    }
+  }
+  const resume = clipSingleLine(display.resume_command, slashContentWidth());
+  if (resume) {
+    lines.push(slashDetailLine(`resume: ${resume}`));
+  }
+  return lines.join("\n");
+}
+
+function slashSkillsText(display) {
+  const skills = Array.isArray(display.skills) ? display.skills : [];
+  const lines = [`${accent("•")} ${bold("Skills")}`];
+  if (!skills.length) {
+    lines.push(slashDetailLine("no skills found"));
+  }
+  for (const skill of skills) {
+    if (!skill || typeof skill !== "object") {
+      continue;
+    }
+    const name = clipSingleLine(skill.name, 30);
+    const source = clipSingleLine(skill.source, 18);
+    const description = clipSingleLine(skill.description, slashDescriptionWidth());
+    lines.push(`  ${dim("·")} ${bold(name)}${source ? dim(` [${source}]`) : ""}${description ? dim(` ${description}`) : ""}`);
+    const path = middleClip(skill.path, slashContentWidth());
+    if (path) {
+      lines.push(slashDetailLine(path));
+    }
+  }
+  return lines.join("\n");
+}
+
+function sessionSizeText(session) {
+  const messages = optionalNonnegativeNumber(session.messages);
+  const tools = optionalNonnegativeNumber(session.tool_calls);
+  if (messages === null || tools === null) {
+    return "unknown size";
+  }
+  return `${formatCount(messages)} msg, ${formatCount(tools)} tool`;
+}
+
+function optionalNonnegativeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function slashConfigText(display) {
+  const lines = [`${accent("•")} ${bold("Config")}`];
+  for (const entry of Array.isArray(display.entries) ? display.entries : []) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const label = clipSingleLine(entry.label, 22);
+    const rawValue = entry.label === "settings"
+      ? middleClip(entry.value, Math.max(18, slashContentWidth() - visibleLength(label) - 4))
+      : clipSingleLine(entry.value, Math.max(18, slashContentWidth() - visibleLength(label) - 4));
+    const state = entry.state ? ` (${clipSingleLine(entry.state, 18)})` : "";
+    lines.push(slashDetailLine(`${label}: ${rawValue}${state}`));
+  }
+  return lines.join("\n");
+}
+
+function slashAliases(value) {
+  return Array.isArray(value) ? value.map((alias) => `/${clipSingleLine(alias, 18)}`).join(", ") : "";
+}
+
+function slashDetailLine(value) {
+  return dim(detailLine(clipSingleLine(value, slashContentWidth())));
+}
+
+function slashContentWidth() {
+  const columns = Number(process.stdout.columns);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return 96;
+  }
+  return Math.max(28, Math.min(96, columns - 6));
+}
+
+function slashDescriptionWidth() {
+  return Math.max(18, slashContentWidth() - 20);
+}
+
+function slashDoctorNameWidth() {
+  return Math.max(10, Math.min(28, slashContentWidth() - 18));
+}
+
+function slashDoctorDetailWidth(name) {
+  return Math.max(12, slashContentWidth() - visibleLength(name) - 12);
+}
+
+function doctorMarker(status) {
+  if (status === "ok") {
+    return green("✓");
+  }
+  if (status === "fail") {
+    return red("×");
+  }
+  return accent("!");
 }
 
 function menuWindow(items, selectedIndex) {

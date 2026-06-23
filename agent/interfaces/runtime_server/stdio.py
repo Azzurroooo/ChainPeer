@@ -262,6 +262,7 @@ class StdioRuntimeServer:
                     "run_turn_input": "",
                     "transient_system_messages": None,
                     "context_usage_reset": False,
+                    "display": None,
                 },
             )
         finally:
@@ -339,6 +340,7 @@ class StdioRuntimeServer:
                 "run_turn_input": result.run_turn_input,
                 "transient_system_messages": result.transient_system_messages,
                 "context_usage_reset": result.context_usage_reset,
+                "display": result.display,
             },
         )
 

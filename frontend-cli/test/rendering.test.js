@@ -23,7 +23,9 @@ import {
   questionText,
   queuedInputText,
   skillLine,
+  slashDisplayText,
   slashMenuText,
+  slashResultText,
   startupText,
   toolProgressLine,
   toolRequestedLine,
@@ -372,6 +374,182 @@ test("commandResultText renders a compact success line", () => {
     commandResultText("x".repeat(120), "y".repeat(120)),
     /^✓ x{93}\.\.\.\n  ↳ y{93}\.\.\.$/,
   );
+});
+
+test("slashDisplayText renders command help payloads", () => {
+  assert.equal(
+    slashDisplayText({
+      type: "help",
+      commands: [
+        { name: "status", description: "Show session status", usage: "/status" },
+        { name: "doctor", description: "Run diagnostics", usage: "/doctor" },
+      ],
+    }),
+    [
+      "• Commands",
+      "  /status          Show session status",
+      "  /doctor          Run diagnostics",
+      "  ↳ use /help <command> for usage",
+    ].join("\n"),
+  );
+  assert.equal(
+    slashDisplayText({
+      type: "help",
+      command: {
+        name: "model",
+        description: "Show or change the active model",
+        usage: "/model | /model set <model>",
+        aliases: ["m"],
+      },
+    }),
+    [
+      "• /model",
+      "  ↳ Show or change the active model",
+      "  ↳ usage: /model | /model set <model>",
+      "  ↳ aliases: /m",
+    ].join("\n"),
+  );
+});
+
+test("slashDisplayText renders status payloads", () => {
+  assert.equal(
+    slashDisplayText({
+      type: "status",
+      session: "session_1",
+      model: "model_a",
+      debug: true,
+      messages: "2",
+      git: { branch: "main", dirty: true },
+      usage: [{
+        label: "Last sampling:",
+        input_tokens: 121300,
+        context_window_tokens: 258400,
+        context_usage_percent: 121300 / 258400,
+        cached_input_tokens: 98700,
+        cache_hit_rate: 98700 / 121300,
+        output_tokens: 2100,
+      }],
+    }),
+    [
+      "• Status",
+      "  ↳ session session_1",
+      "  ↳ model model_a",
+      "  ↳ messages 2 · debug on",
+      "  ↳ git main · dirty",
+      "",
+      "• Last sampling:",
+      "  ↳ input 121.3k / 258.4k · 46.9%",
+      "  ↳ cached 98.7k · 81.4%",
+      "  ↳ output 2.1k",
+    ].join("\n"),
+  );
+});
+
+test("slashDisplayText renders doctor payloads with textual state", () => {
+  assert.equal(
+    slashDisplayText({
+      type: "doctor",
+      failures: 1,
+      warnings: 1,
+      checks: [
+        { status: "ok", name: "Python", detail: "3.12.0" },
+        { status: "warn", name: "Git", detail: "not found on PATH" },
+        { status: "fail", name: "API key", detail: "unset" },
+      ],
+      next_steps: ["Set apiKey in settings.json."],
+    }),
+    [
+      "• Doctor · 1 fail · 1 warn",
+      "  ✓ ok    Python · 3.12.0",
+      "  ! warn  Git · not found on PATH",
+      "  × fail  API key · unset",
+      "",
+      "• Next steps",
+      "  ↳ Set apiKey in settings.json.",
+    ].join("\n"),
+  );
+});
+
+test("slashDisplayText renders sessions, skills, and config payloads", () => {
+  assert.equal(
+    slashDisplayText({
+      type: "sessions",
+      sessions: [{
+        id: "session_2",
+        current: true,
+        updated_at: "2026-06-02T01:02:03+00:00",
+        title: "Current task",
+        messages: 4,
+        tool_calls: 1,
+        preview: "latest answer",
+      }],
+      resume_command: "python main.py --session <id>",
+    }),
+    [
+      "• Recent sessions",
+      "  › session_2 current · 2026-06-02T01:02:03+00:00",
+      "  ↳ Current task · 4 msg, 1 tool",
+      "  ↳ latest answer",
+      "  ↳ resume: python main.py --session <id>",
+    ].join("\n"),
+  );
+  assert.equal(
+    slashDisplayText({
+      type: "skills",
+      skills: [{
+        name: "demo",
+        source: "project",
+        description: "Demo skill",
+        path: "E:\\project\\.chainpeer\\skills\\demo\\SKILL.md",
+      }],
+    }),
+    [
+      "• Skills",
+      "  · demo [project] Demo skill",
+      "  ↳ E:\\project\\.chainpeer\\skills\\demo\\SKILL.md",
+    ].join("\n"),
+  );
+  assert.equal(
+    slashDisplayText({
+      type: "config",
+      entries: [
+        { label: "settings", value: "E:\\project\\settings.json", state: "found" },
+        { label: "apiKey", value: "set" },
+      ],
+    }),
+    [
+      "• Config",
+      "  ↳ settings: E:\\project\\settings.json (found)",
+      "  ↳ apiKey: set",
+    ].join("\n"),
+  );
+});
+
+test("slashDisplayText clips long slash command fields", () => {
+  const text = slashDisplayText({
+    type: "skills",
+    skills: [{
+      name: "debugging",
+      source: "project",
+      description: "x".repeat(140),
+      path: `E:\\${"deep\\".repeat(20)}SKILL.md`,
+    }],
+  });
+
+  assert.match(text, /x{73}\.\.\./);
+  assert.match(text, /E:\\deep\\deep\\deep.*\.\.\..*SKILL\.md$/);
+});
+
+test("slashResultText prefers structured display and falls back to raw text", () => {
+  assert.equal(
+    slashResultText({
+      text: "Raw markdown",
+      display: { type: "config", entries: [{ label: "apiKey", value: "unset" }] },
+    }),
+    "• Config\n  ↳ apiKey: unset",
+  );
+  assert.equal(slashResultText({ text: "Raw text", display: { type: "unknown" } }), "Raw text");
+  assert.equal(slashResultText(null), "");
 });
 
 test("contextBuiltLine warns only when ChainPeer docs are truncated", () => {
