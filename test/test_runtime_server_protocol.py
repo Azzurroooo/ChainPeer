@@ -16,14 +16,22 @@ from agent.interfaces.runtime_server.stdio import (
     configure_stdio_server_signals,
     configure_utf8_stdio,
 )
+from agent.infrastructure.config import Config
 
 
 class _Runtime:
+    def __init__(self):
+        self.model = None
+
     def set_user_question_responder(self, responder):
         self.responder = responder
 
     async def initialize(self):
         return None
+
+    async def set_model(self, model):
+        self.model = model
+        return {"runtime": True, "session": False}
 
     async def compact_context(self, reason="manual", cancellation_token=None):
         return {
@@ -39,6 +47,26 @@ class _Runtime:
 class _Session:
     session_id = "s1"
     model = "m1"
+
+
+class _Model:
+    def __init__(self, model_id):
+        self.id = model_id
+
+
+class _AsyncModelList:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def __aiter__(self):
+        self._iter = iter(self._items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
 
 
 def test_question_response_completes_pending_future():
@@ -102,6 +130,102 @@ def test_slash_execute_reuses_cli_router(capsys):
     assert result["should_exit"] is False
     assert result["clear_screen"] is False
     assert result["text"].startswith("Compact complete.")
+
+
+def test_models_list_returns_unique_sorted_models_and_current_marker(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            return _AsyncModelList([_Model("z-model"), _Model("m1"), _Model("a-model"), _Model("z-model")])
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "DEFAULT_MODEL", "default-model")
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._list_models({"id": 9, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    result = message["result"]
+    assert result["current_model"] == "m1"
+    assert result["default_model"] == "default-model"
+    assert result["models"] == ["a-model", "m1", "z-model"]
+
+
+def test_models_list_includes_current_model_when_missing(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            return _AsyncModelList([_Model("a-model"), _Model("b-model")])
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "DEFAULT_MODEL", "default-model")
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._list_models({"id": 10, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["result"]["models"] == ["m1", "a-model", "b-model"]
+
+
+def test_models_list_failure_returns_protocol_error(capsys, monkeypatch):
+    class Models:
+        def list(self):
+            raise RuntimeError("models endpoint unavailable")
+
+    class Client:
+        models = Models()
+
+    async def run():
+        monkeypatch.setattr(Config, "get_async_client", classmethod(lambda cls: Client()))
+        server = StdioRuntimeServer(_Runtime(), _Session())
+        await server._dispatch({"id": 11, "method": "models.list", "params": {}})
+
+    asyncio.run(run())
+
+    message = json.loads(capsys.readouterr().out)
+    assert message["error"]["type"] == "RuntimeError"
+    assert message["error"]["message"] == "models endpoint unavailable"
+
+
+def test_model_set_updates_settings_runtime_and_session(capsys, tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"model": "old-model", "apiKey": "secret-value"}), encoding="utf-8")
+    monkeypatch.setenv("CHAINPEER_SETTINGS_PATH", str(path))
+    Config.reload()
+
+    class Session(_Session):
+        def __init__(self):
+            self.model = "old-model"
+
+        async def update_model(self, model):
+            self.model = model
+
+    async def run():
+        runtime = _Runtime()
+        session = Session()
+        server = StdioRuntimeServer(runtime, session)
+        await server._set_model({"id": 12, "method": "model.set", "params": {"model": "new-model"}})
+        return runtime, session
+
+    runtime, session = asyncio.run(run())
+    message = json.loads(capsys.readouterr().out)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert message["result"]["runtime"] is True
+    assert message["result"]["session"] is True
+    assert message["result"]["model"] == "new-model"
+    assert runtime.model == "new-model"
+    assert session.model == "new-model"
+    assert data["model"] == "new-model"
+    assert data["apiKey"] == "secret-value"
 
 
 class _TextStream:

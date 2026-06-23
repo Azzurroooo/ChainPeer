@@ -71,7 +71,7 @@ export function clearInputHintText() {
 }
 
 export function slashMenuText(items, selectedIndex = 0) {
-  const visible = slashMenuWindow(items, selectedIndex);
+  const visible = menuWindow(items, selectedIndex);
   if (!visible.items.length) {
     return "";
   }
@@ -85,6 +85,37 @@ export function slashMenuText(items, selectedIndex = 0) {
   }
   lines.push(dim("    ↑↓ select · enter run · esc close · backspace edit"));
   return `${lines.join("\n")}\n`;
+}
+
+export function modelMenuText(items, selectedIndex = 0) {
+  const visible = menuWindow(items, selectedIndex);
+  if (!visible.items.length) {
+    return "";
+  }
+  const lines = [dim(modelMenuTitle(visible))];
+  for (const [index, item] of visible.items.entries()) {
+    const active = index === visible.activeIndex;
+    const marker = active ? accent("›") : dim("·");
+    const name = active ? bold(item.name) : dim(item.name);
+    const suffix = item.current ? dim("current") : "";
+    lines.push(`  ${marker} ${padRight(name, 34)} ${suffix}`.trimEnd());
+  }
+  lines.push(dim("    ↑↓ select · enter use · esc cancel"));
+  return `${lines.join("\n")}\n`;
+}
+
+export function modelListErrorText(error, currentModel = "") {
+  const lines = [`${accent("•")} ${bold("Model list unavailable")}`];
+  const current = clipSingleLine(currentModel, 96);
+  if (current) {
+    lines.push(dim(detailLine(`current: ${current}`)));
+  }
+  const detail = clipSingleLine(error, 96);
+  if (detail) {
+    lines.push(dim(detailLine(detail)));
+  }
+  lines.push(dim(detailLine("use /model set <name> to switch manually")));
+  return lines.join("\n");
 }
 
 export function queuedInputText(text = "") {
@@ -241,7 +272,7 @@ function commandDeckText(commands) {
   return lines;
 }
 
-function slashMenuWindow(items, selectedIndex) {
+function menuWindow(items, selectedIndex) {
   const entries = Array.isArray(items) ? items : [];
   const total = entries.length;
   if (!total) {
@@ -263,6 +294,13 @@ function slashMenuTitle(visible) {
     return "  Command deck";
   }
   return `  Command deck ${visible.start + 1}-${visible.start + visible.items.length}/${visible.total}`;
+}
+
+function modelMenuTitle(visible) {
+  if (visible.total <= visible.items.length) {
+    return "  Model deck";
+  }
+  return `  Model deck ${visible.start + 1}-${visible.start + visible.items.length}/${visible.total}`;
 }
 
 function toolDetailLine(name, detail) {

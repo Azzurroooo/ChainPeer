@@ -14,6 +14,8 @@ import {
   assistantHeaderText,
   inputHintText,
   interruptText,
+  modelListErrorText,
+  modelMenuText,
   modelUsageText,
   outputBlockText,
   promptText,
@@ -283,6 +285,58 @@ test("slashMenuText keeps the selected command visible", () => {
       "  › /cmd9          Command 9",
       "    ↑↓ select · enter run · esc close · backspace edit",
       "",
+    ].join("\n"),
+  );
+});
+
+test("modelMenuText renders current model and selection", () => {
+  assert.equal(
+    modelMenuText([
+      { name: "model-a", current: true },
+      { name: "model-b", current: false },
+    ], 1),
+    [
+      "  Model deck",
+      "  · model-a                            current",
+      "  › model-b",
+      "    ↑↓ select · enter use · esc cancel",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("modelMenuText keeps the selected model visible", () => {
+  const models = Array.from({ length: 10 }, (_, index) => ({
+    name: `model-${index}`,
+    current: index === 0,
+  }));
+
+  assert.equal(
+    modelMenuText(models, 9),
+    [
+      "  Model deck 3-10/10",
+      "  · model-2",
+      "  · model-3",
+      "  · model-4",
+      "  · model-5",
+      "  · model-6",
+      "  · model-7",
+      "  · model-8",
+      "  › model-9",
+      "    ↑↓ select · enter use · esc cancel",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("modelListErrorText renders current model and fallback command", () => {
+  assert.equal(
+    modelListErrorText("request failed", "model-a"),
+    [
+      "• Model list unavailable",
+      "  ↳ current: model-a",
+      "  ↳ request failed",
+      "  ↳ use /model set <name> to switch manually",
     ].join("\n"),
   );
 });

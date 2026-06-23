@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import signal
@@ -16,6 +17,7 @@ from agent.domain.events import UserQuestionRequestedEvent
 from agent.infrastructure.config import Config
 from agent.infrastructure.paths import validate_session_id
 from agent.interfaces.cli.commands import SlashCommandContext, SlashCommandRouter
+from agent.interfaces.cli.commands.model_control import set_active_model
 from agent.interfaces.cli.ui.resume_preview import render_resume_preview
 
 
@@ -86,6 +88,8 @@ class StdioRuntimeServer:
                 await self._run_turn(request)
             elif method == "compact":
                 await self._compact(request)
+            elif method == "models.list":
+                await self._list_models(request)
             elif method == "model.set":
                 await self._set_model(request)
             elif method == "slash.execute":
@@ -153,15 +157,79 @@ class StdioRuntimeServer:
         record = await self._runtime.compact_context(reason="manual")
         await self._respond(request, record)
 
+    async def _list_models(self, request: dict[str, Any]) -> None:
+        client = Config.get_async_client()
+        try:
+            models = await self._fetch_model_ids(client)
+            current_model = self._current_model()
+            default_model = str(Config.DEFAULT_MODEL or "").strip()
+            merged = self._merge_models(models, current_model)
+        finally:
+            await self._close_client(client)
+        await self._respond(
+            request,
+            {
+                "models": merged,
+                "current_model": current_model,
+                "default_model": default_model,
+            },
+        )
+
     async def _set_model(self, request: dict[str, Any]) -> None:
         params = request.get("params") if isinstance(request.get("params"), dict) else {}
         model = str(params.get("model") or "").strip()
         if not model:
             await self._respond_error(request, "model.set requires model.", "InvalidRequest")
             return
-        Config.set_model(model)
-        result = await self._runtime.set_model(model)
+        result = await set_active_model(self._runtime, self._session, model)
         await self._respond(request, result)
+
+    async def _fetch_model_ids(self, client: Any) -> list[str]:
+        response = client.models.list()
+        if hasattr(response, "__aiter__"):
+            return [self._model_id(item) async for item in response]
+        if inspect.isawaitable(response):
+            response = await response
+        data = getattr(response, "data", response)
+        if hasattr(data, "__aiter__"):
+            return [self._model_id(item) async for item in data]
+        if not isinstance(data, list | tuple):
+            try:
+                data = list(data)
+            except TypeError:
+                data = []
+        return [self._model_id(item) for item in data]
+
+    def _current_model(self) -> str:
+        session_model = str(getattr(self._session, "model", "") or "").strip()
+        return session_model or str(Config.DEFAULT_MODEL or "").strip()
+
+    def _merge_models(self, models: list[str], current_model: str) -> list[str]:
+        seen: set[str] = set()
+        merged: list[str] = []
+        current_found = False
+        for model in sorted(model for model in models if model):
+            if model in seen:
+                continue
+            seen.add(model)
+            current_found = current_found or model == current_model
+            merged.append(model)
+        if current_model and not current_found:
+            merged.insert(0, current_model)
+        return merged
+
+    def _model_id(self, item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("id") or "").strip()
+        return str(getattr(item, "id", "") or "").strip()
+
+    async def _close_client(self, client: Any) -> None:
+        close = getattr(client, "close", None)
+        if not callable(close):
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result
 
     async def _execute_slash(self, request: dict[str, Any]) -> None:
         params = request.get("params") if isinstance(request.get("params"), dict) else {}

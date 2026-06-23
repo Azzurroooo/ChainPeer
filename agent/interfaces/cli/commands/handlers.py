@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from typing import Callable
 
 from agent.interfaces.cli.formatting import clip_text, display_value, nonnegative_int, single_line
 
 from .help_view import render_command_help, render_help
+from .model_control import normalize_model_name, set_active_model
 from .router import SlashCommandContext, SlashCommandInfo, SlashCommandResult
 from .status_view import render_status
 
@@ -197,14 +197,14 @@ async def handle_model(context: SlashCommandContext, args: list[str]) -> str:
     if len(args) != 2 or args[0].lower() != "set":
         return "Usage: /model or /model set <model>"
 
-    model = _normalize_model_name(args[1])
+    model = normalize_model_name(args[1])
     if model is None:
         return "Usage: /model set <model>"
 
     previous = display_value(Config.DEFAULT_MODEL)
     try:
-        Config.set_model(model)
-        active_updated = await _set_active_model(context, model)
+        result = await set_active_model(context.runtime, context.session, model)
+        active_updated = bool(result.get("active_updated"))
     except Exception as exc:
         return f"Command failed: {exc}"
 
@@ -305,36 +305,6 @@ def _session_base_path(session) -> Path | None:
     if root and session_id:
         return Path(str(root)) / str(session_id)
     return None
-
-
-async def _set_active_model(context: SlashCommandContext, model: str) -> bool:
-    set_model = getattr(context.runtime, "set_model", None)
-    if callable(set_model):
-        result = set_model(model)
-        if inspect.isawaitable(result):
-            result = await result
-        if isinstance(result, dict):
-            return bool(result.get("runtime") or result.get("session"))
-        if isinstance(result, bool):
-            return result
-        return True
-
-    update_model = getattr(context.session, "update_model", None)
-    if callable(update_model):
-        result = update_model(model)
-        if inspect.isawaitable(result):
-            await result
-        return True
-    return False
-
-
-def _normalize_model_name(value: object) -> str | None:
-    text = str(value or "").strip()
-    if not text or any(character.isspace() for character in text):
-        return None
-    if len(text) > 128:
-        return None
-    return text
 
 
 def _parse_limit(args: list[str], *, default: int, maximum: int) -> int | None:
